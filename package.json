@@ -1,0 +1,41 @@
+{
+  "name": "codeagent",
+  "version": "0.1.0",
+  "description": "CLI AI Agent built with Ink and React",
+  "type": "module",
+  "bin": {
+    "codeagent": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.30.2",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
+    "ink": "^7.1.0",
+    "ink-markdown": "^1.0.4",
+    "jsdom": "^29.1.1",
+    "openai": "^6.45.0",
+    "react": "^19.2.7",
+    "smol-toml": "^1.7.0",
+    "tiktoken": "^1.0.22",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.17",
+    "@types/turndown": "^5.0.6",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
