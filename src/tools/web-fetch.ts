@@ -65,7 +65,7 @@ export function createWebFetchTool(): Tool {
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; CodeAgent/1.0)',
+            'User-Agent': 'Mozilla/5.0 (compatible; Nova/1.0)',
             'Accept': 'text/html,application/xhtml+xml,*/*',
           },
         });

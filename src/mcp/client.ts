@@ -39,7 +39,7 @@ export class MCPClient {
     this.transport = new StdioClientTransport(serverParams);
 
     this.client = new Client(
-      { name: `codeagent-${this.name}`, version: '1.0.0' },
+      { name: `nova-${this.name}`, version: '1.0.0' },
       { capabilities: {} },
     );
 

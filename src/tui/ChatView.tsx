@@ -32,7 +32,7 @@ export function ChatView({ messages }: ChatViewProps): React.ReactElement {
         <Box paddingY={1}>
           <Box paddingLeft={2}>
             <Text color="gray" dimColor>
-              Welcome to CodeAgent. Type a message to get started.
+              Welcome to Nova. Type a message to get started.
             </Text>
           </Box>
         </Box>

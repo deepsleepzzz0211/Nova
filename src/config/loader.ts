@@ -71,7 +71,7 @@ function loadTomlFile(filePath: string): Record<string, unknown> {
  *   4. Environment variables (CODEAGENT_API_KEY, CODEAGENT_MODEL, CODEAGENT_BASE_URL)
  */
 export function loadConfig(projectDir: string): AppConfig {
-  const userConfigPath = path.join(os.homedir(), '.codeagent', 'config.toml');
+  const userConfigPath = path.join(os.homedir(), '.nova', 'config.toml');
   const userConfig = loadTomlFile(userConfigPath);
 
   const projectConfigPath = path.join(projectDir, 'config.toml');

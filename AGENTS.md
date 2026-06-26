@@ -1,4 +1,4 @@
-# AGENTS.md — CodeAgent Project Rules
+# AGENTS.md — Nova Project Rules
 
 ## Absolute Prohibitions
 

@@ -19,7 +19,7 @@ export function buildSystemPrompt(
   const parts: string[] = [];
 
   // Base identity
-  parts.push('You are CodeAgent, a helpful AI assistant.');
+  parts.push('You are Nova, a helpful AI assistant.');
 
   // Working directory
   parts.push(`Working directory: ${process.cwd()}`);

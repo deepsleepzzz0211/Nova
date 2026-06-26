@@ -1,10 +1,10 @@
 {
-  "name": "codeagent",
+  "name": "nova",
   "version": "0.1.0",
   "description": "CLI AI Agent built with Ink and React",
   "type": "module",
   "bin": {
-    "codeagent": "./dist/index.js"
+    "nova": "./dist/index.js"
   },
   "scripts": {
     "build": "tsup",

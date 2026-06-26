@@ -1,8 +1,8 @@
-# CodeAgent CLI Design Spec
+# Nova CLI Design Spec
 
 ## Overview
 
-CodeAgent 是一个通用的 CLI AI Agent，类似 Claude Code / OpenCode / Pi。使用 TypeScript 编写，基于 Ink + React 构建终端 UI，通过 OpenAI 兼容 API 与 LLM 交互。核心能力包括文件读写、命令执行（含危险命令拦截）、网页搜索/抓取、MCP 协议支持、以及可扩展的 Skill 系统。
+Nova 是一个通用的 CLI AI Agent，类似 Claude Code / OpenCode / Pi。使用 TypeScript 编写，基于 Ink + React 构建终端 UI，通过 OpenAI 兼容 API 与 LLM 交互。核心能力包括文件读写、命令执行（含危险命令拦截）、网页搜索/抓取、MCP 协议支持、以及可扩展的 Skill 系统。
 
 **目标用户：** 开发者（但不限于写代码 — 可用于任何需要文件操作和命令行的任务）
 
@@ -39,7 +39,7 @@ CodeAgent 是一个通用的 CLI AI Agent，类似 Claude Code / OpenCode / Pi�
 |  6 tools |  Stdio    |  Markdown |   Pattern Matching     |
 +----------+-----------+-----------+------------------------+
 |              LLM Provider (OpenAI Compatible API)         |
-|              Config (~/.codeagent/config.toml)            |
+|              Config (~/.nova/config.toml)            |
 +----------------------------------------------------------+
 ```
 
@@ -53,11 +53,11 @@ CodeAgent 是一个通用的 CLI AI Agent，类似 Claude Code / OpenCode / Pi�
 ## Project Structure
 
 ```
-codeagent/
+nova/
 ├── package.json
 ├── tsconfig.json
 ├── tsup.config.ts               # Build config
-├── .codeagent/                  # Project-local config
+├── .nova/                  # Project-local config
 │   └── config.toml
 ├── src/
 │   ├── index.tsx                # CLI entry point (arg parsing, bootstrap)
@@ -110,7 +110,7 @@ codeagent/
 │   │   └── dangerous.ts         # Dangerous command patterns
 │   └── config/
 │       ├── schema.ts            # Config schema (TypeScript types + validation)
-│       ├── loader.ts            # Config file loader (~/.codeagent/config.toml)
+│       ├── loader.ts            # Config file loader (~/.nova/config.toml)
 │       └── defaults.ts          # Default config values
 ├── skills/                      # Built-in skills
 │   └── coding/
@@ -398,15 +398,15 @@ class SkillRegistry {
 ```
 
 **Skill directories (in priority order):**
-1. `~/.codeagent/skills/` — User-installed skills
-2. `<project>/.codeagent/skills/` — Project-local skills
+1. `~/.nova/skills/` — User-installed skills
+2. `<project>/.nova/skills/` — Project-local skills
 3. Built-in skills (bundled with the package)
 
 **Third-party skill installation:**
 ```bash
-codeagent skill add <git-url>       # Clone skill repo to ~/.codeagent/skills/
-codeagent skill list                # List installed skills
-codeagent skill remove <name>       # Remove a skill
+nova skill add <git-url>       # Clone skill repo to ~/.nova/skills/
+nova skill list                # List installed skills
+nova skill remove <name>       # Remove a skill
 ```
 
 **Skill loading flow:**
@@ -491,34 +491,34 @@ interface MCPServerConfig {
 
 **Config file locations (in priority order):**
 1. Environment variables: `CODEAGENT_API_KEY`, `CODEAGENT_MODEL`, etc.
-2. `<project>/.codeagent/config.toml` — Project config
-3. `~/.codeagent/config.toml` — User config
+2. `<project>/.nova/config.toml` — Project config
+3. `~/.nova/config.toml` — User config
 4. Defaults
 
 ### 9. CLI Commands
 
 ```bash
 # Start interactive session (default)
-codeagent
+nova
 
 # Start with a specific model
-codeagent --model gpt-4o-mini
+nova --model gpt-4o-mini
 
 # One-shot mode (non-interactive)
-codeagent -p "explain this codebase"
+nova -p "explain this codebase"
 
 # Configuration
-codeagent config init          # Create default config file
-codeagent config set <key> <value>
+nova config init          # Create default config file
+nova config set <key> <value>
 
 # Skill management
-codeagent skill add <git-url>
-codeagent skill list
-codeagent skill remove <name>
+nova skill add <git-url>
+nova skill list
+nova skill remove <name>
 
 # MCP management
-codeagent mcp list             # List configured MCP servers
-codeagent mcp status           # Show connection status
+nova mcp list             # List configured MCP servers
+nova mcp status           # Show connection status
 ```
 
 ## Data Flow Example
@@ -544,7 +544,7 @@ User types: "Create a hello.ts file with a greeting function"
 
 | Scenario | Handling |
 |----------|----------|
-| LLM API key invalid | Show error at startup, direct to `codeagent config` |
+| LLM API key invalid | Show error at startup, direct to `nova config` |
 | LLM API timeout | Retry 3x with backoff, then show error |
 | LLM rate limited | Show wait time, auto-retry |
 | Tool execution fails | Capture error as tool result, LLM sees it and adjusts |
@@ -569,7 +569,7 @@ User types: "Create a hello.ts file with a greeting function"
 
 ## Success Criteria
 
-1. `codeagent` starts an interactive TUI session
+1. `nova` starts an interactive TUI session
 2. User can chat with LLM and receive streaming responses
 3. LLM can read/write files, execute commands via tools
 4. Dangerous commands trigger permission dialog

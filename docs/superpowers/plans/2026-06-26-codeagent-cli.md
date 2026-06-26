@@ -1,4 +1,4 @@
-# CodeAgent CLI Implementation Plan
+# Nova CLI Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (ESM, strict), Ink 7 + React 18, OpenAI SDK v4+, @modelcontextprotocol/sdk, vitest, tsup, pnpm
 
-**Spec:** `docs/superpowers/specs/2026-06-26-codeagent-cli-design.md`
+**Spec:** `docs/superpowers/specs/2026-06-26-nova-cli-design.md`
 
 **Test code location:** `tests/plan/` — 所有测试代码在 `tests/` 目录下，不在本 plan 文件中。每个 task 的测试文件路径在对应 task 的 `Test:` 行标明。
 
@@ -32,8 +32,8 @@ Phase Integration (Tasks 20-21) 完成 → git commit
 - [ ] `pnpm init && pnpm add openai @modelcontextprotocol/sdk ink react ink-markdown @mozilla/readability jsdom turndown tiktoken smol-toml && pnpm add -D typescript @types/node @types/react @types/jsdom @types/turndown tsup vitest`
 - [ ] Create `tsconfig.json` (ES2022, ESM, strict, JSX react, bundler resolution)
 - [ ] Create `tsup.config.ts` (entry: src/index.tsx, format: esm, target: node18)
-- [ ] Add scripts to package.json: `build`, `dev`, `test`, `typecheck`, `bin: { codeagent: ./dist/index.js }`
-- [ ] Create minimal `src/index.tsx`: `console.log('CodeAgent v0.1.0')`
+- [ ] Add scripts to package.json: `build`, `dev`, `test`, `typecheck`, `bin: { nova: ./dist/index.js }`
+- [ ] Create minimal `src/index.tsx`: `console.log('Nova v0.1.0')`
 - [ ] Verify: `pnpm build && pnpm typecheck`
 - [ ] Commit: `chore: project scaffolding with all dependencies`
 
@@ -212,7 +212,7 @@ Phase Integration (Tasks 20-21) 完成 → git commit
 
 - [ ] `src/skills/loader.ts` — parse SKILL.md frontmatter (YAML between --- delimiters) → { name, description, content }
 - [ ] `src/skills/registry.ts` — SkillRegistry: scan(dir) walks subdirs for SKILL.md, find(name), findByKeywords(query) tokenizes and matches ≥2 overlapping keywords, load(skill) returns full content
-- [ ] `src/skills/installer.ts` — installSkill(gitUrl): git clone to ~/.codeagent/skills/{name}
+- [ ] `src/skills/installer.ts` — installSkill(gitUrl): git clone to ~/.nova/skills/{name}
 - [ ] Run test → PASS
 - [ ] Commit: `feat: skill system with loader, registry, keyword matching, git install`
 
