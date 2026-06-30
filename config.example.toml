@@ -1,0 +1,49 @@
+# Nova 配置示例
+# 复制到 ~/.nova/config.toml 或项目根目录 config.toml
+
+[llm]
+# 模型名称 (也支持 CLI: nova --model gpt-4.1)
+model = "gpt-4o"
+
+# API base URL (默认 OpenAI，可换成其他兼容服务)
+base_url = "https://api.openai.com/v1"
+
+# API key 建议用环境变量，不要写在配置文件：
+# export NOVA_API_KEY="sk-..."
+
+[agent]
+# 最大工具调用轮次
+max_tool_rounds = 50
+
+# 上下文窗口策略
+context_strategy = "truncate"
+
+[search]
+# 搜索提供商: "duckduckgo" | "tavily"
+provider = "duckduckgo"
+
+# 如用 Tavily，取消下面注释
+# tavily_api_key = "tvly-..."
+
+[permission]
+# 自动批准文件写入 (危险)
+auto_approve_file_write = false
+
+# 自动批准 Bash 命令 (危险)
+auto_approve_bash = false
+
+# 始终允许的命令列表 (无需批准)
+always_allow_commands = ["ls", "cat", "git status"]
+
+# MCP 服务器配置示例 (取消注释启用)
+# [[mcp_servers]]
+# name = "filesystem"
+# command = "npx"
+# args = ["-y", "@anthropic/mcp-server-filesystem", "/path/to/dir"]
+# auto_approve = true
+
+# [[mcp_servers]]
+# name = "brave-search"
+# command = "npx"
+# args = ["-y", "@anthropic/mcp-server-brave-search"]
+# env = { BRAVE_API_KEY = "your-key" }

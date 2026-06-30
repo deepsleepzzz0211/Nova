@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { parseArgs } from 'node:util';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
@@ -17,6 +18,21 @@ import { createWebFetchTool } from './tools/web-fetch.js';
 async function main(): Promise<void> {
   const projectDir = process.cwd();
   const config = loadConfig(projectDir);
+
+  // Parse CLI arguments (highest priority)
+  const { values } = parseArgs({
+    options: {
+      model: { type: 'string', short: 'm' },
+      'api-key': { type: 'string' },
+      'base-url': { type: 'string' },
+    },
+    strict: false,
+  });
+
+  // Apply CLI overrides
+  if (values.model && typeof values.model === 'string') config.llm.model = values.model;
+  if (values['api-key']) config.llm.apiKey = values['api-key'] as string;
+  if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
 
   // Initialize LLM provider
   const llm = new OpenAIProvider({

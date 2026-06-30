@@ -66,9 +66,10 @@ function loadTomlFile(filePath: string): Record<string, unknown> {
 /**
  * Load application configuration by merging (lowest to highest priority):
  *   1. Built-in defaults
- *   2. User-level config  (~/.codeagent/config.toml)
+ *   2. User-level config  (~/.nova/config.toml)
  *   3. Project-level config (projectDir/config.toml)
- *   4. Environment variables (CODEAGENT_API_KEY, CODEAGENT_MODEL, CODEAGENT_BASE_URL)
+ *   4. Environment variables (NOVA_API_KEY, NOVA_MODEL, NOVA_BASE_URL)
+ *      (legacy: CODEAGENT_API_KEY, CODEAGENT_MODEL, CODEAGENT_BASE_URL)
  */
 export function loadConfig(projectDir: string): AppConfig {
   const userConfigPath = path.join(os.homedir(), '.nova', 'config.toml');
@@ -84,10 +85,14 @@ export function loadConfig(projectDir: string): AppConfig {
   merged = deepMerge(merged, projectConfig);
 
   // Environment variable overrides (highest priority)
+  // Support both NOVA_* (preferred) and CODEAGENT_* (legacy) names
   const envLlm: Partial<LLMConfig> = {};
-  if (process.env.CODEAGENT_API_KEY) envLlm.apiKey = process.env.CODEAGENT_API_KEY;
-  if (process.env.CODEAGENT_MODEL) envLlm.model = process.env.CODEAGENT_MODEL;
-  if (process.env.CODEAGENT_BASE_URL) envLlm.baseUrl = process.env.CODEAGENT_BASE_URL;
+  const apiKey = process.env.NOVA_API_KEY || process.env.CODEAGENT_API_KEY;
+  const model = process.env.NOVA_MODEL || process.env.CODEAGENT_MODEL;
+  const baseUrl = process.env.NOVA_BASE_URL || process.env.CODEAGENT_BASE_URL;
+  if (apiKey) envLlm.apiKey = apiKey;
+  if (model) envLlm.model = model;
+  if (baseUrl) envLlm.baseUrl = baseUrl;
 
   if (Object.keys(envLlm).length > 0) {
     merged = deepMerge(merged, { llm: envLlm });

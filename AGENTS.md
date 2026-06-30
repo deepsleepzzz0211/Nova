@@ -102,3 +102,44 @@ These rules are NON-NEGOTIABLE. Violating any of them is grounds for stopping wo
 - **Config format:** TOML via `smol-toml`
 - **Naming:** camelCase for variables/functions, PascalCase for types/classes/components, kebab-case for files
 - **Exports:** Named exports preferred. Default exports only for React components and CLI entry point.
+
+---
+
+## Model Configuration
+
+Nova 支持多种方式配置 LLM 模型（优先级从高到低）：
+
+### 1. CLI 参数
+
+```bash
+nova --model gpt-4.1
+nova -m claude-sonnet-4-20250514 --base-url https://api.anthropic.com/v1
+nova --model o3-mini --api-key sk-xxx
+```
+
+### 2. 环境变量
+
+```bash
+export NOVA_API_KEY="sk-xxx"
+export NOVA_MODEL="gpt-4.1"
+export NOVA_BASE_URL="https://api.openai.com/v1"
+nova
+```
+
+向后兼容旧名称：
+- `CODEAGENT_API_KEY` → `NOVA_API_KEY`
+- `CODEAGENT_MODEL` → `NOVA_MODEL`
+- `CODEAGENT_BASE_URL` → `NOVA_BASE_URL`
+
+### 3. 配置文件
+
+用户级 `~/.nova/config.toml` 或项目级 `./config.toml`：
+
+```toml
+[llm]
+model = "gpt-4o"
+base_url = "https://api.openai.com/v1"
+# API key 不要写在配置文件，用环境变量
+```
+
+配置示例见 `config.example.toml`。
