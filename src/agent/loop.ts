@@ -6,6 +6,8 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
+import type { SkillRegistry } from '../skills/registry.js';
+import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
 
 /** Context management configuration. */
@@ -27,6 +29,12 @@ export interface AgentLoopConfig {
   context?: LoopContextConfig;
   /** Optional JSONL session persistence. */
   session?: SessionStore;
+  /** Optional skill registry for progressive disclosure. */
+  skills?: SkillRegistry;
+  /** Extra system prompt parts (environment facts, project instructions, custom). */
+  promptOptions?: BuildPromptOptions;
+  /** Maximum matched skills whose full body is injected per turn. Default 2. */
+  maxActiveSkills?: number;
   /** Notified after a compaction/truncation pass. */
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   onToken: (token: string) => void;
@@ -46,6 +54,9 @@ export class AgentLoop {
   private readonly contextStrategy: LoopContextConfig['strategy'] | null;
   private readonly compactor: Compactor | null;
   private readonly session: SessionStore | null;
+  private readonly skills: SkillRegistry | null;
+  private readonly maxActiveSkills: number;
+  private readonly promptOptions: BuildPromptOptions;
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
@@ -67,6 +78,9 @@ export class AgentLoop {
       ? new Compactor(options.llm, options.config.model)
       : null;
     this.session = options.session ?? null;
+    this.skills = options.skills ?? null;
+    this.maxActiveSkills = options.maxActiveSkills ?? 2;
+    this.promptOptions = options.promptOptions ?? {};
     this.onCompaction = options.onCompaction;
     this.onToken = options.onToken;
     this.onToolCall = options.onToolCall;
@@ -106,13 +120,35 @@ export class AgentLoop {
     this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
   }
 
+  /** Build the system prompt, injecting full bodies of matching skills. */
+  private async buildPrompt(userInput: string): Promise<string> {
+    const skills = this.skills?.findAll() ?? [];
+    const base = buildSystemPrompt(this.toolRegistry.getAll(), skills, {
+      ...this.promptOptions,
+    });
+
+    if (!this.skills) return base;
+
+    const matched = this.skills.findByKeywords(userInput).slice(0, this.maxActiveSkills);
+    if (matched.length === 0) return base;
+
+    const sections: string[] = [];
+    for (const meta of matched) {
+      try {
+        sections.push(await this.skills.load(meta));
+      } catch {
+        // Skip skills that cannot be read
+      }
+    }
+    if (sections.length === 0) return base;
+
+    return `${base}\n\n## Active Skills\n${sections.join('\n\n---\n\n')}`;
+  }
+
   async processUserInput(input: string): Promise<void> {
     this.pushMessage({ role: 'user', content: input });
 
-    const systemPrompt = buildSystemPrompt(
-      this.toolRegistry.getAll(),
-      [],
-    );
+    const systemPrompt = await this.buildPrompt(input);
 
     const tools = this.toolRegistry.toToolDefinitions();
 

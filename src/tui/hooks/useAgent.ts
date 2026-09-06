@@ -5,6 +5,8 @@ import type { LLMProvider } from '../../llm/provider.js';
 import type { ToolRegistry } from '../../tools/registry.js';
 import type { ToolExecutionPipeline } from '../../tools/execution-pipeline.js';
 import type { SessionStore } from '../../agent/session.js';
+import type { SkillRegistry } from '../../skills/registry.js';
+import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 
 /** A tool call as displayed in the UI. */
@@ -38,6 +40,12 @@ export interface UseAgentConfig {
   sessionStore?: SessionStore;
   /** Conversation history to restore (--resume). */
   initialHistory?: Message[];
+  /** Skill registry for progressive disclosure. */
+  skills?: SkillRegistry;
+  /** Extra system prompt parts (environment facts, project instructions). */
+  promptOptions?: BuildPromptOptions;
+  /** Extra prompt section from config. */
+  customPrompt?: string;
   model: string;
   maxToolRounds: number;
 }
@@ -145,6 +153,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       toolRegistry: config.toolRegistry,
       toolExecutionPipeline: config.toolExecutionPipeline,
       session: config.sessionStore,
+      skills: config.skills,
+      promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,

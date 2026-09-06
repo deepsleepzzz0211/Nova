@@ -5,6 +5,8 @@ import type { Message } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from '../agent/session.js';
+import type { SkillRegistry } from '../skills/registry.js';
+import type { BuildPromptOptions } from '../agent/prompt.js';
 import { useAgent } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -23,6 +25,12 @@ export interface AppProps {
   sessionStore?: SessionStore;
   /** Conversation history to restore (--resume). */
   initialHistory?: Message[];
+  /** Skill registry for progressive disclosure. */
+  skills?: SkillRegistry;
+  /** Extra system prompt parts (environment facts, project instructions). */
+  promptOptions?: BuildPromptOptions;
+  /** Extra prompt section from config. */
+  customPrompt?: string;
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -42,6 +50,9 @@ export function App({
   toolExecutionPipeline,
   sessionStore,
   initialHistory,
+  skills,
+  promptOptions,
+  customPrompt,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -52,6 +63,9 @@ export function App({
     toolExecutionPipeline,
     sessionStore,
     initialHistory,
+    skills,
+    promptOptions,
+    customPrompt,
     model,
     maxToolRounds,
   });

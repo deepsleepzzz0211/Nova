@@ -13,12 +13,15 @@ import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
 import { SessionStore } from './agent/session.js';
+import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
+import { SkillRegistry } from './skills/registry.js';
 import { createReadFileTool } from './tools/read-file.js';
 import { createWriteFileTool } from './tools/write-file.js';
 import { createEditFileTool } from './tools/edit-file.js';
 import { createBashTool } from './tools/bash.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
+import { createTodoTool } from './tools/todo.js';
 import { ToolResultCache } from './cache/tool-result-cache.js';
 import { ToolExecutionPipeline } from './tools/execution-pipeline.js';
 import { PermissionPolicy } from './permission/policy.js';
@@ -68,6 +71,15 @@ async function main(): Promise<void> {
   }
   const sessionStore = SessionStore.create(sessionsDir);
 
+  // Skills: scan user-level and project-level skill directories
+  const skillRegistry = new SkillRegistry();
+  await skillRegistry.scan(path.join(os.homedir(), '.nova', 'skills'));
+  await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'));
+
+  // Environment facts + project instructions for the system prompt
+  const environment = gatherEnvironment(projectDir);
+  const projectInstructions = loadProjectInstructions(projectDir);
+
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(createReadFileTool());
@@ -76,6 +88,7 @@ async function main(): Promise<void> {
   toolRegistry.register(createBashTool());
   toolRegistry.register(createWebSearchTool());
   toolRegistry.register(createWebFetchTool());
+  toolRegistry.register(createTodoTool({ todos: [] }));
 
   // Start MCP servers
   const mcpManager = new MCPManager();
@@ -95,6 +108,9 @@ async function main(): Promise<void> {
       toolExecutionPipeline={toolExecutionPipeline}
       sessionStore={sessionStore}
       initialHistory={initialHistory}
+      skills={skillRegistry}
+      promptOptions={{ environment, projectInstructions }}
+      customPrompt={config.agent.systemPrompt || undefined}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}
