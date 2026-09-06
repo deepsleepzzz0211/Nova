@@ -9,6 +9,7 @@ import { render } from 'ink';
 import { App } from './tui/App.js';
 import { loadConfig } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
+import { loadModelCatalog, resolveModel } from './llm/catalog.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
@@ -48,13 +49,29 @@ async function main(): Promise<void> {
   if (values['api-key']) config.llm.apiKey = values['api-key'] as string;
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
 
-  // Initialize LLM provider using registry
-  const llm = providerRegistry.getProvider({
-    name: config.llm.provider || 'openai',
-    apiKey: config.llm.apiKey,
-    baseUrl: config.llm.baseUrl,
-    model: config.llm.model,
-    promptCache: config.llm.promptCache,
+  // Model catalog: user-level models.json merged over built-in providers
+  const catalog = loadModelCatalog([path.join(os.homedir(), '.nova', 'models.json')]);
+  const resolution = resolveModel(
+    {
+      provider: config.llm.provider || 'openai',
+      model: config.llm.model,
+      baseUrl: config.llm.baseUrl,
+      apiKey: config.llm.apiKey,
+    },
+    catalog,
+  );
+
+  // Initialize LLM provider by wire protocol (pi-style api layer)
+  const llm = providerRegistry.getForApi(resolution.api, {
+    name: resolution.name,
+    apiKey: resolution.apiKey,
+    baseUrl: resolution.baseUrl,
+    model: resolution.model.id,
+    // config.toml prompt_cache stays honored as a fallback
+    compat: {
+      supportsDeveloperRole: resolution.model.compat.supportsDeveloperRole,
+      streamUsage: resolution.model.compat.streamUsage || config.llm.promptCache,
+    },
   });
 
   // Initialize permission system
@@ -125,6 +142,8 @@ async function main(): Promise<void> {
       promptOptions={{ environment, projectInstructions }}
       customPrompt={config.agent.systemPrompt || undefined}
       todoState={todoState}
+      contextWindow={resolution.model.contextWindow}
+      contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

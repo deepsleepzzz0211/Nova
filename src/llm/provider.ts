@@ -1,4 +1,5 @@
 import type { Message, StreamChunk, ChatOptions } from './types.js';
+import type { CompatFlags } from './compat.js';
 
 /** Provider interface for LLM chat completions. */
 export interface LLMProvider {
@@ -54,4 +55,7 @@ export interface ProviderConfig {
 
   /** Enable provider prompt caching + usage reporting (OpenAI stream_options). */
   promptCache?: boolean;
+
+  /** Compatibility flags for third-party endpoint deviations. */
+  compat?: CompatFlags;
 }

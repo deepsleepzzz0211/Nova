@@ -1,4 +1,5 @@
 import type { LLMProvider, ProviderConfig } from './provider.js';
+import type { ApiId } from './compat.js';
 import { OpenAIProvider } from './openai.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 import { OllamaProvider } from './providers/ollama.js';
@@ -43,6 +44,26 @@ export class LLMProviderRegistry {
   /** Check if a provider is registered. */
   hasProvider(name: string): boolean {
     return this.providers.has(name);
+  }
+
+  /** Create or get a provider instance by wire-protocol id (pi-style api layer). */
+  getForApi(api: ApiId, config: ProviderConfig): LLMProvider {
+    const apiClassMap: Record<ApiId, new (config: ProviderConfig) => LLMProvider> = {
+      'openai-completions': OpenAIProvider,
+      'anthropic-messages': AnthropicProvider,
+      ollama: OllamaProvider,
+    };
+
+    const ProviderClass = apiClassMap[api];
+    if (!ProviderClass) {
+      throw new Error(`Unknown API: ${api}`);
+    }
+
+    const key = `api:${api}:${config.baseUrl || 'default'}`;
+    if (!this.instances.has(key)) {
+      this.instances.set(key, new ProviderClass(config));
+    }
+    return this.instances.get(key)!;
   }
 }
 

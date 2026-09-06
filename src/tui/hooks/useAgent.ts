@@ -47,6 +47,10 @@ export interface UseAgentConfig {
   promptOptions?: BuildPromptOptions;
   /** Extra prompt section from config. */
   customPrompt?: string;
+  /** Resolved model context window (drives context management). */
+  contextWindow?: number;
+  /** Context management strategy ('truncate' | 'compact'). */
+  contextStrategy?: 'truncate' | 'compact';
   model: string;
   maxToolRounds: number;
 }
@@ -183,6 +187,10 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       session: config.sessionStore,
       skills: config.skills,
       promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
+      context:
+        config.contextWindow !== undefined
+          ? { maxTokens: config.contextWindow, strategy: config.contextStrategy ?? 'truncate' }
+          : undefined,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,

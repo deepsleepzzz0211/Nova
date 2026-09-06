@@ -1,16 +1,15 @@
-import OpenAI from 'openai';
 import type { Message, StreamChunk, ChatOptions } from './types.js';
 import type { LLMProvider, ProviderCapabilities, ProviderConfig } from './provider.js';
-import { parseOpenAIStream } from './stream.js';
-import { withSystemPrompt } from './messages.js';
+import type { CompatFlags } from './compat.js';
+import { normalizeCompat } from './compat.js';
+import { OpenAICompletionsAdapter } from './adapters/openai-completions.js';
 
 /**
- * LLM provider backed by the OpenAI Chat Completions API (or compatible).
- * Uses streaming and delegates chunk parsing to parseOpenAIStream.
+ * LLM provider backed by the OpenAI Chat Completions wire protocol.
+ * Thin shell delegating to the openai-completions adapter.
  */
 export class OpenAIProvider implements LLMProvider {
-  private readonly client: OpenAI;
-  private readonly promptCache: boolean;
+  private readonly adapter: OpenAICompletionsAdapter;
   readonly name = 'openai';
   readonly capabilities: ProviderCapabilities = {
     streaming: true,
@@ -20,33 +19,20 @@ export class OpenAIProvider implements LLMProvider {
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
   };
 
-  constructor(config: ProviderConfig) {
-    this.client = new OpenAI({
+  constructor(config: ProviderConfig & { compat?: CompatFlags }) {
+    this.adapter = new OpenAICompletionsAdapter({
       apiKey: config.apiKey,
-      baseURL: config.baseUrl,
+      baseUrl: config.baseUrl,
+      model: config.model ?? 'gpt-4o',
+      // promptCache (top-level) is the deprecated spelling of compat.streamUsage
+      compat: normalizeCompat({
+        ...config.compat,
+        streamUsage: config.compat?.streamUsage ?? (config.promptCache === true ? true : undefined),
+      }),
     });
-    this.promptCache = config.promptCache === true;
   }
 
   async *chat(messages: Message[], options: ChatOptions): AsyncGenerator<StreamChunk> {
-    try {
-      const response = await this.client.chat.completions.create({
-        model: options.model,
-        messages: withSystemPrompt(messages, options.systemPrompt) as OpenAI.ChatCompletionMessageParam[],
-        stream: true,
-        tools: options.tools as OpenAI.ChatCompletionTool[],
-        max_tokens: options.maxTokens,
-        temperature: options.temperature,
-        // Opt-in: report prompt-cache usage on the final chunk. Some
-        // OpenAI-compatible endpoints reject unknown stream_options, so this
-        // is only enabled when prompt caching is explicitly requested.
-        ...(this.promptCache ? { stream_options: { include_usage: true } } : {}),
-      });
-
-      yield* parseOpenAIStream(response);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      yield { type: 'error', error: message };
-    }
+    yield* this.adapter.chat(messages, options);
   }
 }

@@ -35,6 +35,10 @@ export interface AppProps {
   customPrompt?: string;
   /** Shared todo state maintained by the todo_write tool. */
   todoState?: TodoState;
+  /** Resolved model context window (drives context management). */
+  contextWindow?: number;
+  /** Context management strategy ('truncate' | 'compact'). */
+  contextStrategy?: 'truncate' | 'compact';
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -58,6 +62,8 @@ export function App({
   promptOptions,
   customPrompt,
   todoState,
+  contextWindow,
+  contextStrategy,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -71,6 +77,8 @@ export function App({
     skills,
     promptOptions,
     customPrompt,
+    contextWindow,
+    contextStrategy,
     model,
     maxToolRounds,
   });

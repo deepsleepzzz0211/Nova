@@ -61,3 +61,17 @@ args = ["./server.js"]
 # base_url = "http://localhost:11434"
 # model = "llama3"
 # api_key = ""  # Not needed for local Ollama
+# Model catalog: declare custom providers/models in ~/.nova/models.json
+# (pi-style data-driven catalog). Example:
+# {
+#   "providers": {
+#     "my-vllm": {
+#       "baseUrl": "http://localhost:8000/v1",
+#       "api": "openai-completions",
+#       "apiKey": "$MY_API_KEY",
+#       "models": [{ "id": "qwen2.5-coder:7b", "contextWindow": 32768 }]
+#     }
+#   }
+# }
+# Built-in providers (openai / anthropic / ollama) can be redirected by
+# redeclaring them (e.g. only "baseUrl"); their models are kept.
