@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLoop } from '../../src/agent/loop.js';
+import { SUMMARY_MARKER } from '../../src/agent/compaction.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
@@ -151,3 +152,126 @@ describe('AgentLoop', () => {
     // Should not crash, LLM sees denial message
   });
 });
+
+describe('AgentLoop context management', () => {
+  function longText(): string {
+    return 'hello '.repeat(200); // ~ 200+ tokens with tiktoken
+  }
+
+  it('compacts context before calling the LLM when near the limit', async () => {
+    const calls: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
+    let callIndex = 0;
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        calls.push({ msgs: [...msgs], opts });
+        callIndex++;
+        // Compaction request (no tools) → summary text
+        if (opts.tools === undefined) {
+          yield { type: 'text_delta', content: 'User tested context compaction.' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'done' };
+      },
+    };
+
+    const registry = new ToolRegistry();
+    const compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact' },
+      onCompaction: (info) => compactions.push(info),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    // Two long turns force the second turn over the trigger
+    await loop.processUserInput(longText());
+    await loop.processUserInput(longText());
+
+    expect(compactions.length).toBeGreaterThan(0);
+    expect(compactions[0].strategy).toBe('compact');
+    expect(compactions[0].afterTokens).toBeLessThan(compactions[0].beforeTokens);
+
+    // The LLM must have received a summary message
+    const sawSummary = calls.some((c) => c.msgs[0]?.role === 'system' && c.msgs[0].content.startsWith(SUMMARY_MARKER));
+    expect(sawSummary).toBe(true);
+  });
+
+  it('truncates context when strategy is truncate', async () => {
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+
+    const registry = new ToolRegistry();
+    const compactions: Array<{ strategy: string }> = [];
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'truncate' },
+      onCompaction: (info) => compactions.push(info),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput(longText());
+    await loop.processUserInput(longText());
+
+    expect(compactions.length).toBeGreaterThan(0);
+    expect(compactions[0].strategy).toBe('truncate');
+  });
+
+  it('persists every message to the session store', async () => {
+    const llm = mockLLM([
+      [
+        { type: 'tool_call_start', id: 'c1', name: 'echo' },
+        { type: 'tool_call_delta', id: 'c1', arguments: '{"text":"hi"}' },
+        { type: 'tool_call_end', id: 'c1' },
+      ],
+      [{ type: 'text_delta', content: 'done' }],
+    ]);
+
+    const registry = new ToolRegistry();
+    registry.register(echoTool());
+
+    const store = new MemorySessionStore();
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      session: store,
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput('use echo');
+
+    const roles = store.entries.map((m) => m.role);
+    expect(roles).toEqual(['user', 'assistant', 'tool', 'assistant']);
+  });
+});
+
+/** In-memory SessionStore double for tests. */
+import type { Message as Message2 } from '../../src/llm/types.js';
+class MemorySessionStore {
+  readonly entries: Message2[] = [];
+  async append(message: Message2): Promise<void> {
+    this.entries.push(message);
+  }
+  async close(): Promise<void> {}
+}

@@ -3,7 +3,18 @@ import type { StreamChunk, Message, ToolCall } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolResult } from '../tools/types.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
+import type { SessionStore } from './session.js';
+import { Compactor } from './compaction.js';
+import { ContextManager } from './context.js';
 import { buildSystemPrompt } from './prompt.js';
+
+/** Context management configuration. */
+export interface LoopContextConfig {
+  /** Token budget for the conversation. */
+  maxTokens: number;
+  /** What to do when the budget is approached: drop old messages or summarize. */
+  strategy: 'truncate' | 'compact';
+}
 
 /** Configuration for the AgentLoop. */
 export interface AgentLoopConfig {
@@ -12,6 +23,12 @@ export interface AgentLoopConfig {
   /** Single execution path for all tool invocations. */
   toolExecutionPipeline: ToolExecutionPipeline;
   config: { maxToolRounds: number; model: string };
+  /** Optional context window management. */
+  context?: LoopContextConfig;
+  /** Optional JSONL session persistence. */
+  session?: SessionStore;
+  /** Notified after a compaction/truncation pass. */
+  onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
   onToolResult: (result: ToolResult) => void;
@@ -25,11 +42,16 @@ export class AgentLoop {
   private readonly toolExecutionPipeline: ToolExecutionPipeline;
   private readonly maxToolRounds: number;
   private readonly model: string;
+  private readonly contextManager: ContextManager | null;
+  private readonly contextStrategy: LoopContextConfig['strategy'] | null;
+  private readonly compactor: Compactor | null;
+  private readonly session: SessionStore | null;
+  private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
   private readonly onToolResult: (result: ToolResult) => void;
   private readonly onPermissionRequest: (call: ToolCall) => Promise<boolean>;
-  private readonly messages: Message[] = [];
+  private messages: Message[] = [];
 
   constructor(options: AgentLoopConfig) {
     this.llm = options.llm;
@@ -37,14 +59,55 @@ export class AgentLoop {
     this.toolExecutionPipeline = options.toolExecutionPipeline;
     this.maxToolRounds = options.config.maxToolRounds;
     this.model = options.config.model;
+    this.contextManager = options.context
+      ? new ContextManager({ model: options.config.model, maxTokens: options.context.maxTokens })
+      : null;
+    this.contextStrategy = options.context?.strategy ?? null;
+    this.compactor = options.context?.strategy === 'compact'
+      ? new Compactor(options.llm, options.config.model)
+      : null;
+    this.session = options.session ?? null;
+    this.onCompaction = options.onCompaction;
     this.onToken = options.onToken;
     this.onToolCall = options.onToolCall;
     this.onToolResult = options.onToolResult;
     this.onPermissionRequest = options.onPermissionRequest;
   }
 
+  /** Seed the conversation from a previous session (resume). */
+  loadMessages(history: Message[]): void {
+    this.messages = [...history];
+  }
+
+  /** Append a message to the conversation and the session log. */
+  private pushMessage(message: Message): void {
+    this.messages.push(message);
+    void this.session?.append(message);
+  }
+
+  /** Run a truncate/compact pass when the conversation approaches the budget. */
+  private async prepareContext(): Promise<void> {
+    if (!this.contextManager || !this.contextStrategy) return;
+
+    const beforeTokens = this.contextManager.countTokens(this.messages);
+    if (!this.contextManager.isNearLimit(beforeTokens)) return;
+
+    let after: Message[];
+    if (this.contextStrategy === 'compact' && this.compactor) {
+      const compacted = await this.compactor.compact(this.messages);
+      if (compacted === null) return; // fail-open: keep as-is
+      after = compacted;
+    } else {
+      after = this.contextManager.truncate(this.messages);
+    }
+
+    const afterTokens = this.contextManager.countTokens(after);
+    this.messages = after;
+    this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
+  }
+
   async processUserInput(input: string): Promise<void> {
-    this.messages.push({ role: 'user', content: input });
+    this.pushMessage({ role: 'user', content: input });
 
     const systemPrompt = buildSystemPrompt(
       this.toolRegistry.getAll(),
@@ -54,6 +117,8 @@ export class AgentLoop {
     const tools = this.toolRegistry.toToolDefinitions();
 
     for (let toolRound = 0; toolRound <= this.maxToolRounds; toolRound++) {
+      await this.prepareContext();
+
       const toolCalls = new Map<string, { name: string; args: string }>();
       let textContent = '';
 
@@ -107,7 +172,7 @@ export class AgentLoop {
         }
 
         // Append assistant message with tool_calls
-        this.messages.push({
+        this.pushMessage({
           role: 'assistant',
           content: textContent || null,
           tool_calls: callArray,
@@ -119,7 +184,7 @@ export class AgentLoop {
         for (const call of callArray) {
           const pushToolMessage = (result: ToolResult): void => {
             this.onToolResult(result);
-            this.messages.push({
+            this.pushMessage({
               role: 'tool',
               tool_call_id: call.id,
               content: result.content,
@@ -159,7 +224,7 @@ export class AgentLoop {
       }
 
       // Text-only response — append and done
-      this.messages.push({ role: 'assistant', content: textContent });
+      this.pushMessage({ role: 'assistant', content: textContent });
       return;
     }
 

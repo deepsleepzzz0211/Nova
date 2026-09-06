@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
 import { parseArgs } from 'node:util';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
 import { loadConfig } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
+import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
+import { SessionStore } from './agent/session.js';
 import { createReadFileTool } from './tools/read-file.js';
 import { createWriteFileTool } from './tools/write-file.js';
 import { createEditFileTool } from './tools/edit-file.js';
@@ -28,6 +33,7 @@ async function main(): Promise<void> {
       model: { type: 'string', short: 'm' },
       'api-key': { type: 'string' },
       'base-url': { type: 'string' },
+      resume: { type: 'boolean', short: 'r' },
     },
     strict: false,
   });
@@ -50,6 +56,17 @@ async function main(): Promise<void> {
 
   // Initialize tool execution pipeline (single execution path)
   const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy);
+
+  // Session persistence: resume the latest session when requested
+  const sessionsDir = path.join(os.homedir(), '.nova', 'sessions');
+  let initialHistory: Message[] = [];
+  if (values.resume) {
+    const latest = SessionStore.findLatest(sessionsDir);
+    if (latest) {
+      initialHistory = SessionStore.load(latest);
+    }
+  }
+  const sessionStore = SessionStore.create(sessionsDir);
 
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
@@ -76,6 +93,8 @@ async function main(): Promise<void> {
       llm={llm}
       toolRegistry={toolRegistry}
       toolExecutionPipeline={toolExecutionPipeline}
+      sessionStore={sessionStore}
+      initialHistory={initialHistory}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

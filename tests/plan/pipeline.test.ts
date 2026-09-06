@@ -172,4 +172,27 @@ describe('ToolExecutionPipeline — single execution path', () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('timed out');
   });
+
+  it('truncates oversized tool results with a PARTIAL marker', async () => {
+    const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig), {
+      maxResultChars: 100,
+    });
+    const tool = makeTool({}, async () => ({ content: 'x'.repeat(500) }));
+
+    const result = await pipeline.execute(tool, {}, makeContext());
+    expect(result.isError).toBeUndefined();
+    expect(result.content.startsWith('x'.repeat(100))).toBe(true);
+    expect(result.content).toContain('PARTIAL');
+    expect(result.content).toContain('500');
+  });
+
+  it('leaves short tool results untouched', async () => {
+    const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig), {
+      maxResultChars: 100,
+    });
+    const tool = makeTool({}, async () => ({ content: 'short' }));
+
+    const result = await pipeline.execute(tool, {}, makeContext());
+    expect(result.content).toBe('short');
+  });
 });

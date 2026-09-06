@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message, StreamChunk, ChatOptions } from '../types.js';
 import type { LLMProvider, ProviderCapabilities, ProviderConfig } from '../provider.js';
+import { withSystemPrompt } from '../messages.js';
 
 /**
  * LLM provider backed by the Anthropic API.
@@ -27,8 +28,9 @@ export class AnthropicProvider implements LLMProvider {
   async *chat(messages: Message[], options: ChatOptions): AsyncGenerator<StreamChunk> {
     try {
       // Convert messages to Anthropic format
-      const systemMessage = messages.find(m => m.role === 'system');
-      const conversationMessages = messages
+      const fullMessages = withSystemPrompt(messages, options.systemPrompt);
+      const systemMessage = fullMessages.find(m => m.role === 'system');
+      const conversationMessages = fullMessages
         .filter(m => m.role !== 'system')
         .map(m => ({
           role: m.role as 'user' | 'assistant',

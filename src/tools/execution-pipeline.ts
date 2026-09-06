@@ -19,6 +19,15 @@ export interface ExecuteOptions {
 /** Default timeout for tools without metadata.timeout (30s). */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Default max characters of tool output admitted into context. */
+const DEFAULT_MAX_RESULT_CHARS = 20_000;
+
+/** Options for constructing the pipeline. */
+export interface PipelineOptions {
+  /** Max characters of tool output admitted into context. Default 20_000. */
+  maxResultChars?: number;
+}
+
 /**
  * The single execution path for every tool invocation.
  *
@@ -33,10 +42,12 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export class ToolExecutionPipeline {
   private readonly cache: ToolResultCache;
   private readonly permissionChecker: PermissionPolicy;
+  private readonly maxResultChars: number;
 
-  constructor(cache: ToolResultCache, permissionChecker: PermissionPolicy) {
+  constructor(cache: ToolResultCache, permissionChecker: PermissionPolicy, options?: PipelineOptions) {
     this.cache = cache;
     this.permissionChecker = permissionChecker;
+    this.maxResultChars = options?.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
   }
 
   async execute(
@@ -85,17 +96,18 @@ export class ToolExecutionPipeline {
       }
     }
 
-    // 5-6. Execute with timeout and cache successful results
+    // 5-6. Execute with timeout, truncate oversized output, cache successes
     try {
       const timeout = tool.metadata?.timeout ?? DEFAULT_TIMEOUT_MS;
       const result = await this.executeWithTimeout(tool, params, context, timeout);
+      const truncated = this.truncateResult(result);
 
-      if (cacheable && !result.isError) {
+      if (cacheable && !truncated.isError) {
         const cacheKey = ToolExecutionPipeline.generateKey(tool.name, params);
-        await this.cache.set(cacheKey, result);
+        await this.cache.set(cacheKey, truncated);
       }
 
-      return result;
+      return truncated;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -103,6 +115,20 @@ export class ToolExecutionPipeline {
         isError: true,
       };
     }
+  }
+
+  /** Truncate oversized tool output with a structurally distinct PARTIAL marker. */
+  private truncateResult(result: ToolResult): ToolResult {
+    if (result.content.length <= this.maxResultChars) {
+      return result;
+    }
+    const total = result.content.length;
+    return {
+      ...result,
+      content:
+        result.content.slice(0, this.maxResultChars) +
+        `\n\n[PARTIAL: output truncated — showing first ${this.maxResultChars} of ${total} characters. Request a narrower scope (e.g. offset/limit) to see more.]`,
+    };
   }
 
   /** Generate a cache key from tool name and parameters. */

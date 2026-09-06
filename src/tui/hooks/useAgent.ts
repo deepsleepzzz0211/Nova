@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import type { ToolCall } from '../../llm/types.js';
+import type { ToolCall, Message } from '../../llm/types.js';
 import type { ToolResult } from '../../tools/types.js';
 import type { LLMProvider } from '../../llm/provider.js';
 import type { ToolRegistry } from '../../tools/registry.js';
 import type { ToolExecutionPipeline } from '../../tools/execution-pipeline.js';
+import type { SessionStore } from '../../agent/session.js';
 import { AgentLoop } from '../../agent/loop.js';
 
 /** A tool call as displayed in the UI. */
@@ -33,6 +34,10 @@ export interface UseAgentConfig {
   llm: LLMProvider;
   toolRegistry: ToolRegistry;
   toolExecutionPipeline: ToolExecutionPipeline;
+  /** Optional JSONL session persistence. */
+  sessionStore?: SessionStore;
+  /** Conversation history to restore (--resume). */
+  initialHistory?: Message[];
   model: string;
   maxToolRounds: number;
 }
@@ -139,12 +144,25 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       llm: config.llm,
       toolRegistry: config.toolRegistry,
       toolExecutionPipeline: config.toolExecutionPipeline,
+      session: config.sessionStore,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,
       onToolResult,
       onPermissionRequest,
     });
+
+    if (config.initialHistory && config.initialHistory.length > 0) {
+      loopRef.current.loadMessages(config.initialHistory);
+      // Restore prior conversation into the display
+      const restored = config.initialHistory
+        .filter((msg): msg is { role: 'user' | 'assistant'; content: string } =>
+          (msg.role === 'user' || msg.role === 'assistant') && typeof msg.content === 'string' && msg.content.length > 0)
+        .map((msg) => ({ role: msg.role, content: msg.content }));
+      if (restored.length > 0) {
+        setMessages(restored);
+      }
+    }
   }
 
   // Clean up pending permission on unmount

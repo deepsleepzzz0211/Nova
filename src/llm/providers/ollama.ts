@@ -1,5 +1,6 @@
 import type { Message, StreamChunk, ChatOptions } from '../types.js';
 import type { LLMProvider, ProviderCapabilities, ProviderConfig } from '../provider.js';
+import { withSystemPrompt } from '../messages.js';
 
 /**
  * LLM provider backed by Ollama API.
@@ -29,7 +30,7 @@ export class OllamaProvider implements LLMProvider {
         },
         body: JSON.stringify({
           model: options.model,
-          messages: messages.map(m => ({
+          messages: withSystemPrompt(messages, options.systemPrompt).map(m => ({
             role: m.role,
             content: m.content,
           })),

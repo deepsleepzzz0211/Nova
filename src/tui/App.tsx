@@ -1,8 +1,10 @@
 import React from 'react';
 import { Box } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
+import type { Message } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
+import type { SessionStore } from '../agent/session.js';
 import { useAgent } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -17,6 +19,10 @@ export interface AppProps {
   toolRegistry: ToolRegistry;
   /** Tool execution pipeline with caching. */
   toolExecutionPipeline: ToolExecutionPipeline;
+  /** Optional JSONL session persistence. */
+  sessionStore?: SessionStore;
+  /** Conversation history to restore (--resume). */
+  initialHistory?: Message[];
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -34,6 +40,8 @@ export function App({
   llm,
   toolRegistry,
   toolExecutionPipeline,
+  sessionStore,
+  initialHistory,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -42,6 +50,8 @@ export function App({
     llm,
     toolRegistry,
     toolExecutionPipeline,
+    sessionStore,
+    initialHistory,
     model,
     maxToolRounds,
   });

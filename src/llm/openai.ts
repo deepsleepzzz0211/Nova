@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import type { Message, StreamChunk, ChatOptions } from './types.js';
 import type { LLMProvider, ProviderCapabilities, ProviderConfig } from './provider.js';
 import { parseOpenAIStream } from './stream.js';
+import { withSystemPrompt } from './messages.js';
 
 /**
  * LLM provider backed by the OpenAI Chat Completions API (or compatible).
@@ -29,7 +30,7 @@ export class OpenAIProvider implements LLMProvider {
     try {
       const response = await this.client.chat.completions.create({
         model: options.model,
-        messages: messages as OpenAI.ChatCompletionMessageParam[],
+        messages: withSystemPrompt(messages, options.systemPrompt) as OpenAI.ChatCompletionMessageParam[],
         stream: true,
         tools: options.tools as OpenAI.ChatCompletionTool[],
         max_tokens: options.maxTokens,
