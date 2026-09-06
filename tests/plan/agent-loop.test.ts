@@ -1,9 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentLoop } from '../../src/agent/loop.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
+import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
+import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
+import { PermissionPolicy } from '../../src/permission/policy.js';
 import type { Tool } from '../../src/tools/types.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { StreamChunk, Message, ChatOptions } from '../../src/llm/types.js';
+
+const policy = new PermissionPolicy({
+  autoApproveFileWrite: false,
+  autoApproveBash: false,
+  alwaysAllowCommands: [],
+});
+
+function makePipeline(): ToolExecutionPipeline {
+  return new ToolExecutionPipeline(new ToolResultCache(), policy);
+}
 
 function mockLLM(responses: StreamChunk[][]): LLMProvider {
   let i = 0;
@@ -34,6 +47,7 @@ describe('AgentLoop', () => {
     const loop = new AgentLoop({
       llm,
       toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
       onToken: (t) => tokens.push(t),
       onToolCall: () => {},
@@ -64,6 +78,7 @@ describe('AgentLoop', () => {
     const loop = new AgentLoop({
       llm,
       toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
       onToken: () => {},
       onToolCall: (c) => toolCalls.push(c.function.name),
@@ -96,6 +111,7 @@ describe('AgentLoop', () => {
     const loop = new AgentLoop({
       llm,
       toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 3, model: 'test' },
       onToken: () => {},
       onToolCall: () => {},
@@ -123,6 +139,7 @@ describe('AgentLoop', () => {
     const loop = new AgentLoop({
       llm,
       toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
       onToken: () => {},
       onToolCall: () => {},

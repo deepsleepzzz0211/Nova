@@ -87,9 +87,11 @@ export function loadConfig(projectDir: string): AppConfig {
   // Environment variable overrides (highest priority)
   // Support both NOVA_* (preferred) and CODEAGENT_* (legacy) names
   const envLlm: Partial<LLMConfig> = {};
+  const provider = process.env.NOVA_PROVIDER || process.env.CODEAGENT_PROVIDER;
   const apiKey = process.env.NOVA_API_KEY || process.env.CODEAGENT_API_KEY;
   const model = process.env.NOVA_MODEL || process.env.CODEAGENT_MODEL;
   const baseUrl = process.env.NOVA_BASE_URL || process.env.CODEAGENT_BASE_URL;
+  if (provider) envLlm.provider = provider;
   if (apiKey) envLlm.apiKey = apiKey;
   if (model) envLlm.model = model;
   if (baseUrl) envLlm.baseUrl = baseUrl;

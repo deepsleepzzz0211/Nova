@@ -1,13 +1,7 @@
 import OpenAI from 'openai';
 import type { Message, StreamChunk, ChatOptions } from './types.js';
-import type { LLMProvider } from './provider.js';
+import type { LLMProvider, ProviderCapabilities, ProviderConfig } from './provider.js';
 import { parseOpenAIStream } from './stream.js';
-
-/** Configuration for the OpenAI provider. */
-export interface OpenAIProviderConfig {
-  apiKey: string;
-  baseUrl?: string;
-}
 
 /**
  * LLM provider backed by the OpenAI Chat Completions API (or compatible).
@@ -15,8 +9,16 @@ export interface OpenAIProviderConfig {
  */
 export class OpenAIProvider implements LLMProvider {
   private readonly client: OpenAI;
+  readonly name = 'openai';
+  readonly capabilities: ProviderCapabilities = {
+    streaming: true,
+    toolCalling: true,
+    vision: true,
+    maxContextLength: 128000,
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+  };
 
-  constructor(config: OpenAIProviderConfig) {
+  constructor(config: ProviderConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,

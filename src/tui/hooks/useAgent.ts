@@ -3,6 +3,7 @@ import type { ToolCall } from '../../llm/types.js';
 import type { ToolResult } from '../../tools/types.js';
 import type { LLMProvider } from '../../llm/provider.js';
 import type { ToolRegistry } from '../../tools/registry.js';
+import type { ToolExecutionPipeline } from '../../tools/execution-pipeline.js';
 import { AgentLoop } from '../../agent/loop.js';
 
 /** A tool call as displayed in the UI. */
@@ -31,6 +32,7 @@ export interface PendingPermission {
 export interface UseAgentConfig {
   llm: LLMProvider;
   toolRegistry: ToolRegistry;
+  toolExecutionPipeline: ToolExecutionPipeline;
   model: string;
   maxToolRounds: number;
 }
@@ -136,6 +138,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     loopRef.current = new AgentLoop({
       llm: config.llm,
       toolRegistry: config.toolRegistry,
+      toolExecutionPipeline: config.toolExecutionPipeline,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,

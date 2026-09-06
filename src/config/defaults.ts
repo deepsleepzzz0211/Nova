@@ -3,6 +3,7 @@ import type { AppConfig } from './schema.js';
 /** Sensible default configuration used when no config file exists. */
 export const DEFAULT_CONFIG: AppConfig = {
   llm: {
+    provider: 'openai',
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-4o',

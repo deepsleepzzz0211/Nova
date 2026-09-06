@@ -65,6 +65,7 @@ nova/
 │   │   └── commands.ts          # CLI subcommands (init, skill add, config, etc.)
 │   ├── agent/
 │   │   ├── loop.ts              # Core agent loop
+│   │   ├── enhanced-loop.ts     # Enhanced agent loop with caching
 │   │   ├── context.ts           # Conversation context (messages[], system prompt)
 │   │   └── prompt.ts            # System prompt builder (tools description, skills)
 │   ├── llm/
@@ -74,13 +75,36 @@ nova/
 │   │   └── stream.ts            # Stream parsing (text deltas + tool_call deltas)
 │   ├── tools/
 │   │   ├── types.ts             # Tool interface definition
+│   │   ├── enhanced-types.ts    # Enhanced tool interface
 │   │   ├── registry.ts          # Tool registry (register, lookup, list)
+│   │   ├── execution-pipeline.ts # Tool execution pipeline with caching
 │   │   ├── read-file.ts         # read_file tool
+│   │   ├── enhanced-read-file.ts # Enhanced read_file tool with caching
 │   │   ├── write-file.ts        # write_file tool
 │   │   ├── edit-file.ts         # edit_file tool (exact string replacement)
 │   │   ├── bash.ts              # bash tool (shell command execution)
 │   │   ├── web-search.ts        # web_search tool
+│   │   ├── enhanced-web-search.ts # Enhanced web_search tool with multiple providers
 │   │   └── web-fetch.ts         # web_fetch tool
+│   ├── cache/
+│   │   ├── types.ts             # Cache interface and types
+│   │   ├── memory-cache.ts      # In-memory cache implementation
+│   │   ├── llm-response-cache.ts # LLM response cache
+│   │   ├── tool-result-cache.ts # Tool result cache
+│   │   ├── context-cache.ts     # Context cache
+│   │   ├── monitor.ts           # Cache performance monitor
+│   │   └── index.ts             # Cache module exports
+│   ├── planning/
+│   │   ├── types.ts             # Planning types (Task, Plan, etc.)
+│   │   ├── task-decomposer.ts   # Task decomposition using LLM
+│   │   ├── planner.ts           # Plan creation and execution
+│   │   ├── task-executor.ts     # Task execution using agent loop
+│   │   └── index.ts             # Planning module exports
+│   ├── subagent/
+│   │   ├── types.ts             # Subagent types
+│   │   ├── default-subagent.ts  # Default subagent implementation
+│   │   ├── pool.ts              # Subagent pool for parallel execution
+│   │   └── index.ts             # Subagent module exports
 │   ├── mcp/
 │   │   ├── types.ts             # MCP types
 │   │   ├── client.ts            # MCP client (connect, list tools, call tool)
@@ -126,6 +150,12 @@ nova/
     │   ├── bash.test.ts
     │   ├── web-search.test.ts
     │   └── web-fetch.test.ts
+    ├── cache/
+    │   └── cache.test.ts        # Cache system tests
+    ├── planning/
+    │   └── planning.test.ts     # Planning system tests
+    ├── subagent/
+    │   └── subagent.test.ts     # Subagent system tests
     ├── mcp/
     │   ├── client.test.ts
     │   └── manager.test.ts
@@ -200,9 +230,21 @@ class AgentLoop {
 
 ### 2. LLM Provider (`src/llm/`)
 
+Nova now supports multiple LLM providers through a unified interface, following Pi Agent's modular architecture.
+
 ```typescript
 interface LLMProvider {
   chat(messages: Message[], options: ChatOptions): AsyncIterable<StreamChunk>;
+  readonly name: string;
+  readonly capabilities: ProviderCapabilities;
+}
+
+interface ProviderCapabilities {
+  streaming: boolean;
+  toolCalling: boolean;
+  vision: boolean;
+  maxContextLength: number;
+  models: string[];
 }
 
 interface ChatOptions {
@@ -221,12 +263,28 @@ type StreamChunk =
   | { type: 'error'; error: string };
 ```
 
-**OpenAI implementation:**
-- Uses `openai` npm package v4+ (official SDK)
-- Streaming via `stream: true` with `for await (const chunk of stream)` pattern
-- Parses SSE events into `StreamChunk` types
-- Supports custom `base_url` for Ollama/compatible services
-- Tool calls parsed from `chunk.choices[0].delta.tool_calls`
+**Supported Providers:**
+- **OpenAI:** GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo
+- **Anthropic:** Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Sonnet, Claude 3 Haiku
+- **Ollama:** Local models (Llama 3, CodeLlama, Mistral, etc.)
+
+**Provider Registry:**
+```typescript
+class LLMProviderRegistry {
+  register(name: string, providerClass: new (config: ProviderConfig) => LLMProvider): void;
+  getProvider(config: ProviderConfig): LLMProvider;
+  getAvailableProviders(): string[];
+}
+```
+
+**Configuration:**
+```toml
+[llm]
+provider = "openai"  # or "anthropic", "ollama"
+api_key = "your-api-key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+```
 
 ### 3. Tool System (`src/tools/`)
 
@@ -555,6 +613,128 @@ User types: "Create a hello.ts file with a greeting function"
 | Ctrl+C during LLM call | Abort current request, return to input |
 | Ctrl+C during tool exec | Send SIGTERM, wait 5s, SIGKILL |
 
+## New Architecture Components (Added in Refactoring)
+
+### 10. Cache System (`src/cache/`)
+
+Nova now includes a comprehensive caching system to improve performance and reduce API costs.
+
+**Architecture:**
+```
++----------------------------------------------------------+
+|                    Cache System                           |
+|   LLM Response Cache | Tool Result Cache | Context Cache |
+|   (Memory-based, TTL) | (Memory-based, TTL) | (Memory-based, TTL) |
++----------------------------------------------------------+
+|                    Cache Monitor                          |
+|   Hit/Miss Tracking | Performance Metrics | Reporting    |
++----------------------------------------------------------+
+```
+
+**Components:**
+- **LLM Response Cache:** Caches LLM API responses to avoid repeated calls
+- **Tool Result Cache:** Caches tool execution results to avoid repeated executions
+- **Context Cache:** Caches project context analysis results
+- **Cache Monitor:** Tracks cache performance metrics
+
+**Configuration:**
+```typescript
+interface CacheConfig {
+  ttl: number; // Time to live in milliseconds
+  maxSize: number; // Maximum number of entries
+  strategy: 'lru' | 'lfu' | 'fifo'; // Eviction strategy
+}
+```
+
+### 11. Enhanced Tool System (`src/tools/`)
+
+Nova now supports enhanced tools with metadata and caching capabilities.
+
+**Enhanced Tool Interface:**
+```typescript
+interface EnhancedTool {
+  name: string;
+  description: string;
+  parameters: JSONSchema;
+  metadata: ToolMetadata;
+  execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
+  executeWithCache(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
+  requiresPermission?(params: Record<string, unknown>): boolean;
+}
+
+interface ToolMetadata {
+  category: string;
+  requiresContext: boolean;
+  cacheable: boolean;
+  timeout: number;
+}
+```
+
+**Tool Execution Pipeline:**
+```typescript
+class ToolExecutionPipeline {
+  private cache: ToolResultCache;
+  private permissionChecker: PermissionPolicy;
+
+  async execute(tool: EnhancedTool, params: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
+}
+```
+
+### 12. Planning System (`src/planning/`)
+
+Nova now includes a planning system for task decomposition and execution.
+
+**Components:**
+- **Task Decomposer:** Breaks down user requests into subtasks using LLM
+- **Planner:** Creates and executes plans based on task dependencies
+- **Task Executor:** Executes individual tasks using the agent loop
+
+**Task Interface:**
+```typescript
+interface Task {
+  id: string;
+  type: TaskType;
+  description: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dependencies: string[];
+  estimatedTime: number;
+  requiredTools: string[];
+}
+```
+
+### 13. Subagent System (`src/subagent/`)
+
+Nova now supports parallel execution through subagents.
+
+**Components:**
+- **SubAgent Interface:** Defines the contract for subagents
+- **Default SubAgent:** Implementation using AgentLoop
+- **SubAgent Pool:** Manages multiple subagents for parallel execution
+
+**SubAgent Pool:**
+```typescript
+class SubAgentPool {
+  private agents: SubAgent[] = [];
+  private taskQueue: SubAgentTask[] = [];
+
+  async executeTasks(tasks: SubAgentTask[]): Promise<SubAgentResult[]>;
+}
+```
+
+### 14. Enhanced Network Search (`src/tools/`)
+
+Nova now supports multiple search providers with caching.
+
+**Search Providers:**
+- **DuckDuckGo:** HTML scraping (no API key required)
+- **Tavily:** API-based search (free tier available)
+
+**Enhanced Features:**
+- Multiple provider fallback
+- Result caching
+- Configurable result limits
+
 ## Future Extensions (Out of Scope for V1)
 
 - Multi-turn conversation persistence (save/resume sessions)
@@ -577,3 +757,7 @@ User types: "Create a hello.ts file with a greeting function"
 6. Skills can be installed from git repos and loaded into context
 7. All tests pass
 8. The agent can complete a real task end-to-end (e.g., "create a Node.js project with express")
+9. **NEW:** Cache system improves performance with >70% hit rate
+10. **NEW:** Planning system can decompose complex tasks into subtasks
+11. **NEW:** Subagent system enables parallel task execution
+12. **NEW:** Enhanced network search with multiple providers and caching

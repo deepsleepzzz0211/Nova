@@ -5,7 +5,7 @@ import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
 import { loadConfig } from './config/loader.js';
-import { OpenAIProvider } from './llm/openai.js';
+import { providerRegistry } from './llm/registry.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
 import { createReadFileTool } from './tools/read-file.js';
@@ -14,6 +14,9 @@ import { createEditFileTool } from './tools/edit-file.js';
 import { createBashTool } from './tools/bash.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
+import { ToolResultCache } from './cache/tool-result-cache.js';
+import { ToolExecutionPipeline } from './tools/execution-pipeline.js';
+import { PermissionPolicy } from './permission/policy.js';
 
 async function main(): Promise<void> {
   const projectDir = process.cwd();
@@ -34,11 +37,19 @@ async function main(): Promise<void> {
   if (values['api-key']) config.llm.apiKey = values['api-key'] as string;
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
 
-  // Initialize LLM provider
-  const llm = new OpenAIProvider({
+  // Initialize LLM provider using registry
+  const llm = providerRegistry.getProvider({
+    name: config.llm.provider || 'openai',
     apiKey: config.llm.apiKey,
     baseUrl: config.llm.baseUrl,
+    model: config.llm.model,
   });
+
+  // Initialize permission system
+  const permissionPolicy = new PermissionPolicy(config.permission);
+
+  // Initialize tool execution pipeline (single execution path)
+  const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy);
 
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
@@ -64,6 +75,7 @@ async function main(): Promise<void> {
     <App
       llm={llm}
       toolRegistry={toolRegistry}
+      toolExecutionPipeline={toolExecutionPipeline}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

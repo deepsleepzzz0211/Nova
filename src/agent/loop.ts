@@ -2,12 +2,15 @@ import type { LLMProvider } from '../llm/provider.js';
 import type { StreamChunk, Message, ToolCall } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolResult } from '../tools/types.js';
+import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import { buildSystemPrompt } from './prompt.js';
 
 /** Configuration for the AgentLoop. */
 export interface AgentLoopConfig {
   llm: LLMProvider;
   toolRegistry: ToolRegistry;
+  /** Single execution path for all tool invocations. */
+  toolExecutionPipeline: ToolExecutionPipeline;
   config: { maxToolRounds: number; model: string };
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
@@ -19,6 +22,7 @@ export interface AgentLoopConfig {
 export class AgentLoop {
   private readonly llm: LLMProvider;
   private readonly toolRegistry: ToolRegistry;
+  private readonly toolExecutionPipeline: ToolExecutionPipeline;
   private readonly maxToolRounds: number;
   private readonly model: string;
   private readonly onToken: (token: string) => void;
@@ -30,6 +34,7 @@ export class AgentLoop {
   constructor(options: AgentLoopConfig) {
     this.llm = options.llm;
     this.toolRegistry = options.toolRegistry;
+    this.toolExecutionPipeline = options.toolExecutionPipeline;
     this.maxToolRounds = options.config.maxToolRounds;
     this.model = options.config.model;
     this.onToken = options.onToken;
@@ -108,15 +113,11 @@ export class AgentLoop {
           tool_calls: callArray,
         });
 
-        // Execute each tool call and append results
+        // Execute each tool call through the single execution pipeline.
+        // The pipeline owns the permission policy + user confirmation;
+        // the loop only supplies the confirmation callback.
         for (const call of callArray) {
-          const allowed = await this.onPermissionRequest(call);
-
-          if (!allowed) {
-            const result: ToolResult = {
-              content: `Permission denied for tool "${call.function.name}".`,
-              isError: true,
-            };
+          const pushToolMessage = (result: ToolResult): void => {
             this.onToolResult(result);
             this.messages.push({
               role: 'tool',
@@ -124,48 +125,32 @@ export class AgentLoop {
               content: result.content,
               is_error: result.isError,
             });
-            continue;
-          }
+          };
 
           const tool = this.toolRegistry.get(call.function.name);
           if (!tool) {
-            const result: ToolResult = {
+            pushToolMessage({
               content: `Tool "${call.function.name}" not found.`,
               isError: true,
-            };
-            this.onToolResult(result);
-            this.messages.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: result.content,
-              is_error: result.isError,
             });
             continue;
           }
 
           try {
             const params = JSON.parse(call.function.arguments) as Record<string, unknown>;
-            const result = await tool.execute(params, {
-              workingDirectory: process.cwd(),
-              abortSignal: new AbortController().signal,
-            });
-            this.onToolResult(result);
-            this.messages.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: result.content,
-              is_error: result.isError,
-            });
+            const result = await this.toolExecutionPipeline.execute(
+              tool,
+              params,
+              {
+                workingDirectory: process.cwd(),
+                abortSignal: new AbortController().signal,
+              },
+              { confirm: () => this.onPermissionRequest(call) },
+            );
+            pushToolMessage(result);
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            const result: ToolResult = { content: msg, isError: true };
-            this.onToolResult(result);
-            this.messages.push({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: msg,
-              is_error: true,
-            });
+            pushToolMessage({ content: msg, isError: true });
           }
         }
 

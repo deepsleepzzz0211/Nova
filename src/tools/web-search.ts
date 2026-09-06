@@ -1,7 +1,8 @@
 import type { Tool, ToolContext, ToolResult } from './types.js';
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 20_000;
 const MAX_RESULTS = 10;
+const DEFAULT_NUM_RESULTS = 5;
 
 interface SearchResult {
   title: string;
@@ -9,14 +10,14 @@ interface SearchResult {
   snippet: string;
 }
 
-function parseSearchResults(html: string): SearchResult[] {
+function parseSearchResults(html: string, maxResults: number): SearchResult[] {
   const results: SearchResult[] = [];
 
   // Match result blocks: each result has result__a for title/url and result__snippet for description
   const resultBlockRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
 
   let match: RegExpExecArray | null;
-  while ((match = resultBlockRegex.exec(html)) !== null && results.length < MAX_RESULTS) {
+  while ((match = resultBlockRegex.exec(html)) !== null && results.length < maxResults) {
     const rawUrl = match[1];
     const rawTitle = match[2];
     const rawSnippet = match[3];
@@ -62,9 +63,11 @@ export function createWebSearchTool(): Tool {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'The search query string' },
+        num_results: { type: 'number', description: 'Number of results to return (default: 5)' },
       },
       required: ['query'],
     },
+    metadata: { category: 'web', cacheable: true, timeout: TIMEOUT_MS },
     requiresPermission: () => false,
     async execute(params: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
       const query = params.query as string;
@@ -72,6 +75,11 @@ export function createWebSearchTool(): Tool {
       if (!query || !query.trim()) {
         return { content: 'Error: query is required.', isError: true };
       }
+
+      const numResults = Math.min(
+        Math.max(1, (params.num_results as number) || DEFAULT_NUM_RESULTS),
+        MAX_RESULTS,
+      );
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -93,7 +101,7 @@ export function createWebSearchTool(): Tool {
         }
 
         const html = await response.text();
-        const results = parseSearchResults(html);
+        const results = parseSearchResults(html, numResults);
         const formatted = formatResults(results);
 
         return { content: formatted };

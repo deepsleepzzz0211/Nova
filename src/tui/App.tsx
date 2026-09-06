@@ -2,6 +2,7 @@ import React from 'react';
 import { Box } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import { useAgent } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -14,6 +15,8 @@ export interface AppProps {
   llm: LLMProvider;
   /** Tool registry with all available tools. */
   toolRegistry: ToolRegistry;
+  /** Tool execution pipeline with caching. */
+  toolExecutionPipeline: ToolExecutionPipeline;
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -30,6 +33,7 @@ export interface AppProps {
 export function App({
   llm,
   toolRegistry,
+  toolExecutionPipeline,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -37,6 +41,7 @@ export function App({
   const { messages, isStreaming, sendMessage, pendingPermission } = useAgent({
     llm,
     toolRegistry,
+    toolExecutionPipeline,
     model,
     maxToolRounds,
   });

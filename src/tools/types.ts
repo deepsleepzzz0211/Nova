@@ -6,6 +6,16 @@ export interface ToolContext {
   abortSignal: AbortSignal;
 }
 
+/** Optional execution metadata consumed by the tool execution pipeline. */
+export interface ToolMetadata {
+  /** Tool category, e.g. 'file' | 'shell' | 'web' | 'mcp'. */
+  category: string;
+  /** Whether successful results may be served from cache. */
+  cacheable: boolean;
+  /** Execution timeout in milliseconds. */
+  timeout: number;
+}
+
 /** Result returned from tool execution. */
 export interface ToolResult {
   content: string;
@@ -18,6 +28,8 @@ export interface Tool {
   name: string;
   description: string;
   parameters: JSONSchema;
+  /** Optional pipeline metadata; defaults to non-cacheable with a default timeout. */
+  metadata?: ToolMetadata;
   execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
   requiresPermission?(params: Record<string, unknown>): boolean;
 }
