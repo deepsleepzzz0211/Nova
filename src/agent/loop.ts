@@ -10,6 +10,14 @@ import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
 
+/** Result of a single user-input turn. */
+export interface AgentTurnResult {
+  /** Final assistant text (empty when the turn ended without text). */
+  text: string;
+  /** Number of LLM rounds consumed. */
+  rounds: number;
+}
+
 /** Context management configuration. */
 export interface LoopContextConfig {
   /** Token budget for the conversation. */
@@ -145,15 +153,28 @@ export class AgentLoop {
     return `${base}\n\n## Active Skills\n${sections.join('\n\n---\n\n')}`;
   }
 
-  async processUserInput(input: string): Promise<void> {
+  async processUserInput(input: string): Promise<AgentTurnResult> {
+    return this.runTurn(input);
+  }
+
+  /** Run a turn with an explicit system prompt (used by subagents). */
+  async processUserInputWithSystemPrompt(input: string, systemPrompt: string): Promise<AgentTurnResult> {
+    return this.runTurn(input, systemPrompt);
+  }
+
+  /** Result of a single user-input turn. */
+  private async runTurn(input: string, systemPromptOverride?: string): Promise<AgentTurnResult> {
     this.pushMessage({ role: 'user', content: input });
 
-    const systemPrompt = await this.buildPrompt(input);
+    const systemPrompt = systemPromptOverride ?? await this.buildPrompt(input);
+    let rounds = 0;
+    let finalText = '';
 
     const tools = this.toolRegistry.toToolDefinitions();
 
     for (let toolRound = 0; toolRound <= this.maxToolRounds; toolRound++) {
       await this.prepareContext();
+      rounds++;
 
       const toolCalls = new Map<string, { name: string; args: string }>();
       let textContent = '';
@@ -191,7 +212,7 @@ export class AgentLoop {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.onToken(`[Error: ${msg}]`);
-        return;
+        return { text: finalText, rounds };
       }
 
       // If the LLM returned tool calls, process them
@@ -261,10 +282,12 @@ export class AgentLoop {
 
       // Text-only response — append and done
       this.pushMessage({ role: 'assistant', content: textContent });
-      return;
+      finalText = textContent;
+      return { text: finalText, rounds };
     }
 
     // Exceeded maxToolRounds — append what we have and stop
-    this.messages.push({ role: 'assistant', content: '' });
+    this.pushMessage({ role: 'assistant', content: '' });
+    return { text: '', rounds };
   }
 }

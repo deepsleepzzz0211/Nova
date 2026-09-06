@@ -30,7 +30,11 @@ export interface Tool {
   parameters: JSONSchema;
   /** Optional pipeline metadata; defaults to non-cacheable with a default timeout. */
   metadata?: ToolMetadata;
-  execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult>;
+  execute(
+    params: Record<string, unknown>,
+    context: ToolContext,
+    options?: { confirm?: (toolName: string, p: Record<string, unknown>, message?: string) => Promise<boolean> },
+  ): Promise<ToolResult>;
   requiresPermission?(params: Record<string, unknown>): boolean;
 }
 

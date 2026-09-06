@@ -15,6 +15,8 @@ import { MCPManager } from './mcp/manager.js';
 import { SessionStore } from './agent/session.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
 import { SkillRegistry } from './skills/registry.js';
+import { SubagentSpawner } from './subagent/spawner.js';
+import { createSpawnSubagentTool } from './subagent/tool.js';
 import { createReadFileTool } from './tools/read-file.js';
 import { createWriteFileTool } from './tools/write-file.js';
 import { createEditFileTool } from './tools/edit-file.js';
@@ -89,6 +91,15 @@ async function main(): Promise<void> {
   toolRegistry.register(createWebSearchTool());
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool({ todos: [] }));
+
+  // Subagent spawner: lazy, independent-context delegation via spawn_subagent
+  const spawner = new SubagentSpawner({
+    llm,
+    toolRegistry,
+    toolExecutionPipeline,
+    model: config.llm.model,
+  });
+  toolRegistry.register(createSpawnSubagentTool(spawner));
 
   // Start MCP servers
   const mcpManager = new MCPManager();

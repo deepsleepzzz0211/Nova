@@ -1,3 +1,3 @@
-export type { SubAgent, SubAgentStatus, SubAgentConfig, SubAgentTask, SubAgentResult } from './types.js';
-export { DefaultSubAgent } from './default-subagent.js';
-export { SubAgentPool } from './pool.js';
+export { SubagentSpawner } from './spawner.js';
+export type { SubagentResult, SubagentDeps, SubagentRunOptions } from './spawner.js';
+export { createSpawnSubagentTool } from './tool.js';

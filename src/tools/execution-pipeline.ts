@@ -2,6 +2,7 @@ import type { ToolContext, ToolResult } from './types.js';
 import type { Tool } from './types.js';
 import type { ToolResultCache } from '../cache/tool-result-cache.js';
 import type { PermissionPolicy } from '../permission/policy.js';
+import type { PipelineHooks } from '../hooks/types.js';
 
 /** Callback that asks the user to confirm an 'ask' permission decision. */
 export type ConfirmCallback = (
@@ -26,6 +27,8 @@ const DEFAULT_MAX_RESULT_CHARS = 20_000;
 export interface PipelineOptions {
   /** Max characters of tool output admitted into context. Default 20_000. */
   maxResultChars?: number;
+  /** Pre/Post tool-use hooks. */
+  hooks?: PipelineHooks;
 }
 
 /**
@@ -35,19 +38,23 @@ export interface PipelineOptions {
  *  1. PermissionPolicy decision → deny → error result
  *  2. decision ask → user confirmation (or deny when no callback)
  *  3. tool.requiresPermission → treated as ask
- *  4. cache lookup for cacheable tools
- *  5. execute with timeout
- *  6. cache successful results of cacheable tools
+ *  4. pre-tool-use hooks (may deny)
+ *  5. cache lookup for cacheable tools
+ *  6. execute with timeout
+ *  7. truncate oversized output; cache successful results
+ *  8. post-tool-use hooks (observation only)
  */
 export class ToolExecutionPipeline {
   private readonly cache: ToolResultCache;
   private readonly permissionChecker: PermissionPolicy;
   private readonly maxResultChars: number;
+  private readonly hooks: PipelineHooks;
 
   constructor(cache: ToolResultCache, permissionChecker: PermissionPolicy, options?: PipelineOptions) {
     this.cache = cache;
     this.permissionChecker = permissionChecker;
     this.maxResultChars = options?.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
+    this.hooks = options?.hooks ?? {};
   }
 
   async execute(
@@ -86,7 +93,22 @@ export class ToolExecutionPipeline {
       };
     }
 
-    // 4. Cache lookup (cacheable tools only, after permission checks)
+    // 4. Pre-tool-use hooks (may deny)
+    for (const hook of this.hooks.pre ?? []) {
+      try {
+        const decision = await hook({ tool: tool.name, params });
+        if (decision?.deny) {
+          return {
+            content: decision.reason ?? `Tool "${tool.name}" blocked by pre-tool-use hook.`,
+            isError: true,
+          };
+        }
+      } catch {
+        // A crashing hook must not break execution
+      }
+    }
+
+    // 5. Cache lookup (cacheable tools only, after permission checks)
     const cacheable = tool.metadata?.cacheable ?? false;
     if (cacheable) {
       const cacheKey = ToolExecutionPipeline.generateKey(tool.name, params);
@@ -96,15 +118,24 @@ export class ToolExecutionPipeline {
       }
     }
 
-    // 5-6. Execute with timeout, truncate oversized output, cache successes
+    // 6-7. Execute with timeout, truncate oversized output, cache successes
     try {
       const timeout = tool.metadata?.timeout ?? DEFAULT_TIMEOUT_MS;
-      const result = await this.executeWithTimeout(tool, params, context, timeout);
+      const result = await this.executeWithTimeout(tool, params, context, timeout, options);
       const truncated = this.truncateResult(result);
 
       if (cacheable && !truncated.isError) {
         const cacheKey = ToolExecutionPipeline.generateKey(tool.name, params);
         await this.cache.set(cacheKey, truncated);
+      }
+
+      // 8. Post-tool-use hooks (observation only)
+      for (const hook of this.hooks.post ?? []) {
+        try {
+          await hook({ tool: tool.name, params, result: truncated });
+        } catch {
+          // A crashing hook must not change the result
+        }
       }
 
       return truncated;
@@ -146,6 +177,7 @@ export class ToolExecutionPipeline {
     params: Record<string, unknown>,
     context: ToolContext,
     timeout: number,
+    options?: ExecuteOptions,
   ): Promise<ToolResult> {
     let timer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -157,7 +189,10 @@ export class ToolExecutionPipeline {
     });
 
     try {
-      return await Promise.race([tool.execute(params, context), timeoutPromise]);
+      return await Promise.race([
+        tool.execute(params, context, { confirm: options?.confirm }),
+        timeoutPromise,
+      ]);
     } finally {
       clearTimeout(timer);
     }
