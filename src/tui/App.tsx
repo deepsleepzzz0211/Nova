@@ -7,6 +7,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from '../agent/session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
+import type { ThinkingLevel } from '../llm/compat.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
@@ -39,6 +40,8 @@ export interface AppProps {
   contextWindow?: number;
   /** Context management strategy ('truncate' | 'compact'). */
   contextStrategy?: 'truncate' | 'compact';
+  /** Unified thinking level for reasoning-capable models. */
+  thinkingLevel?: ThinkingLevel;
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -64,6 +67,7 @@ export function App({
   todoState,
   contextWindow,
   contextStrategy,
+  thinkingLevel,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -79,6 +83,7 @@ export function App({
     customPrompt,
     contextWindow,
     contextStrategy,
+    thinkingLevel,
     model,
     maxToolRounds,
   });

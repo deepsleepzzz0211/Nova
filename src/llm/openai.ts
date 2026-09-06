@@ -29,6 +29,8 @@ export class OpenAIProvider implements LLMProvider {
         ...config.compat,
         streamUsage: config.compat?.streamUsage ?? (config.promptCache === true ? true : undefined),
       }),
+      thinkingLevelMap: config.thinkingLevelMap,
+      reasoning: config.reasoning,
     });
   }
 

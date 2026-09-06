@@ -24,6 +24,8 @@ export class AnthropicProvider implements LLMProvider {
       baseUrl: config.baseUrl,
       model: config.model ?? 'claude-3-5-sonnet-20241022',
       compat: { supportsDeveloperRole: false, streamUsage: false },
+      thinkingLevelMap: config.thinkingLevelMap,
+      reasoning: config.reasoning,
     });
   }
 

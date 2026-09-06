@@ -40,6 +40,7 @@ async function main(): Promise<void> {
       'api-key': { type: 'string' },
       'base-url': { type: 'string' },
       resume: { type: 'boolean', short: 'r' },
+      thinking: { type: 'string' },
     },
     strict: false,
   });
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
   if (values.model && typeof values.model === 'string') config.llm.model = values.model;
   if (values['api-key']) config.llm.apiKey = values['api-key'] as string;
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
+  if (values.thinking && typeof values.thinking === 'string') config.agent.thinkingLevel = values.thinking;
 
   // Model catalog: user-level models.json merged over built-in providers
   const catalog = loadModelCatalog([path.join(os.homedir(), '.nova', 'models.json')]);
@@ -72,6 +74,8 @@ async function main(): Promise<void> {
       supportsDeveloperRole: resolution.model.compat.supportsDeveloperRole,
       streamUsage: resolution.model.compat.streamUsage || config.llm.promptCache,
     },
+    thinkingLevelMap: resolution.model.thinkingLevelMap,
+    reasoning: resolution.model.reasoning,
   });
 
   // Initialize permission system
@@ -144,6 +148,7 @@ async function main(): Promise<void> {
       todoState={todoState}
       contextWindow={resolution.model.contextWindow}
       contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
+      thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

@@ -8,6 +8,7 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
+import type { ThinkingLevel } from '../../llm/compat.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 
 /** A tool call as displayed in the UI. */
@@ -51,6 +52,8 @@ export interface UseAgentConfig {
   contextWindow?: number;
   /** Context management strategy ('truncate' | 'compact'). */
   contextStrategy?: 'truncate' | 'compact';
+  /** Unified thinking level for reasoning-capable models. */
+  thinkingLevel?: ThinkingLevel;
   model: string;
   maxToolRounds: number;
 }
@@ -191,6 +194,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         config.contextWindow !== undefined
           ? { maxTokens: config.contextWindow, strategy: config.contextStrategy ?? 'truncate' }
           : undefined,
+      thinkingLevel: config.thinkingLevel,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,

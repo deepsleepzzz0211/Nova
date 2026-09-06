@@ -10,6 +10,7 @@ import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
+import type { ThinkingLevel } from '../llm/compat.js';
 
 /** Result of a single user-input turn. */
 export interface AgentTurnResult {
@@ -48,6 +49,8 @@ export interface AgentLoopConfig {
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   /** Notified once per turn with aggregated provider usage (cache metrics). */
   onUsage?: (usage: TurnUsage) => void;
+  /** Unified thinking level forwarded to every chat call. */
+  thinkingLevel?: ThinkingLevel;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
   onToolResult: (result: ToolResult, callId?: string) => void;
@@ -70,6 +73,7 @@ export class AgentLoop {
   private readonly promptOptions: BuildPromptOptions;
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onUsage: AgentLoopConfig['onUsage'];
+  private readonly thinkingLevel?: ThinkingLevel;
   /**
    * Base system prompt, frozen at construction.
    *
@@ -102,6 +106,7 @@ export class AgentLoop {
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
+    this.thinkingLevel = options.thinkingLevel;
     this.frozenSystemPrompt = buildSystemPrompt(this.toolRegistry.getAll(), options.skills?.findAll() ?? [], {
       ...this.promptOptions,
     });
@@ -209,6 +214,7 @@ export class AgentLoop {
           model: this.model,
           tools,
           systemPrompt,
+          thinkingLevel: this.thinkingLevel,
         });
 
         for await (const chunk of stream) {

@@ -1,18 +1,15 @@
 import * as fs from 'fs';
-import type { ApiId, CompatFlags, NormalizedCompat } from './compat.js';
+import type {
+  ApiId,
+  CompatFlags,
+  NormalizedCompat,
+  ThinkingLevel,
+  ThinkingLevelMap,
+} from './compat.js';
 import { normalizeCompat } from './compat.js';
 import { resolveSecretValue } from './secrets.js';
 
-/** Thinking levels (pi-style unified abstraction over vendor-specific params). */
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-
-/**
- * Map thinking levels to provider values. Values are tristate (pi semantics):
- *  - omitted: standard levels through 'high' use the default mapping
- *  - string: level supported, this value is sent to the provider
- *  - null: level unsupported (hidden/clamped)
- */
-export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+export type { ThinkingLevel, ThinkingLevelMap } from './compat.js';
 
 /**
  * Data-driven model catalog (pi-style): providers are data, wire protocols

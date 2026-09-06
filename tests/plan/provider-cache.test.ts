@@ -138,6 +138,61 @@ describe('AnthropicProvider prompt caching', () => {
   });
 });
 
+describe('provider thinking params (thinkingLevelMap)', () => {
+  beforeEach(() => {
+    mocks.openaiCaptured.length = 0;
+    mocks.openaiChunks.length = 0;
+    mocks.openaiChunks.push({ choices: [{ delta: { content: 'ok' }, index: 0 }] });
+    mocks.anthropicCaptured.length = 0;
+    mocks.anthropicEvents.length = 0;
+    mocks.anthropicEvents.push({ type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } }, { type: 'message_stop' });
+  });
+
+  const messages: Message[] = [{ role: 'user', content: 'hi' }];
+
+  it('openai-completions sends reasoning_effort for standard levels', async () => {
+    const provider = new OpenAIProvider({ name: 'openai', apiKey: 'k' });
+    await collect(provider.chat(messages, { model: 'gpt-4o', thinkingLevel: 'high' }));
+    expect(mocks.openaiCaptured[0].reasoning_effort).toBe('high');
+  });
+
+  it('openai-completions honors custom thinkingLevelMap values', async () => {
+    const provider = new OpenAIProvider({
+      name: 'openai',
+      apiKey: 'k',
+      thinkingLevelMap: { minimal: null, low: null, medium: null, high: 'high', xhigh: null, max: 'max' },
+    });
+    await collect(provider.chat(messages, { model: 'm', thinkingLevel: 'max' }));
+    expect(mocks.openaiCaptured[0].reasoning_effort).toBe('max');
+
+    mocks.openaiCaptured.length = 0;
+    await collect(provider.chat(messages, { model: 'm', thinkingLevel: 'low' }));
+    expect(mocks.openaiCaptured[0].reasoning_effort).toBeUndefined(); // clamped away
+  });
+
+  it('anthropic-messages sends a thinking budget and raises max_tokens', async () => {
+    const provider = new AnthropicProvider({ name: 'anthropic', apiKey: 'k' });
+    await collect(provider.chat(messages, { model: 'claude', thinkingLevel: 'high' }));
+    const params = mocks.anthropicCaptured[0];
+    expect(params.thinking).toEqual({ type: 'enabled', budget_tokens: 16384 });
+    expect(params.max_tokens).toBe(20480);
+  });
+
+  it('anthropic-messages sends nothing for off/unsupported levels', async () => {
+    const provider = new AnthropicProvider({ name: 'anthropic', apiKey: 'k' });
+    await collect(provider.chat(messages, { model: 'claude', thinkingLevel: 'off' }));
+    expect(mocks.anthropicCaptured[0].thinking).toBeUndefined();
+
+    const strict = new AnthropicProvider({
+      name: 'anthropic',
+      apiKey: 'k',
+      thinkingLevelMap: { high: null },
+    });
+    await collect(strict.chat(messages, { model: 'claude', thinkingLevel: 'high' }));
+    expect(mocks.anthropicCaptured[1].thinking).toBeUndefined();
+  });
+});
+
 describe('OpenAIProvider prompt caching', () => {
   beforeEach(() => {
     mocks.openaiCaptured.length = 0;

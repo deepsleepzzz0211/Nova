@@ -15,6 +15,8 @@ export interface AgentConfig {
   maxToolRounds: number;
   systemPrompt: string;
   contextStrategy: string;
+  /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
+  thinkingLevel: string;
 }
 
 /** Web search provider configuration. */

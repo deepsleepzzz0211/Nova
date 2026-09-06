@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message, StreamChunk, ChatOptions } from '../types.js';
 import { withSystemPrompt } from '../messages.js';
-import type { ApiAdapter, ApiAdapterConfig } from '../compat.js';
+import type { ApiAdapter, ApiAdapterConfig, ThinkingLevelMap } from '../compat.js';
+import { resolveAnthropicBudget } from '../thinking.js';
 
 /** Anthropic cache_control marker for prompt caching breakpoints. */
 const CACHE_CONTROL = { type: 'ephemeral' as const };
@@ -21,8 +22,12 @@ const CACHE_CONTROL = { type: 'ephemeral' as const };
 export class AnthropicMessagesAdapter implements ApiAdapter {
   readonly api = 'anthropic-messages' as const;
   private readonly client: Anthropic;
+  private readonly thinkingLevelMap?: ThinkingLevelMap;
+  private readonly reasoning: boolean;
 
-  constructor(config: ApiAdapterConfig) {
+  constructor(config: ApiAdapterConfig & { thinkingLevelMap?: ThinkingLevelMap; reasoning?: boolean }) {
+    this.thinkingLevelMap = config.thinkingLevelMap;
+    this.reasoning = config.reasoning ?? true;
     this.client = new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
@@ -53,9 +58,20 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
           )
         : undefined;
 
+      // Thinking: map the unified level to a thinking budget
+      const budget = resolveAnthropicBudget(
+        { reasoning: this.reasoning, thinkingLevelMap: this.thinkingLevelMap },
+        options.thinkingLevel,
+      );
+      // max_tokens must exceed the thinking budget
+      const maxTokens = budget !== null && (options.maxTokens || 4096) <= budget
+        ? budget + 4096
+        : (options.maxTokens || 4096);
+
       const stream = this.client.messages.stream({
         model: options.model,
-        max_tokens: options.maxTokens || 4096,
+        max_tokens: maxTokens,
+        ...(budget !== null ? { thinking: { type: 'enabled' as const, budget_tokens: budget } } : {}),
         system: systemMessage
           ? [{ type: 'text' as const, text: systemMessage.content, cache_control: CACHE_CONTROL }]
           : undefined,

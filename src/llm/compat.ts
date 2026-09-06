@@ -3,6 +3,17 @@ import type { ChatOptions, Message, StreamChunk } from './types.js';
 /** Wire-protocol identifiers (pi-style: API adapters are decoupled from vendors). */
 export type ApiId = 'openai-completions' | 'anthropic-messages' | 'ollama';
 
+/** Thinking levels (pi-style unified abstraction over vendor-specific params). */
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Map thinking levels to provider values. Values are tristate (pi semantics):
+ *  - omitted: standard levels through 'high' use the default mapping
+ *  - string: level supported, this value is sent to the provider
+ *  - null: level unsupported (hidden/clamped)
+ */
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+
 /**
  * Compatibility flags for third-party endpoints that imitate a wire
  * protocol but deviate in details.

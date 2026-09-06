@@ -1,5 +1,5 @@
 import type { Message, StreamChunk, ChatOptions } from './types.js';
-import type { CompatFlags } from './compat.js';
+import type { CompatFlags, ThinkingLevelMap } from './compat.js';
 
 /** Provider interface for LLM chat completions. */
 export interface LLMProvider {
@@ -58,4 +58,10 @@ export interface ProviderConfig {
 
   /** Compatibility flags for third-party endpoint deviations. */
   compat?: CompatFlags;
+
+  /** Model thinking-level map (from the model catalog resolution). */
+  thinkingLevelMap?: ThinkingLevelMap;
+
+  /** Whether the model supports reasoning/thinking. Default true. */
+  reasoning?: boolean;
 }

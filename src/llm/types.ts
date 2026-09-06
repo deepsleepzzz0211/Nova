@@ -1,3 +1,5 @@
+import type { ThinkingLevel } from './compat.js';
+
 /** A tool call made by the assistant. */
 export interface ToolCall {
   id: string;
@@ -53,4 +55,6 @@ export interface ChatOptions {
   maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
+  /** Unified thinking level; adapters translate per wire protocol. */
+  thinkingLevel?: ThinkingLevel;
 }

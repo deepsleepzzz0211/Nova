@@ -15,6 +15,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxToolRounds: 50,
     systemPrompt: '',
     contextStrategy: 'truncate',
+    thinkingLevel: 'off',
   },
   search: {
     provider: 'tavily',
