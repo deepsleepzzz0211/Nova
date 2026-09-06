@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import type { ApiId, CompatFlags, NormalizedCompat } from './compat.js';
 import { normalizeCompat } from './compat.js';
+import { resolveSecretValue } from './secrets.js';
 
 /** Thinking levels (pi-style unified abstraction over vendor-specific params). */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -229,7 +230,12 @@ export function resolveModel(selection: ModelSelection, catalog: ModelCatalog): 
     name: selection.provider,
     api,
     baseUrl: selection.baseUrl ?? entry.baseUrl,
-    apiKey: selection.apiKey ?? entry.apiKey,
+    // Catalog-declared keys go through the value-resolution DSL
+    // ("$ENV" interpolation / "!command"); explicit overrides (env/CLI)
+    // are used verbatim.
+    apiKey: selection.apiKey ?? (entry.apiKey !== undefined
+      ? resolveSecretValue(entry.apiKey)
+      : undefined),
     model: {
       id: selection.model,
       name: modelEntry?.name ?? selection.model,
