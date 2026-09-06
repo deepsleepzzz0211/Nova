@@ -9,6 +9,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: 'gpt-4o',
     maxTokens: 4096,
     temperature: 0.7,
+    promptCache: false,
   },
   agent: {
     maxToolRounds: 50,

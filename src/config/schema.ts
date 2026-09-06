@@ -6,6 +6,8 @@ export interface LLMConfig {
   model: string;
   maxTokens: number;
   temperature: number;
+  /** Enable provider prompt caching + usage reporting (OpenAI: stream_options). */
+  promptCache: boolean;
 }
 
 /** Agent behaviour configuration. */

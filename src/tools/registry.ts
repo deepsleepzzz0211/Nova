@@ -21,8 +21,15 @@ export class ToolRegistry {
     return [...this.tools.values()];
   }
 
-  /** Convert all registered tools to LLM-compatible definitions. */
+  /** Convert all registered tools to LLM-compatible definitions.
+   *
+   * Definitions are sorted by name so the request prefix is deterministic
+   * across sessions regardless of registration order — required for prompt
+   * cache stability.
+   */
   toToolDefinitions(): ToolDefinition[] {
-    return this.getAll().map(toToolDefinition);
+    return this.getAll()
+      .map(toToolDefinition)
+      .sort((a, b) => a.function.name.localeCompare(b.function.name));
   }
 }

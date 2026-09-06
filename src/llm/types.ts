@@ -34,7 +34,17 @@ export type StreamChunk =
   | { type: 'tool_call_start'; id: string; name: string }
   | { type: 'tool_call_delta'; id: string; arguments: string }
   | { type: 'tool_call_end'; id: string }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string }
+  | {
+      type: 'usage';
+      /** Total prompt tokens, INCLUDING cached and cache-write tokens. */
+      inputTokens: number;
+      outputTokens: number;
+      /** Prompt tokens served from the provider prompt cache. */
+      cachedInputTokens?: number;
+      /** Prompt tokens written to the prompt cache this call. */
+      cacheWriteTokens?: number;
+    };
 
 /** Options for a chat completion request. */
 export interface ChatOptions {

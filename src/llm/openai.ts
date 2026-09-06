@@ -10,6 +10,7 @@ import { withSystemPrompt } from './messages.js';
  */
 export class OpenAIProvider implements LLMProvider {
   private readonly client: OpenAI;
+  private readonly promptCache: boolean;
   readonly name = 'openai';
   readonly capabilities: ProviderCapabilities = {
     streaming: true,
@@ -24,6 +25,7 @@ export class OpenAIProvider implements LLMProvider {
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
     });
+    this.promptCache = config.promptCache === true;
   }
 
   async *chat(messages: Message[], options: ChatOptions): AsyncGenerator<StreamChunk> {
@@ -35,6 +37,10 @@ export class OpenAIProvider implements LLMProvider {
         tools: options.tools as OpenAI.ChatCompletionTool[],
         max_tokens: options.maxTokens,
         temperature: options.temperature,
+        // Opt-in: report prompt-cache usage on the final chunk. Some
+        // OpenAI-compatible endpoints reject unknown stream_options, so this
+        // is only enabled when prompt caching is explicitly requested.
+        ...(this.promptCache ? { stream_options: { include_usage: true } } : {}),
       });
 
       yield* parseOpenAIStream(response);

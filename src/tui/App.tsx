@@ -62,7 +62,7 @@ export function App({
   maxToolRounds,
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
-  const { messages, isStreaming, sendMessage, pendingPermission } = useAgent({
+  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -81,6 +81,7 @@ export function App({
         model={model}
         workingDirectory={process.cwd()}
         mcpConnectionCount={mcpConnectionCount}
+        cacheStats={cacheStats}
       />
 
       {todoState && <TodoView todoState={todoState} />}

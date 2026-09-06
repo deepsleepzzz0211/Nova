@@ -9,6 +9,7 @@ import { ContextManager } from './context.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
+import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
 
 /** Result of a single user-input turn. */
 export interface AgentTurnResult {
@@ -45,6 +46,8 @@ export interface AgentLoopConfig {
   maxActiveSkills?: number;
   /** Notified after a compaction/truncation pass. */
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
+  /** Notified once per turn with aggregated provider usage (cache metrics). */
+  onUsage?: (usage: TurnUsage) => void;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
   onToolResult: (result: ToolResult, callId?: string) => void;
@@ -66,6 +69,15 @@ export class AgentLoop {
   private readonly maxActiveSkills: number;
   private readonly promptOptions: BuildPromptOptions;
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
+  private readonly onUsage: AgentLoopConfig['onUsage'];
+  /**
+   * Base system prompt, frozen at construction.
+   *
+   * Cache philosophy (pi-style): the system prompt must stay byte-identical
+   * across the whole session so the provider prompt-cache prefix survives.
+   * Turn-scoped content (skills) travels as append-only messages instead.
+   */
+  private readonly frozenSystemPrompt: string;
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
   private readonly onToolResult: (result: ToolResult, callId?: string) => void;
@@ -89,6 +101,10 @@ export class AgentLoop {
     this.skills = options.skills ?? null;
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
     this.promptOptions = options.promptOptions ?? {};
+    this.onUsage = options.onUsage;
+    this.frozenSystemPrompt = buildSystemPrompt(this.toolRegistry.getAll(), options.skills?.findAll() ?? [], {
+      ...this.promptOptions,
+    });
     this.onCompaction = options.onCompaction;
     this.onToken = options.onToken;
     this.onToolCall = options.onToolCall;
@@ -128,17 +144,16 @@ export class AgentLoop {
     this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
   }
 
-  /** Build the system prompt, injecting full bodies of matching skills. */
-  private async buildPrompt(userInput: string): Promise<string> {
-    const skills = this.skills?.findAll() ?? [];
-    const base = buildSystemPrompt(this.toolRegistry.getAll(), skills, {
-      ...this.promptOptions,
-    });
-
-    if (!this.skills) return base;
+  /**
+   * Load full bodies of skills matching the user input as an append-only
+   * system message. The frozen system prompt itself is never mutated, so
+   * the provider prompt-cache prefix stays valid.
+   */
+  private async injectSkills(userInput: string): Promise<void> {
+    if (!this.skills) return;
 
     const matched = this.skills.findByKeywords(userInput).slice(0, this.maxActiveSkills);
-    if (matched.length === 0) return base;
+    if (matched.length === 0) return;
 
     const sections: string[] = [];
     for (const meta of matched) {
@@ -148,9 +163,12 @@ export class AgentLoop {
         // Skip skills that cannot be read
       }
     }
-    if (sections.length === 0) return base;
+    if (sections.length === 0) return;
 
-    return `${base}\n\n## Active Skills\n${sections.join('\n\n---\n\n')}`;
+    this.pushMessage({
+      role: 'system',
+      content: `## Active Skills\n${sections.join('\n\n---\n\n')}`,
+    });
   }
 
   async processUserInput(input: string): Promise<AgentTurnResult> {
@@ -166,9 +184,16 @@ export class AgentLoop {
   private async runTurn(input: string, systemPromptOverride?: string): Promise<AgentTurnResult> {
     this.pushMessage({ role: 'user', content: input });
 
-    const systemPrompt = systemPromptOverride ?? await this.buildPrompt(input);
+    if (!systemPromptOverride) {
+      await this.injectSkills(input);
+    }
+    const systemPrompt = systemPromptOverride ?? this.frozenSystemPrompt;
     let rounds = 0;
     let finalText = '';
+    const turnUsage: Required<Pick<TurnUsage, 'inputTokens' | 'outputTokens'>> & Partial<TurnUsage> = {
+      inputTokens: 0,
+      outputTokens: 0,
+    };
 
     const tools = this.toolRegistry.toToolDefinitions();
 
@@ -207,11 +232,18 @@ export class AgentLoop {
             case 'error':
               this.onToken(`[Error: ${chunk.error}]`);
               break;
+            case 'usage':
+              turnUsage.inputTokens += chunk.inputTokens;
+              turnUsage.outputTokens += chunk.outputTokens;
+              turnUsage.cachedInputTokens = (turnUsage.cachedInputTokens ?? 0) + (chunk.cachedInputTokens ?? 0);
+              turnUsage.cacheWriteTokens = (turnUsage.cacheWriteTokens ?? 0) + (chunk.cacheWriteTokens ?? 0);
+              break;
           }
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.onToken(`[Error: ${msg}]`);
+        this.emitUsage(turnUsage);
         return { text: finalText, rounds };
       }
 
@@ -256,12 +288,30 @@ export class AgentLoop {
       // Text-only response — append and done
       this.pushMessage({ role: 'assistant', content: textContent });
       finalText = textContent;
+      this.emitUsage(turnUsage);
       return { text: finalText, rounds };
     }
 
     // Exceeded maxToolRounds — append what we have and stop
     this.pushMessage({ role: 'assistant', content: '' });
+    this.emitUsage(turnUsage);
     return { text: '', rounds };
+  }
+
+  /** Report aggregated per-turn usage to the cache metrics listener. */
+  private emitUsage(usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    cacheWriteTokens?: number;
+  }): void {
+    if (usage.inputTokens === 0 && usage.outputTokens === 0) return;
+    this.onUsage?.({
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+    });
   }
 
   /** Execute one tool call through the pipeline and notify the UI. */

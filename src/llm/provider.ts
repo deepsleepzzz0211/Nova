@@ -51,4 +51,7 @@ export interface ProviderConfig {
   
   /** Additional provider-specific config. */
   options?: Record<string, unknown>;
+
+  /** Enable provider prompt caching + usage reporting (OpenAI stream_options). */
+  promptCache?: boolean;
 }

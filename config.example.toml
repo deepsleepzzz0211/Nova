@@ -14,6 +14,9 @@ model = "gpt-4o"
 max_tokens = 4096
 # Temperature (0.0 - 2.0)
 temperature = 0.7
+# Enable provider prompt caching and usage reporting (OpenAI: stream_options).
+# Anthropic always uses prompt caching via cache_control markers.
+prompt_cache = false
 
 [agent]
 # Maximum tool execution rounds per request

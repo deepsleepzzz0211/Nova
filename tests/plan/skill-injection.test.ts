@@ -38,14 +38,14 @@ describe('AgentLoop skill injection (progressive disclosure)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('injects matched skill bodies into the system prompt for the matching turn', async () => {
+  it('injects matched skill bodies as append-only messages, keeping the system prompt stable', async () => {
     const registry = new SkillRegistry();
     await registry.scan(tmp);
 
-    const calls: ChatOptions[] = [];
+    const systemPrompts: string[] = [];
     const llm: LLMProvider = {
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        calls.push(opts);
+        systemPrompts.push(opts.systemPrompt ?? '');
         yield { type: 'text_delta', content: 'ok' };
       },
     };
@@ -62,14 +62,13 @@ describe('AgentLoop skill injection (progressive disclosure)', () => {
       onPermissionRequest: async () => true,
     });
 
-    // Matching request → skill body injected
+    // Matching request → skill body appended as a message; system prompt unchanged
     await loop.processUserInput('help me debug these bugs');
-    expect(calls[0].systemPrompt).toContain('Read the stack trace first.');
-    expect(calls[0].systemPrompt).toContain('## Active Skills');
+    expect(systemPrompts[0]).not.toContain('Read the stack trace first.');
+    expect(loop.getMessages().some((m) => m.role === 'system' && m.content.includes('Read the stack trace first.'))).toBe(true);
 
-    // Non-matching request → only the one-line listing, no body
+    // Non-matching request → no skill message appended
     await loop.processUserInput('what is the weather');
-    expect(calls[1].systemPrompt).not.toContain('Read the stack trace first.');
-    expect(calls[1].systemPrompt).toContain('**debugging**: Use when debugging bugs and errors');
+    expect(loop.getMessages().filter((m) => m.role === 'system')).toHaveLength(1);
   });
 });

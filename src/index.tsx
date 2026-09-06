@@ -54,6 +54,7 @@ async function main(): Promise<void> {
     apiKey: config.llm.apiKey,
     baseUrl: config.llm.baseUrl,
     model: config.llm.model,
+    promptCache: config.llm.promptCache,
   });
 
   // Initialize permission system

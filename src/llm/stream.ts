@@ -19,6 +19,16 @@ export async function* parseOpenAIStream(
   const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
 
   for await (const chunk of stream) {
+    // Usage arrives on a final chunk with empty choices (include_usage)
+    if (chunk.usage) {
+      yield {
+        type: 'usage',
+        inputTokens: chunk.usage.prompt_tokens,
+        outputTokens: chunk.usage.completion_tokens,
+        cachedInputTokens: chunk.usage.prompt_tokens_details?.cached_tokens,
+      };
+    }
+
     const choice = chunk.choices[0];
     if (!choice) continue;
 

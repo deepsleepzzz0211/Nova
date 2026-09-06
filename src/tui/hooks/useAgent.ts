@@ -8,6 +8,7 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
+import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -50,12 +51,22 @@ export interface UseAgentConfig {
   maxToolRounds: number;
 }
 
+/** Cache usage summary shown in the status bar (pi-style R/W/CH). */
+export interface CacheStatsView {
+  hitRate: number;
+  latestHitRate: number;
+  totalCachedTokens: number;
+  totalCacheWriteTokens: number;
+}
+
 /** Return type of the useAgent hook. */
 export interface UseAgentResult {
   messages: DisplayMessage[];
   isStreaming: boolean;
   sendMessage: (input: string) => void;
   pendingPermission: PendingPermission | null;
+  /** Live prompt-cache metrics (R/W/CH). */
+  cacheStats: CacheStatsView;
 }
 
 /**
@@ -68,6 +79,13 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null);
+  const [cacheStats, setCacheStats] = useState<CacheStatsView>({
+    hitRate: 0,
+    latestHitRate: 0,
+    totalCachedTokens: 0,
+    totalCacheWriteTokens: 0,
+  });
+  const metricsRef = useRef(new PromptCacheMetrics());
 
   // Ref to track the current assistant message being built during streaming
   const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[] } | null>(null);
@@ -170,6 +188,16 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       onToolCall,
       onToolResult,
       onPermissionRequest,
+      onUsage: (usage) => {
+        metricsRef.current.record(usage);
+        const m = metricsRef.current;
+        setCacheStats({
+          hitRate: m.hitRate,
+          latestHitRate: m.latestHitRate,
+          totalCachedTokens: m.totalCachedTokens,
+          totalCacheWriteTokens: m.totalCacheWriteTokens,
+        });
+      },
       onCompaction: (info) => {
         setMessages((prev) => [...prev, {
           role: 'system' as const,
@@ -248,5 +276,5 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     );
   }, [isStreaming]);
 
-  return { messages, isStreaming, sendMessage, pendingPermission };
+  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats };
 }
