@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { createWebSearchTool, type SearchBackendOptions } from '../../src/tools/web-search.js';
+import { createWebSearchTool } from '../../src/tools/web-search.js';
 import type { ToolContext } from '../../src/tools/types.js';
 
 const originalFetch = globalThis.fetch;
@@ -19,14 +19,7 @@ function tavilyResponse(count: number): Response {
   } as unknown as Response;
 }
 
-function ddgHtml(count: number): string {
-  const results = Array.from({ length: count }, (_, i) => `
-    <a class="result__a" href="/l/?uddg=https%3A%2F%2Fddg.example%2F${i}">DDG Result ${i}</a>
-    <a class="result__snippet" href="#">snippet ${i}</a>`).join('\n');
-  return `<html><body>${results}</body></html>`;
-}
-
-describe('Tavily backend', () => {
+describe('web_search (Tavily backend)', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
@@ -38,8 +31,10 @@ describe('Tavily backend', () => {
       return tavilyResponse(3);
     }) as typeof fetch;
 
-    const options: SearchBackendOptions = { provider: 'tavily', tavilyApiKey: 'tvly-test' };
-    const result = await createWebSearchTool(options).execute({ query: 'test query', num_results: 3 }, ctx);
+    const result = await createWebSearchTool({ tavilyApiKey: 'tvly-test' }).execute(
+      { query: 'test query', num_results: 3 },
+      ctx,
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('https://api.tavily.com/search');
@@ -53,66 +48,35 @@ describe('Tavily backend', () => {
     expect(result.content).not.toContain('<b>');
   });
 
-  it('falls back to DuckDuckGo when Tavily fails', async () => {
-    const urls: string[] = [];
-    globalThis.fetch = (async (url: string) => {
-      urls.push(String(url));
-      if (String(url).includes('tavily')) {
-        return { ok: false, status: 500, statusText: 'Server Error' } as unknown as Response;
-      }
-      return { ok: true, status: 200, text: async () => ddgHtml(2) } as unknown as Response;
-    }) as typeof fetch;
+  it('requires an api key and names the setup steps when missing', async () => {
+    const fetchSpy = async (): Promise<Response> => {
+      throw new Error('must not be called');
+    };
+    globalThis.fetch = fetchSpy as typeof fetch;
 
-    const options: SearchBackendOptions = { provider: 'tavily', tavilyApiKey: 'tvly-test' };
-    const result = await createWebSearchTool(options).execute({ query: 'q' }, ctx);
-
-    expect(urls.some((u) => u.includes('tavily'))).toBe(true);
-    expect(urls.some((u) => u.includes('duckduckgo'))).toBe(true);
-    expect(result.content).toContain('DDG Result 0');
-  });
-
-  it('uses DuckDuckGo first when provider is duckduckgo, falls back to Tavily', async () => {
-    const urls: string[] = [];
-    globalThis.fetch = (async (url: string) => {
-      urls.push(String(url));
-      if (String(url).includes('duckduckgo')) {
-        return { ok: false, status: 503 } as unknown as Response;
-      }
-      return tavilyResponse(2);
-    }) as typeof fetch;
-
-    const options: SearchBackendOptions = { provider: 'duckduckgo', tavilyApiKey: 'tvly-test' };
-    const result = await createWebSearchTool(options).execute({ query: 'q' }, ctx);
-
-    expect(urls[0]).toContain('duckduckgo');
-    expect(urls[1]).toContain('tavily');
-    expect(result.content).toContain('Tavily Result 0');
-  });
-
-  it('skips the Tavily backend entirely without an api key', async () => {
-    const urls: string[] = [];
-    globalThis.fetch = (async (url: string) => {
-      urls.push(String(url));
-      return { ok: true, status: 200, text: async () => ddgHtml(1) } as unknown as Response;
-    }) as typeof fetch;
-
-    const options: SearchBackendOptions = { provider: 'tavily' };
-    const result = await createWebSearchTool(options).execute({ query: 'q' }, ctx);
-
-    expect(urls.every((u) => u.includes('duckduckgo'))).toBe(true);
-    expect(result.content).toContain('DDG Result 0');
-  });
-
-  it('reports failure when every backend fails', async () => {
-    globalThis.fetch = (async () => ({ ok: false, status: 500 }) as unknown as Response) as typeof fetch;
-    const options: SearchBackendOptions = { provider: 'tavily', tavilyApiKey: 'k' };
-    const result = await createWebSearchTool(options).execute({ query: 'q' }, ctx);
+    const result = await createWebSearchTool().execute({ query: 'q' }, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content).toContain('All search backends failed');
+    expect(result.content).toContain('Tavily API key');
+    expect(result.content).toContain('tavily_api_key');
+    expect(result.content).toContain('TAVILY_API_KEY');
+  });
+
+  it('reports HTTP errors', async () => {
+    globalThis.fetch = (async () =>
+      ({ ok: false, status: 500, statusText: 'Server Error' }) as unknown as Response) as typeof fetch;
+    const result = await createWebSearchTool({ tavilyApiKey: 'k' }).execute({ query: 'q' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('500');
+  });
+
+  it('requires a query', async () => {
+    const result = await createWebSearchTool({ tavilyApiKey: 'k' }).execute({ query: '   ' }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('query is required');
   });
 
   it('metadata stays cacheable and permission-free', () => {
-    const tool = createWebSearchTool({ provider: 'tavily', tavilyApiKey: 'k' });
+    const tool = createWebSearchTool({ tavilyApiKey: 'k' });
     expect(tool.metadata?.cacheable).toBe(true);
     expect(tool.requiresPermission?.({})).toBe(false);
   });

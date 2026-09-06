@@ -5,11 +5,9 @@ const TIMEOUT_MS = 20_000;
 const MAX_RESULTS = 10;
 const DEFAULT_NUM_RESULTS = 5;
 
-/** Search backend selection (from config.search). */
+/** Search backend options. */
 export interface SearchBackendOptions {
-  /** Preferred backend; the other one is the fallback. Default 'duckduckgo'. */
-  provider?: 'tavily' | 'duckduckgo';
-  /** Tavily API key. The Tavily backend is skipped when absent. */
+  /** Tavily API key (free tier: tavily.com). Required. */
   tavilyApiKey?: string;
 }
 
@@ -17,12 +15,6 @@ interface SearchResult {
   title: string;
   url: string;
   snippet: string;
-}
-
-interface SearchBackend {
-  name: string;
-  reachable(): boolean;
-  search(query: string, numResults: number): Promise<SearchResult[]>;
 }
 
 async function httpPostJson(url: string, body: string, timeoutMs: number): Promise<Response> {
@@ -40,10 +32,11 @@ async function httpPostJson(url: string, body: string, timeoutMs: number): Promi
   }
 }
 
-/** Tavily API backend (https://tavily.com — requires an API key). */
-class TavilyBackend implements SearchBackend {
-  name = 'tavily';
-
+/**
+ * Tavily API backend (https://tavily.com — requires a free API key).
+ * Structured results, reachable from CN networks, no scraping involved.
+ */
+class TavilyBackend {
   constructor(private readonly apiKey?: string) {}
 
   reachable(): boolean {
@@ -76,66 +69,6 @@ class TavilyBackend implements SearchBackend {
   }
 }
 
-/** DuckDuckGo HTML backend (no API key; often unreachable in some networks). */
-class DuckDuckGoBackend implements SearchBackend {
-  name = 'duckduckgo';
-
-  reachable(): boolean {
-    return true;
-  }
-
-  async search(query: string, numResults: number): Promise<SearchResult[]> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-    try {
-      const response = await proxyAwareFetch('https://html.duckduckgo.com/html/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ q: query }).toString(),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Search request failed with status ${response.status}: ${response.statusText}`);
-      }
-
-      const html = await response.text();
-      return DuckDuckGoBackend.parseSearchResults(html, numResults);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  static parseSearchResults(html: string, maxResults: number): SearchResult[] {
-    const results: SearchResult[] = [];
-
-    // Match result blocks: each result has result__a for title/url and result__snippet for description
-    const resultBlockRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-
-    let match: RegExpExecArray | null;
-    while ((match = resultBlockRegex.exec(html)) !== null && results.length < maxResults) {
-      const rawUrl = match[1];
-      const rawTitle = match[2];
-      const rawSnippet = match[3];
-
-      // DuckDuckGo wraps URLs in a redirect; extract the actual URL from the uddg param
-      const urlMatch = /[?&]uddg=([^&]+)/.exec(rawUrl);
-      const url = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
-
-      // Strip HTML tags from title and snippet
-      const title = rawTitle.replace(/<[^>]*>/g, '').trim();
-      const snippet = rawSnippet.replace(/<[^>]*>/g, '').trim();
-
-      if (title && url) {
-        results.push({ title, url, snippet });
-      }
-    }
-
-    return results;
-  }
-}
-
 function formatResults(results: SearchResult[]): string {
   if (results.length === 0) {
     return 'No results found.';
@@ -154,16 +87,13 @@ function formatResults(results: SearchResult[]): string {
 }
 
 /**
- * web_search with a backend chain: preferred backend first (config.search
- * .provider), the other backend as fallback. Tavily requires an API key
- * and is skipped when absent.
+ * web_search via the Tavily API. The backend was chosen deliberately:
+ * free-tier structured search API that is reachable from CN networks
+ * (SERP scraping backends like DuckDuckGo are unreachable there and were
+ * removed). Additional backends (Brave/Exa/Serper) can plug in later.
  */
 export function createWebSearchTool(options?: SearchBackendOptions): Tool {
-  const preferred = options?.provider ?? 'duckduckgo';
-  const backends: SearchBackend[] = [
-    new TavilyBackend(options?.tavilyApiKey),
-    new DuckDuckGoBackend(),
-  ].sort((a) => (a.name === preferred ? -1 : 1));
+  const backend = new TavilyBackend(options?.tavilyApiKey);
 
   return {
     name: 'web_search',
@@ -185,27 +115,30 @@ export function createWebSearchTool(options?: SearchBackendOptions): Tool {
         return { content: 'Error: query is required.', isError: true };
       }
 
+      if (!backend.reachable()) {
+        return {
+          content:
+            'web_search requires a Tavily API key (free tier at tavily.com).\n' +
+            'Set [search] tavily_api_key in config.toml or the TAVILY_API_KEY environment variable.',
+          isError: true,
+        };
+      }
+
       const numResults = Math.min(
         Math.max(1, (params.num_results as number) || DEFAULT_NUM_RESULTS),
         MAX_RESULTS,
       );
 
-      const errors: string[] = [];
-      for (const backend of backends) {
-        if (!backend.reachable()) {
-          errors.push(`${backend.name}: no API key`);
-          continue;
+      try {
+        const results = await backend.search(query, numResults);
+        return { content: formatResults(results) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('abort')) {
+          return { content: `Search timed out after ${TIMEOUT_MS / 1000}s.`, isError: true };
         }
-        try {
-          const results = await backend.search(query, numResults);
-          return { content: formatResults(results) };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          errors.push(`${backend.name}: ${message}`);
-        }
+        return { content: `Search failed: ${message}`, isError: true };
       }
-
-      return { content: `All search backends failed.\n${errors.map((e) => `- ${e}`).join('\n')}`, isError: true };
     },
   };
 }

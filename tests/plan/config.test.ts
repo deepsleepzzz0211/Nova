@@ -33,9 +33,10 @@ describe('Config Loader', () => {
   });
 
   it('reads search config', () => {
-    fs.writeFileSync(path.join(tmpDir, 'config.toml'), '[search]\nprovider = "duckduckgo"\n');
+    fs.writeFileSync(path.join(tmpDir, 'config.toml'), '[search]\nprovider = "tavily"\ntavily_api_key = "tvly-x"\n');
     const c = loadConfig(tmpDir);
-    expect(c.search.provider).toBe('duckduckgo');
+    expect(c.search.provider).toBe('tavily');
+    expect(c.search.tavilyApiKey).toBe('tvly-x');
   });
 
   it('env vars override config file', () => {

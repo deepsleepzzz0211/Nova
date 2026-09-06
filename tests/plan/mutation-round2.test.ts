@@ -13,7 +13,6 @@ import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
 import { createTodoTool } from '../../src/tools/todo.js';
-import { createWebSearchTool } from '../../src/tools/web-search.js';
 import { withSystemPrompt } from '../../src/llm/messages.js';
 import { LLMProviderRegistry } from '../../src/llm/registry.js';
 import { OpenAIProvider } from '../../src/llm/openai.js';
@@ -326,36 +325,17 @@ describe('todo_write list formatting', () => {
   });
 });
 
-describe('web_search parsing edges', () => {
-  const originalFetch = globalThis.fetch;
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  it('requires title+snippet pairs; title-only results yield nothing', async () => {
-    const htmlNoSnippet = '<html><body><a class="result__a" href="/l/?uddg=https%3A%2F%2Fx.io">Only Title</a></body></html>';
-    globalThis.fetch = (async () =>
-      ({ ok: true, status: 200, text: async () => htmlNoSnippet }) as unknown as Response) as typeof fetch;
-    const withTitleOnly = await createWebSearchTool().execute({ query: 'q' }, ctx);
-    expect(withTitleOnly.content).toBe('No results found.');
-
-    const emptyHtml = '<html><body></body></html>';
-    globalThis.fetch = (async () =>
-      ({ ok: true, status: 200, text: async () => emptyHtml }) as unknown as Response) as typeof fetch;
-    const empty = await createWebSearchTool().execute({ query: 'q' }, ctx);
-    expect(empty.content).toBe('No results found.');
-  });
-
-  it('separates results with a blank line', async () => {
-    const html = `<html><body>
-      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fx.io%2F1">One</a>
-      <a class="result__snippet" href="#">s1</a>
-      <a class="result__a" href="/l/?uddg=https%3A%2F%2Fx.io%2F2">Two</a>
-      <a class="result__snippet" href="#">s2</a>
-    </body></html>`;
-    globalThis.fetch = (async () =>
-      ({ ok: true, status: 200, text: async () => html }) as unknown as Response) as typeof fetch;
-    const result = await createWebSearchTool().execute({ query: 'q' }, ctx);
-    expect(result.content).toContain('1. **One**\n   URL: https://x.io/1\n   s1\n\n2. **Two**');
+describe('todo_write list formatting', () => {
+  it('joins items with newlines', async () => {
+    const result = await createTodoTool({ todos: [] }).execute(
+      {
+        todos: [
+          { content: 'a', status: 'completed' },
+          { content: 'b', status: 'pending' },
+        ],
+      },
+      ctx,
+    );
+    expect(result.content).toContain('[x] a\n[ ] b');
   });
 });

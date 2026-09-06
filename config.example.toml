@@ -27,10 +27,8 @@ system_prompt = ""
 context_strategy = "truncate"
 
 [search]
-# Search provider: "tavily" or "duckduckgo"
-# Search backend: 'tavily' (recommended, needs API key, free 1000/month
-# at tavily.com) with automatic fallback to 'duckduckgo'.
-# Also honored: HTTPS_PROXY / HTTP_PROXY env vars for all web tools.
+# Search backend: Tavily API (free 1000/month at tavily.com).
+# DuckDuckGo was removed (unreachable in CN networks).
 provider = "tavily"
 # Tavily API key (optional, free tier works without)
 # tavily_api_key = ""

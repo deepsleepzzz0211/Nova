@@ -21,7 +21,7 @@ export interface AgentConfig {
 
 /** Web search provider configuration. */
 export interface SearchConfig {
-  provider: 'tavily' | 'duckduckgo';
+  provider: 'tavily';
   tavilyApiKey?: string;
 }
 
