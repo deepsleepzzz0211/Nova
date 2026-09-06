@@ -9,7 +9,8 @@ import { render } from 'ink';
 import { App } from './tui/App.js';
 import { loadConfig } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
-import { loadModelCatalog, resolveModel } from './llm/catalog.js';
+import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
@@ -95,6 +96,55 @@ async function main(): Promise<void> {
   }
   const sessionStore = SessionStore.create(sessionsDir);
 
+  // Live model selection state (mutated by the /model command)
+  const selectionRef = {
+    provider: config.llm.provider || 'openai',
+    model: config.llm.model,
+  };
+
+  // /model listing + resolution (catalog-driven; loop application in useAgent)
+  const listModels = (): string => describeModels(catalog, selectionRef.provider, selectionRef.model);
+  const resolveSwitch = (spec: string):
+    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+    | { ok: false; message: string } => {
+    try {
+      const parsed = parseModelSpec(spec, selectionRef.provider);
+      const next = resolveModel(
+        {
+          provider: parsed.provider,
+          model: parsed.model,
+          baseUrl: config.llm.baseUrl,
+          apiKey: config.llm.apiKey,
+        },
+        catalog,
+      );
+      const llmNext = providerRegistry.getForApi(next.api, {
+        name: next.name,
+        apiKey: next.apiKey,
+        baseUrl: next.baseUrl,
+        model: next.model.id,
+        compat: {
+          supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
+          streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
+        },
+        thinkingLevelMap: next.model.thinkingLevelMap,
+        reasoning: next.model.reasoning,
+      });
+      selectionRef.provider = next.name;
+      selectionRef.model = next.model.id;
+      return {
+        ok: true,
+        llm: llmNext,
+        model: next.model.id,
+        contextWindow: next.model.contextWindow,
+        providerName: next.name,
+        message: `Switched to ${next.name}/${next.model.id} (ctx ${next.model.contextWindow.toLocaleString()}${next.model.reasoning ? ', reasoning' : ''})`,
+      };
+    } catch (err: unknown) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
   // Skills: scan user-level and project-level skill directories
   const skillRegistry = new SkillRegistry();
   await skillRegistry.scan(path.join(os.homedir(), '.nova', 'skills'));
@@ -146,6 +196,8 @@ async function main(): Promise<void> {
       promptOptions={{ environment, projectInstructions }}
       customPrompt={config.agent.systemPrompt || undefined}
       todoState={todoState}
+      listModels={listModels}
+      resolveSwitch={resolveSwitch}
       contextWindow={resolution.model.contextWindow}
       contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}

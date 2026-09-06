@@ -54,6 +54,12 @@ export interface UseAgentConfig {
   contextStrategy?: 'truncate' | 'compact';
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
+  /** List models for the /model command (returns display text). */
+  listModels?: () => string;
+  /** Resolve a /model <spec> switch (loop application happens here). */
+  resolveSwitch?: (spec: string) =>
+    | { ok: true; llm: import('../../llm/provider.js').LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+    | { ok: false; message: string };
   model: string;
   maxToolRounds: number;
 }
@@ -74,6 +80,8 @@ export interface UseAgentResult {
   pendingPermission: PendingPermission | null;
   /** Live prompt-cache metrics (R/W/CH). */
   cacheStats: CacheStatsView;
+  /** Active model selection (updated by /model). */
+  modelInfo: { model: string; contextWindow?: number; providerName: string };
 }
 
 /**
@@ -93,6 +101,11 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     totalCacheWriteTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
+  const [modelInfo, setModelInfo] = useState<{ model: string; contextWindow?: number; providerName: string }>({
+    model: config.model,
+    contextWindow: config.contextWindow,
+    providerName: '',
+  });
 
   // Ref to track the current assistant message being built during streaming
   const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[] } | null>(null);
@@ -251,6 +264,27 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const loop = loopRef.current;
     if (!loop) return;
 
+    // Slash command: /model [spec] — list or switch models
+    if (trimmed === '/model' || trimmed.startsWith('/model ')) {
+      const spec = trimmed === '/model' ? '' : trimmed.slice('/model '.length).trim();
+      if (spec === '') {
+        const listing = config.listModels?.() ?? 'No model catalog available.';
+        setMessages((prev) => [...prev, { role: 'system' as const, content: listing }]);
+        return;
+      }
+      const result = config.resolveSwitch?.(spec);
+      if (result?.ok) {
+        const loop = loopRef.current;
+        if (loop) {
+          loop.setProvider(result.llm);
+          loop.setModel(result.model);
+        }
+        setModelInfo({ model: result.model, contextWindow: result.contextWindow, providerName: result.providerName });
+      }
+      setMessages((prev) => [...prev, { role: 'system' as const, content: result?.message ?? 'Model switching unavailable.' }]);
+      return;
+    }
+
     // Slash command: /compact — force a context compaction pass
     if (trimmed === '/compact') {
       setMessages((prev) => [...prev, { role: 'user' as const, content: '/compact' }]);
@@ -288,5 +322,5 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     );
   }, [isStreaming]);
 
-  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats };
+  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo };
 }

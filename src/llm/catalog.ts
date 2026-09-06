@@ -134,7 +134,7 @@ function builtinEntry(provider: string): ProviderCatalogEntry {
   };
 }
 
-function defaultContextWindow(provider: string): number {
+export function defaultContextWindow(provider: string): number {
   return BUILTIN_CONTEXT_WINDOW[provider] ?? 128_000;
 }
 
@@ -205,6 +205,48 @@ function applyOverrides(models: ModelCatalogEntry[], overrides: Record<string, M
   });
 }
 
+/**
+ * Parse a /model spec into a selection:
+ *  - '' → current provider, current model (listing)
+ *  - 'model-id' → current provider
+ *  - 'provider/model-id' → explicit provider
+ */
+export function parseModelSpec(spec: string, currentProvider: string): { provider: string; model: string } {
+  const trimmed = spec.trim();
+  if (trimmed.includes('/')) {
+    const idx = trimmed.indexOf('/');
+    return { provider: trimmed.slice(0, idx).trim(), model: trimmed.slice(idx + 1).trim() };
+  }
+  return { provider: currentProvider, model: trimmed };
+}
+
+/**
+ * Human-readable model listing for a provider (for the /model command).
+ * Marks the current model.
+ */
+export function describeModels(
+  catalog: ModelCatalog,
+  provider: string,
+  currentModel: string,
+): string {
+  const entry = catalog.providers[provider];
+  if (!entry) {
+    return `Unknown provider: ${provider}`;
+  }
+
+  const lines: string[] = [`Provider: ${provider}`];
+  for (const model of entry.models ?? []) {
+    const marker = model.id === currentModel ? ' *' : '  ';
+    const parts = [`${marker} ${model.id}`];
+    if (model.name && model.name !== model.id) parts.push(`(${model.name})`);
+    const ctx = model.contextWindow ?? defaultContextWindow(provider);
+    parts.push(`ctx ${ctx.toLocaleString()}`);
+    if (model.reasoning) parts.push('[reasoning]');
+    lines.push(parts.join('  '));
+  }
+  lines.push('', 'Switch with: /model <id>  or  /model <provider>/<id>');
+  return lines.join('\n');
+}
 /**
  * Resolve a model selection against the catalog.
  * Explicit overrides (env/CLI/config) win over catalog values.

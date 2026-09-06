@@ -9,7 +9,7 @@ import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { ThinkingLevel } from '../llm/compat.js';
 import type { TodoState } from '../tools/todo.js';
-import { useAgent } from './hooks/useAgent.js';
+import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
@@ -42,6 +42,10 @@ export interface AppProps {
   contextStrategy?: 'truncate' | 'compact';
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
+  /** List models for the /model command (returns display text). */
+  listModels?: () => string;
+  /** Resolve a /model <spec> switch (loop application happens in useAgent). */
+  resolveSwitch?: UseAgentConfig['resolveSwitch'];
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -68,11 +72,13 @@ export function App({
   contextWindow,
   contextStrategy,
   thinkingLevel,
+  listModels,
+  resolveSwitch,
   model,
   maxToolRounds,
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
-  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats } = useAgent({
+  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -84,6 +90,8 @@ export function App({
     contextWindow,
     contextStrategy,
     thinkingLevel,
+    listModels,
+    resolveSwitch,
     model,
     maxToolRounds,
   });
@@ -91,7 +99,7 @@ export function App({
   return (
     <Box flexDirection="column" width="100%" height="100%">
       <StatusBar
-        model={model}
+        model={modelInfo.model}
         workingDirectory={process.cwd()}
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}

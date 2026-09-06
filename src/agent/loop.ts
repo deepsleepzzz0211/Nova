@@ -59,11 +59,11 @@ export interface AgentLoopConfig {
 
 /** Core orchestration loop that manages LLM conversation with tool execution. */
 export class AgentLoop {
-  private readonly llm: LLMProvider;
+  private llm: LLMProvider;
   private readonly toolRegistry: ToolRegistry;
   private readonly toolExecutionPipeline: ToolExecutionPipeline;
   private readonly maxToolRounds: number;
-  private readonly model: string;
+  private model: string;
   private readonly contextManager: ContextManager | null;
   private readonly contextStrategy: LoopContextConfig['strategy'] | null;
   private readonly compactor: Compactor | null;
@@ -120,6 +120,16 @@ export class AgentLoop {
   /** Seed the conversation from a previous session (resume). */
   loadMessages(history: Message[]): void {
     this.messages = [...history];
+  }
+
+  /** Switch the active model (per-request ChatOptions value). */
+  setModel(model: string): void {
+    this.model = model;
+  }
+
+  /** Switch the LLM provider (e.g. after a catalog-driven /model switch). */
+  setProvider(llm: LLMProvider): void {
+    this.llm = llm;
   }
 
   /** Append a message to the conversation and the session log. */
