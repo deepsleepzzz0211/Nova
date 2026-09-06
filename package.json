@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "test:mutation": "stryker run",
-    "test:live": "vitest run --config tests/live/vitest.live.config.ts"
+    "test:live": "vitest run --config tests/live/vitest.live.config.ts",
+    "test:smoke": "vitest run --config tests/smoke/vitest.smoke.config.ts"
   },
   "keywords": [],
   "author": "",
