@@ -2,6 +2,7 @@ import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import type { Tool, ToolContext, ToolResult } from './types.js';
+import { proxyAwareFetch } from './proxy.js';
 
 const TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 512 * 1024; // 500KB
@@ -62,7 +63,7 @@ export function createWebFetchTool(): Tool {
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
       try {
-        const response = await fetch(url, {
+        const response = await proxyAwareFetch(url, {
           signal: controller.signal,
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; Nova/1.0)',

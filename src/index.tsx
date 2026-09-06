@@ -161,7 +161,10 @@ async function main(): Promise<void> {
   toolRegistry.register(createWriteFileTool());
   toolRegistry.register(createEditFileTool());
   toolRegistry.register(createBashTool());
-  toolRegistry.register(createWebSearchTool());
+  toolRegistry.register(createWebSearchTool({
+    provider: config.search.provider,
+    tavilyApiKey: config.search.tavilyApiKey,
+  }));
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool(todoState));
 
