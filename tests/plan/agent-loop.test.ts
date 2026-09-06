@@ -151,6 +151,74 @@ describe('AgentLoop', () => {
     await loop.processUserInput('use echo');
     // Should not crash, LLM sees denial message
   });
+
+  it('reports stream errors through onToken and stops the turn', async () => {
+    const llm = mockLLM([[{ type: 'error', error: 'boom from provider' }]]);
+    const tokens: string[] = [];
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: (t) => tokens.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput('hi');
+    expect(tokens.join('')).toBe('[Error: boom from provider]');
+  });
+
+  it('reports unknown tools as error tool results with is_error', async () => {
+    const llm = mockLLM([
+      [
+        { type: 'tool_call_start', id: 'c1', name: 'does_not_exist' },
+        { type: 'tool_call_delta', id: 'c1', arguments: '{}' },
+        { type: 'tool_call_end', id: 'c1' },
+      ],
+      [{ type: 'text_delta', content: 'ok' }],
+    ]);
+
+    const results: Array<{ content: string; isError?: boolean }> = [];
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: (r) => results.push(r),
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput('use ghost tool');
+    expect(results[0].isError).toBe(true);
+    expect(results[0].content).toContain('not found');
+    expect(results[0].content).toContain('does_not_exist');
+  });
+
+  it('loadMessages seeds history exactly (resume support)', async () => {
+    const llm = mockLLM([[{ type: 'text_delta', content: 'ok' }]]);
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const history: Message[] = [
+      { role: 'user', content: 'before' },
+      { role: 'assistant', content: 'answer' },
+    ];
+    loop.loadMessages(history);
+    expect(loop.getMessages()).toEqual(history);
+  });
 });
 
 describe('AgentLoop context management', () => {

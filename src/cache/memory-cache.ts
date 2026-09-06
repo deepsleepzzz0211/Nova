@@ -2,7 +2,7 @@ import type { Cache, CacheStats, CacheConfig } from './types.js';
 
 /** In-memory cache implementation with LRU eviction. */
 export class MemoryCache<K, V> implements Cache<K, V> {
-  private store = new Map<K, { value: V; timestamp: number; accessCount: number }>();
+  private store = new Map<K, { value: V; timestamp: number; accessCount: number; ttl?: number }>();
   private config: CacheConfig;
   private stats: CacheStats = { hits: 0, misses: 0, size: 0 };
 
@@ -21,8 +21,8 @@ export class MemoryCache<K, V> implements Cache<K, V> {
       return null;
     }
 
-    // Check TTL
-    if (Date.now() - entry.timestamp > this.config.ttl) {
+    // Check TTL (per-entry ttl overrides the instance default)
+    if (Date.now() - entry.timestamp > (entry.ttl ?? this.config.ttl)) {
       this.store.delete(key);
       this.stats.size--;
       this.stats.misses++;
@@ -46,6 +46,7 @@ export class MemoryCache<K, V> implements Cache<K, V> {
       value,
       timestamp: Date.now(),
       accessCount: 1,
+      ttl,
     });
     this.stats.size++;
   }

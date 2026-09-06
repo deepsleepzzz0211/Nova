@@ -4,3 +4,4 @@ dist/
 *.tgz
 .env
 .env.local
+reports/
