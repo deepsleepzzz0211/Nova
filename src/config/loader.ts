@@ -66,13 +66,18 @@ function loadTomlFile(filePath: string): Record<string, unknown> {
 /**
  * Load application configuration by merging (lowest to highest priority):
  *   1. Built-in defaults
- *   2. User-level config  (~/.nova/config.toml)
+ *   2. User-level config  (<nova-home>/.nova/config.toml)
  *   3. Project-level config (projectDir/config.toml)
  *   4. Environment variables (NOVA_API_KEY, NOVA_MODEL, NOVA_BASE_URL)
  *      (legacy: CODEAGENT_API_KEY, CODEAGENT_MODEL, CODEAGENT_BASE_URL)
+ *
+ * The nova home directory defaults to os.homedir() and can be overridden
+ * with the NOVA_HOME environment variable (test isolation / portable
+ * installs).
  */
 export function loadConfig(projectDir: string): AppConfig {
-  const userConfigPath = path.join(os.homedir(), '.nova', 'config.toml');
+  const novaHome = process.env.NOVA_HOME || os.homedir();
+  const userConfigPath = path.join(novaHome, '.nova', 'config.toml');
   const userConfig = loadTomlFile(userConfigPath);
 
   const projectConfigPath = path.join(projectDir, 'config.toml');

@@ -6,7 +6,17 @@ import { loadConfig } from '../../src/config/loader.js';
 
 describe('Config Loader', () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-')); });
+  let savedNovaHome: string | undefined;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-'));
+    // Isolate from the real user-level ~/.nova/config.toml
+    savedNovaHome = process.env.NOVA_HOME;
+    process.env.NOVA_HOME = tmpDir;
+  });
+  afterEach(() => {
+    if (savedNovaHome === undefined) delete process.env.NOVA_HOME;
+    else process.env.NOVA_HOME = savedNovaHome;
+  });
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('returns defaults when no config exists', () => {

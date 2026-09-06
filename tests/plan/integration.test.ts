@@ -70,7 +70,17 @@ describe('Integration: all tools register and policy works', () => {
 
 describe('Integration: config loads from TOML with defaults', () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-cfg-')); });
+  let savedNovaHome: string | undefined;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-cfg-'));
+    // Isolate from the real user-level ~/.nova/config.toml
+    savedNovaHome = process.env.NOVA_HOME;
+    process.env.NOVA_HOME = tmpDir;
+  });
+  afterEach(() => {
+    if (savedNovaHome === undefined) delete process.env.NOVA_HOME;
+    else process.env.NOVA_HOME = savedNovaHome;
+  });
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
   it('returns full default config when no config exists', () => {
