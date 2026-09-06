@@ -2,6 +2,17 @@ import * as fs from 'fs';
 import type { ApiId, CompatFlags, NormalizedCompat } from './compat.js';
 import { normalizeCompat } from './compat.js';
 
+/** Thinking levels (pi-style unified abstraction over vendor-specific params). */
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Map thinking levels to provider values. Values are tristate (pi semantics):
+ *  - omitted: standard levels through 'high' use the default mapping
+ *  - string: level supported, this value is sent to the provider
+ *  - null: level unsupported (hidden/clamped)
+ */
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+
 /**
  * Data-driven model catalog (pi-style): providers are data, wire protocols
  * are adapters. User providers/models are declared in `~/.nova/models.json`
@@ -38,8 +49,15 @@ export interface ModelCatalogEntry {
   contextWindow?: number;
   maxTokens?: number;
   reasoning?: boolean;
+  thinkingLevelMap?: ThinkingLevelMap;
   compat?: CompatFlags;
 }
+
+/**
+ * Per-model patch applied over built-in or declared models
+ * (pi-style modelOverrides). Unknown ids are ignored.
+ */
+export type ModelOverride = Partial<Omit<ModelCatalogEntry, 'id' | 'api'>>;
 
 /** A provider entry as declared in models.json. */
 export interface ProviderCatalogEntry {
@@ -48,6 +66,8 @@ export interface ProviderCatalogEntry {
   apiKey?: string;
   compat?: CompatFlags;
   models?: ModelCatalogEntry[];
+  /** Per-model patches over this provider's models (built-ins included). */
+  modelOverrides?: Record<string, ModelOverride>;
 }
 
 /** The full catalog: built-in defaults merged with user files. */
@@ -63,6 +83,7 @@ export interface ResolvedModelInfo {
   contextWindow: number;
   maxTokens: number;
   reasoning: boolean;
+  thinkingLevelMap?: ThinkingLevelMap;
   compat: NormalizedCompat;
 }
 
@@ -150,11 +171,14 @@ export function loadModelCatalog(userPaths: string[]): ModelCatalog {
 
     for (const [name, userEntry] of Object.entries(parsed.providers ?? {})) {
       const base = catalog.providers[name] ?? { models: [] };
-      catalog.providers[name] = {
+      const merged: ProviderCatalogEntry = {
         ...base,
         ...userEntry,
         models: mergeModels(base.models ?? [], userEntry.models ?? []),
       };
+      // Apply per-model overrides (pi-style): unknown ids are ignored
+      merged.models = applyOverrides(merged.models ?? [], userEntry.modelOverrides ?? {});
+      catalog.providers[name] = merged;
     }
   }
 
@@ -168,6 +192,19 @@ function mergeModels(base: ModelCatalogEntry[], user: ModelCatalogEntry[]): Mode
     byId.set(entry.id, { ...byId.get(entry.id), ...entry });
   }
   return [...byId.values()];
+}
+
+/** Apply per-model patches; unknown ids ignored; compat merged per key. */
+function applyOverrides(models: ModelCatalogEntry[], overrides: Record<string, ModelOverride>): ModelCatalogEntry[] {
+  return models.map((model) => {
+    const override = overrides[model.id];
+    if (!override) return model;
+    return {
+      ...model,
+      ...override,
+      compat: { ...model.compat, ...override.compat },
+    };
+  });
 }
 
 /**
@@ -200,6 +237,7 @@ export function resolveModel(selection: ModelSelection, catalog: ModelCatalog): 
       contextWindow: modelEntry?.contextWindow ?? defaultContextWindow(selection.provider),
       maxTokens: modelEntry?.maxTokens ?? 16_384,
       reasoning: modelEntry?.reasoning ?? false,
+      thinkingLevelMap: modelEntry?.thinkingLevelMap,
       compat: normalizeCompat(compatFlags),
     },
   };

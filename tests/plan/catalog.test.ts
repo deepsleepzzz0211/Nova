@@ -152,6 +152,48 @@ describe('ModelCatalog user file', () => {
     expect(resolveModel({ provider: 'p', model: 'any' }, catalog).model.compat.streamUsage).toBe(true);
   });
 
+  it('applies modelOverrides to built-in models without replacing them', () => {
+    writeJson(path.join(dir, 'models.json'), {
+      providers: {
+        openai: {
+          modelOverrides: {
+            // Only widen the window; other fields/pricing stay intact
+            'gpt-4o': { contextWindow: 1_050_000 },
+            // Unknown ids are ignored
+            'no-such-model': { contextWindow: 1 },
+          },
+        },
+      },
+    });
+
+    const catalog = loadModelCatalog([path.join(dir, 'models.json')]);
+    const overridden = resolveModel({ provider: 'openai', model: 'gpt-4o' }, catalog);
+    expect(overridden.model.contextWindow).toBe(1_050_000);
+
+    // Sibling models untouched
+    const sibling = resolveModel({ provider: 'openai', model: 'gpt-4o-mini' }, catalog);
+    expect(sibling.model.contextWindow).toBe(128_000);
+  });
+
+  it('merges override compat per key with the model compat', () => {
+    writeJson(path.join(dir, 'models.json'), {
+      providers: {
+        p: {
+          baseUrl: 'http://x/v1',
+          api: 'openai-completions',
+          models: [{ id: 'm1', compat: { supportsDeveloperRole: true, streamUsage: false } }],
+          modelOverrides: {
+            m1: { compat: { streamUsage: true } },
+          },
+        },
+      },
+    });
+
+    const catalog = loadModelCatalog([path.join(dir, 'models.json')]);
+    const r = resolveModel({ provider: 'p', model: 'm1' }, catalog);
+    expect(r.model.compat).toEqual({ supportsDeveloperRole: true, streamUsage: true });
+  });
+
   it('lets a model override the provider api', () => {
     writeJson(path.join(dir, 'models.json'), {
       providers: {
