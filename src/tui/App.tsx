@@ -7,11 +7,13 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from '../agent/session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
+import type { TodoState } from '../tools/todo.js';
 import { useAgent } from './hooks/useAgent.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
 import { PermissionDialog } from './PermissionDialog.js';
+import { TodoView } from './TodoView.js';
 
 /** Props for the App component. */
 export interface AppProps {
@@ -31,6 +33,8 @@ export interface AppProps {
   promptOptions?: BuildPromptOptions;
   /** Extra prompt section from config. */
   customPrompt?: string;
+  /** Shared todo state maintained by the todo_write tool. */
+  todoState?: TodoState;
   /** Model name to display and use. */
   model: string;
   /** Maximum tool execution rounds per request. */
@@ -53,6 +57,7 @@ export function App({
   skills,
   promptOptions,
   customPrompt,
+  todoState,
   model,
   maxToolRounds,
   mcpConnectionCount,
@@ -77,6 +82,8 @@ export function App({
         workingDirectory={process.cwd()}
         mcpConnectionCount={mcpConnectionCount}
       />
+
+      {todoState && <TodoView todoState={todoState} />}
 
       <ChatView messages={messages} />
 

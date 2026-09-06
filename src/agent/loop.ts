@@ -47,7 +47,7 @@ export interface AgentLoopConfig {
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
-  onToolResult: (result: ToolResult) => void;
+  onToolResult: (result: ToolResult, callId?: string) => void;
   onPermissionRequest: (call: ToolCall) => Promise<boolean>;
 }
 
@@ -68,7 +68,7 @@ export class AgentLoop {
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
-  private readonly onToolResult: (result: ToolResult) => void;
+  private readonly onToolResult: (result: ToolResult, callId?: string) => void;
   private readonly onPermissionRequest: (call: ToolCall) => Promise<boolean>;
   private messages: Message[] = [];
 
@@ -235,45 +235,18 @@ export class AgentLoop {
           tool_calls: callArray,
         });
 
-        // Execute each tool call through the single execution pipeline.
-        // The pipeline owns the permission policy + user confirmation;
-        // the loop only supplies the confirmation callback.
-        for (const call of callArray) {
-          const pushToolMessage = (result: ToolResult): void => {
-            this.onToolResult(result);
-            this.pushMessage({
-              role: 'tool',
-              tool_call_id: call.id,
-              content: result.content,
-              is_error: result.isError,
-            });
-          };
-
-          const tool = this.toolRegistry.get(call.function.name);
-          if (!tool) {
-            pushToolMessage({
-              content: `Tool "${call.function.name}" not found.`,
-              isError: true,
-            });
-            continue;
-          }
-
-          try {
-            const params = JSON.parse(call.function.arguments) as Record<string, unknown>;
-            const result = await this.toolExecutionPipeline.execute(
-              tool,
-              params,
-              {
-                workingDirectory: process.cwd(),
-                abortSignal: new AbortController().signal,
-              },
-              { confirm: () => this.onPermissionRequest(call) },
-            );
-            pushToolMessage(result);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            pushToolMessage({ content: msg, isError: true });
-          }
+        // Execute all tool calls of the round concurrently (mainstream
+        // pattern); results are appended to the conversation in call order.
+        const settled = await Promise.all(
+          callArray.map(async (call) => ({ call, result: await this.executeToolCall(call) })),
+        );
+        for (const { call, result } of settled) {
+          this.pushMessage({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: result.content,
+            is_error: result.isError,
+          });
         }
 
         // Continue to next round — call LLM again with tool results
@@ -289,5 +262,81 @@ export class AgentLoop {
     // Exceeded maxToolRounds — append what we have and stop
     this.pushMessage({ role: 'assistant', content: '' });
     return { text: '', rounds };
+  }
+
+  /** Execute one tool call through the pipeline and notify the UI. */
+  private async executeToolCall(call: ToolCall): Promise<ToolResult> {
+    const tool = this.toolRegistry.get(call.function.name);
+    if (!tool) {
+      const result: ToolResult = {
+        content: `Tool "${call.function.name}" not found.`,
+        isError: true,
+      };
+      this.onToolResult(result, call.id);
+      return result;
+    }
+
+    try {
+      const params = JSON.parse(call.function.arguments) as Record<string, unknown>;
+      const result = await this.toolExecutionPipeline.execute(
+        tool,
+        params,
+        {
+          workingDirectory: process.cwd(),
+          abortSignal: new AbortController().signal,
+        },
+        { confirm: () => this.onPermissionRequest(call) },
+      );
+      this.onToolResult(result, call.id);
+      return result;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const result: ToolResult = { content: msg, isError: true };
+      this.onToolResult(result, call.id);
+      return result;
+    }
+  }
+
+  /** Current conversation history (introspection/testing). */
+  getMessages(): readonly Message[] {
+    return this.messages;
+  }
+
+  /**
+   * Force a compaction/truncation pass regardless of the token trigger.
+   * Used by the /compact command.
+   */
+  async compactNow(): Promise<{
+    compacted: boolean;
+    strategy?: 'truncate' | 'compact';
+    beforeTokens?: number;
+    afterTokens?: number;
+  }> {
+    if (!this.contextManager || !this.contextStrategy) {
+      return { compacted: false };
+    }
+
+    const beforeTokens = this.contextManager.countTokens(this.messages);
+
+    let after: Message[] | null = null;
+    if (this.compactor) {
+      after = await this.compactor.compact(this.messages);
+    }
+    if (after === null) {
+      // Manual truncate target: half the trigger budget (aggressive cleanup)
+      after = this.contextManager.truncateToTokens(
+        this.messages,
+        Math.floor(this.contextManager.triggerTokens / 2),
+      );
+    }
+
+    if (after.length === this.messages.length) {
+      return { compacted: false, strategy: this.contextStrategy, beforeTokens };
+    }
+
+    const afterTokens = this.contextManager.countTokens(after);
+    this.messages = after;
+    this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
+    return { compacted: true, strategy: this.contextStrategy, beforeTokens, afterTokens };
   }
 }

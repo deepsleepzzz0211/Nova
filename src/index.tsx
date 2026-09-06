@@ -84,13 +84,14 @@ async function main(): Promise<void> {
 
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
+  const todoState = { todos: [] };
   toolRegistry.register(createReadFileTool());
   toolRegistry.register(createWriteFileTool());
   toolRegistry.register(createEditFileTool());
   toolRegistry.register(createBashTool());
   toolRegistry.register(createWebSearchTool());
   toolRegistry.register(createWebFetchTool());
-  toolRegistry.register(createTodoTool({ todos: [] }));
+  toolRegistry.register(createTodoTool(todoState));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
   const spawner = new SubagentSpawner({
@@ -122,6 +123,7 @@ async function main(): Promise<void> {
       skills={skillRegistry}
       promptOptions={{ environment, projectInstructions }}
       customPrompt={config.agent.systemPrompt || undefined}
+      todoState={todoState}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

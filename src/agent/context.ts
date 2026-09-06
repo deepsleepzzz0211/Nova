@@ -85,11 +85,11 @@ export class ContextManager {
   }
 
   /**
-   * Truncate messages to fit within the token limit.
+   * Truncate messages to fit within a target token budget.
    * Always preserves leading system messages and drops the oldest
    * non-system messages first.
    */
-  truncate(messages: Message[]): Message[] {
+  truncateToTokens(messages: Message[], targetTokens: number): Message[] {
     const systemMessages: Message[] = [];
     const otherMessages: Message[] = [];
 
@@ -102,10 +102,19 @@ export class ContextManager {
     }
 
     let kept = [...otherMessages];
-    while (kept.length > 0 && this.countTokens([...systemMessages, ...kept]) > this.maxTokens) {
+    while (kept.length > 0 && this.countTokens([...systemMessages, ...kept]) > targetTokens) {
       kept = kept.slice(1);
     }
 
     return [...systemMessages, ...kept];
+  }
+
+  /**
+   * Truncate messages to fit within the token limit.
+   * Always preserves leading system messages and drops the oldest
+   * non-system messages first.
+   */
+  truncate(messages: Message[]): Message[] {
+    return this.truncateToTokens(messages, this.maxTokens);
   }
 }

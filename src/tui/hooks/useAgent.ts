@@ -20,7 +20,7 @@ export interface DisplayToolCall {
 
 /** A message as displayed in the UI. */
 export interface DisplayMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   toolCalls?: DisplayToolCall[];
 }
@@ -116,19 +116,29 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       });
     };
 
-    const onToolResult = (result: ToolResult): void => {
+    const onToolResult = (result: ToolResult, callId?: string): void => {
       if (!currentAssistantRef.current) return;
       const calls = currentAssistantRef.current.toolCalls;
-      // Find the last running tool call and update it
-      for (let i = calls.length - 1; i >= 0; i--) {
-        if (calls[i].status === 'running') {
-          calls[i] = {
-            ...calls[i],
-            status: result.isError ? 'error' : 'done',
-            result: result.content,
-          };
-          break;
+      // Match by call id when provided (parallel execution); fall back to
+      // the last running call.
+      let index = -1;
+      if (callId !== undefined) {
+        index = calls.findIndex((c) => c.id === callId);
+      }
+      if (index === -1) {
+        for (let i = calls.length - 1; i >= 0; i--) {
+          if (calls[i].status === 'running') {
+            index = i;
+            break;
+          }
         }
+      }
+      if (index !== -1) {
+        calls[index] = {
+          ...calls[index],
+          status: result.isError ? 'error' : 'done',
+          result: result.content,
+        };
       }
       setMessages((prev) => {
         const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
@@ -160,6 +170,12 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       onToolCall,
       onToolResult,
       onPermissionRequest,
+      onCompaction: (info) => {
+        setMessages((prev) => [...prev, {
+          role: 'system' as const,
+          content: `[context ${info.strategy === 'compact' ? 'compacted' : 'truncated'}: ${info.beforeTokens} → ${info.afterTokens} tokens]`,
+        }]);
+      },
     });
 
     if (config.initialHistory && config.initialHistory.length > 0) {
@@ -192,6 +208,23 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;
 
+    const loop = loopRef.current;
+    if (!loop) return;
+
+    // Slash command: /compact — force a context compaction pass
+    if (trimmed === '/compact') {
+      setMessages((prev) => [...prev, { role: 'user' as const, content: '/compact' }]);
+      void loop.compactNow().then((result) => {
+        setMessages((prev) => [...prev, {
+          role: 'system' as const,
+          content: result.compacted
+            ? `[context compacted: ${result.beforeTokens} → ${result.afterTokens} tokens]`
+            : '[nothing to compact — context is small]',
+        }]);
+      });
+      return;
+    }
+
     // Add user message to display
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
 
@@ -199,7 +232,6 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     currentAssistantRef.current = null;
     setIsStreaming(true);
 
-    const loop = loopRef.current;
     if (!loop) return;
 
     // Run the agent loop (fire-and-forget; state updates happen via callbacks)

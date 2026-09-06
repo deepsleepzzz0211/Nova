@@ -29,6 +29,15 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
     );
   }
 
+  // System notices (compaction, etc.)
+  if (message.role === 'system') {
+    return (
+      <Box marginY={0} paddingLeft={2}>
+        <Text color="gray" dimColor italic>{message.content}</Text>
+      </Box>
+    );
+  }
+
   // Assistant message
   return (
     <Box flexDirection="column" marginY={0}>
