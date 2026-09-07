@@ -1,26 +1,31 @@
 name: Publish
 
 # Publishes on version tags: npm version patch && git push --tags
-# Requires the NPM_TOKEN secret (npm granular access token, Automation type).
-# Provenance additionally requires the repo to be hosted on a public GitHub
-# remote; otherwise remove the --provenance flag.
+# Prerelease tags (contain '-') publish to dist-tag "next"; stable tags
+# publish to "latest".
+# Requires the NPM_TOKEN secret (classic Automation token — bypasses 2FA).
+# Provenance requires a public GitHub remote.
 
 on:
   push:
     tags: ["v*"]
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write # for npm provenance
-      contents: read
+  # Full gate across 3 OS x 2 Node versions. Publishing happens only when
+  # every combination is green.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4   # reads packageManager from package.json
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           registry-url: "https://registry.npmjs.org/"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
@@ -30,6 +35,23 @@ jobs:
         run: pnpm audit --prod --audit-level=high
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm build
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # for npm provenance
+      contents: write # for GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4   # reads packageManager from package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org/"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Publish
         id: publish
