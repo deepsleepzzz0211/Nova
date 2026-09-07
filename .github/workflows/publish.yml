@@ -1,0 +1,34 @@
+name: Publish
+
+# Publishes on version tags: npm version patch && git push --tags
+# Requires the NPM_TOKEN secret (npm granular access token, Automation type).
+# Provenance additionally requires the repo to be hosted on a public GitHub
+# remote; otherwise remove the --provenance flag.
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # for npm provenance
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org/"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,7 +1,7 @@
 {
-  "name": "nova",
+  "name": "@posuiqianqiu/nova",
   "version": "0.1.0",
-  "description": "CLI AI Agent built with Ink and React",
+  "description": "CLI AI Agent built with Ink and React — streaming LLM chat with tool use in the terminal",
   "type": "module",
   "bin": {
     "nova": "./dist/index.js"
@@ -14,9 +14,18 @@
     "typecheck": "tsc --noEmit",
     "test:mutation": "stryker run",
     "test:live": "vitest run --config tests/live/vitest.live.config.ts",
-    "test:smoke": "vitest run --config tests/smoke/vitest.smoke.config.ts"
+    "test:smoke": "vitest run --config tests/smoke/vitest.smoke.config.ts",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
   },
-  "keywords": [],
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "llm",
+    "mcp",
+    "ink",
+    "coding-agent"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.30.2",
@@ -44,5 +53,23 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/posuiqianqiu/nova.git"
+  },
+  "bugs": {
+    "url": "https://github.com/posuiqianqiu/nova/issues"
+  },
+  "homepage": "https://github.com/posuiqianqiu/nova#readme"
 }
