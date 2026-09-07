@@ -35,7 +35,15 @@ jobs:
         id: publish
         shell: bash
         run: |
-          npm publish --access public --provenance 2>&1 | tee /tmp/publish.log
+          set -o pipefail
+          # Prerelease tags (contain '-') publish to dist-tag "next" so they
+          # never occupy "latest"; stable tags publish to "latest" (default).
+          EXTRA_FLAGS=""
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "prerelease tag → dist-tag: next"
+            EXTRA_FLAGS="--tag next"
+          fi
+          npm publish --access public --provenance $EXTRA_FLAGS 2>&1 | tee /tmp/publish.log
           exit ${PIPESTATUS[0]}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
