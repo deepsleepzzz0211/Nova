@@ -9,6 +9,8 @@ export interface StatusBarProps {
   workingDirectory: string;
   /** Number of active MCP server connections. */
   mcpConnectionCount: number;
+  /** One-line update notice (or null when silent). */
+  updateNotice?: string;
   /** Prompt-cache metrics (pi-style R/W/CH). */
   cacheStats?: {
     hitRate: number;
@@ -29,7 +31,7 @@ function fmtTokens(n: number): string {
  * Displays a status bar showing the current model, working directory,
  * number of active MCP connections, and prompt-cache usage (R/W/CH).
  */
-export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheStats }: StatusBarProps): React.ReactElement {
+export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheStats, updateNotice }: StatusBarProps): React.ReactElement {
   const mcpLabel = mcpConnectionCount === 1
     ? '1 MCP server'
     : `${mcpConnectionCount} MCP servers`;
@@ -39,6 +41,9 @@ export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheSt
       <Text bold color="cyan">{model}</Text>
       <Text color="gray" dimColor>{workingDirectory}</Text>
       <Text color="gray" dimColor>{mcpLabel}</Text>
+      {updateNotice && (
+        <Text color="yellow">{updateNotice}</Text>
+      )}
       {cacheStats && cacheStats.totalCachedTokens + cacheStats.totalCacheWriteTokens > 0 && (
         <Text color="green">
           {`R ${fmtTokens(cacheStats.totalCachedTokens)} W ${fmtTokens(cacheStats.totalCacheWriteTokens)} CH ${Math.round(cacheStats.latestHitRate * 100)}%`}

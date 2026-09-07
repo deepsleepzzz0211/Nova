@@ -10,6 +10,7 @@ import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 import type { ThinkingLevel } from '../../llm/compat.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
+import { runNpmUpdate } from '../../update/run-update.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -263,6 +264,15 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
 
     const loop = loopRef.current;
     if (!loop) return;
+
+    // Slash command: /update — npm i -g and report (takes effect on restart)
+    if (trimmed === '/update') {
+      setMessages((prev) => [...prev, { role: 'system' as const, content: 'checking for updates…' }]);
+      void runNpmUpdate().then((r) => {
+        setMessages((prev) => [...prev, { role: 'system' as const, content: r.message }]);
+      });
+      return;
+    }
 
     // Slash command: /model [spec] — list or switch models
     if (trimmed === '/model' || trimmed.startsWith('/model ')) {

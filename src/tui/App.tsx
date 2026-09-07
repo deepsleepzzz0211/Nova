@@ -10,6 +10,7 @@ import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { ThinkingLevel } from '../llm/compat.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
+import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
@@ -78,6 +79,7 @@ export function App({
   maxToolRounds,
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
+  const updateNotice = useUpdateNotice();
   const { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo } = useAgent({
     llm,
     toolRegistry,
@@ -103,6 +105,7 @@ export function App({
         workingDirectory={process.cwd()}
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}
+        updateNotice={updateNotice ?? undefined}
       />
 
       {todoState && <TodoView todoState={todoState} />}
