@@ -85,8 +85,10 @@ jobs:
           # renders — without a TTY it exits with the Raw mode error, which
           # is exactly the expected output here. (No dummy key → a
           # credentials fatal fires before the TUI ever starts.)
-          NOVA_API_KEY=sk-ci-smoke-dummy nova 2>&1 | grep -q "Raw mode is not supported" \
-            && echo "bin boot OK" || { echo "bin boot FAILED"; exit 1; }
+          NOVA_API_KEY=sk-ci-smoke-dummy timeout 60 nova > /tmp/boot.log 2>&1 || true
+          cat /tmp/boot.log
+          grep -q "Raw mode is not supported" /tmp/boot.log \
+            && { echo "bin boot OK"; } || { echo "bin boot FAILED"; exit 1; }
       - name: GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
