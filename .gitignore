@@ -1,7 +1,31 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build output
 dist/
-.nova/
-*.tgz
-.env
-.env.local
+*.tsbuildinfo
+
+# Test / coverage / tooling artifacts
+coverage/
 reports/
+*.tgz
+
+# Environment & secrets (example templates stay tracked)
+.env
+.env.*
+!.env.example
+.nova/
+.npmrc
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*~
