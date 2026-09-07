@@ -28,7 +28,7 @@ importers:
         version: 30.0.1
       openai:
         specifier: ^7.10.0
-        version: 7.10.0(undici@8.10.2)(ws@8.21.3)(zod@4.5.4)
+        version: 7.10.0(undici@7.29.1)(ws@8.21.3)(zod@4.5.4)
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -42,8 +42,8 @@ importers:
         specifier: ^7.2.4
         version: 7.2.4
       undici:
-        specifier: ^8.10.2
-        version: 8.10.2
+        specifier: ^7.29.1
+        version: 7.29.1
     devDependencies:
       '@stryker-mutator/core':
         specifier: ^10.0.0
@@ -2261,6 +2261,10 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  undici@7.29.1:
+    resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
+    engines: {node: '>=20.18.1'}
+
   undici@8.10.2:
     resolution: {integrity: sha512-/y4/bH9YNU5hi9NIrpOuvGXFcxrj3CMrV+/AYpowAYTpHn8gX/XPFjNy766FPoYY0miQhdW977JFWKGNhBdwyQ==}
     engines: {node: '>=22.19.0'}
@@ -4021,9 +4025,9 @@ snapshots:
     dependencies:
       mimic-fn: 2.1.0
 
-  openai@7.10.0(undici@8.10.2)(ws@8.21.3)(zod@4.5.4):
+  openai@7.10.0(undici@7.29.1)(ws@8.21.3)(zod@4.5.4):
     optionalDependencies:
-      undici: 8.10.2
+      undici: 7.29.1
       ws: 8.21.3
       zod: 4.5.4
 
@@ -4456,6 +4460,8 @@ snapshots:
   undici-types@8.10.2: {}
 
   undici-types@8.3.0: {}
+
+  undici@7.29.1: {}
 
   undici@8.10.2: {}
 
