@@ -81,9 +81,11 @@ jobs:
           npm view @posuiqianqiu/nova@$VERSION version
           npm i -g @posuiqianqiu/nova@$VERSION
           # Headless TUI boot check: the bin must load, resolve deps and
-          # start Ink. Without a TTY, Ink exits with the Raw mode error —
-          # which is exactly the expected output here.
-          nova 2>&1 | grep -q "Raw mode is not supported" \
+          # start Ink. With a dummy key the provider init succeeds and Ink
+          # renders — without a TTY it exits with the Raw mode error, which
+          # is exactly the expected output here. (No dummy key → a
+          # credentials fatal fires before the TUI ever starts.)
+          NOVA_API_KEY=sk-ci-smoke-dummy nova 2>&1 | grep -q "Raw mode is not supported" \
             && echo "bin boot OK" || { echo "bin boot FAILED"; exit 1; }
       - name: GitHub Release
         if: success()
