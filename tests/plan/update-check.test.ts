@@ -18,6 +18,11 @@ describe('compareSemver', () => {
     expect(compareSemver('1.0.0', '1.0.0')).toBe(0);
   });
 
+  it('prerelease tails compare numerically (beta.10 > beta.2)', () => {
+    expect(compareSemver('0.1.3-beta.10', '0.1.3-beta.2')).toBe(1);
+    expect(compareSemver('0.1.3-beta.2', '0.1.3-beta.10')).toBe(-1);
+  });
+
   it('prerelease is older than the same release', () => {
     expect(compareSemver('0.1.3-beta.1', '0.1.3')).toBe(-1);
     expect(compareSemver('0.1.3', '0.1.3-beta.1')).toBe(1);

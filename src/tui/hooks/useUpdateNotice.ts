@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getUpdateNotice } from '../../update/update-check.js';
+import { currentVersion, getUpdateNotice } from '../../update/update-check.js';
 
 /**
  * Fire-and-forget update check at app start.
@@ -11,7 +11,7 @@ export function useUpdateNotice(): string | null {
 
   useEffect(() => {
     let cancelled = false;
-    void getUpdateNotice(__NOVA_VERSION__).then((n) => {
+    void getUpdateNotice(currentVersion()).then((n) => {
       if (!cancelled && n) setNotice(n);
     });
     return () => { cancelled = true; };

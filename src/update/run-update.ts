@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { PACKAGE_NAME } from './constants.js';
 
 export interface SpawnResult {
   code: number;
@@ -30,7 +31,7 @@ export async function runNpmUpdate(
 ): Promise<{ ok: boolean; message: string }> {
   const spawnImpl = options?.spawnImpl ?? DEFAULT_SPAWN;
   try {
-    const r = await spawnImpl('npm', ['i', '-g', '@posuiqianqiu/nova@latest']);
+    const r = await spawnImpl('npm', ['i', '-g', `${PACKAGE_NAME}@latest`]);
     if (r.code === 0) {
       const tail = r.output.trim().split('\n').slice(-3).join('\n');
       return { ok: true, message: `update installed — restart nova to use it\n${tail}` };

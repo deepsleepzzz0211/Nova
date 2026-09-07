@@ -1,10 +1,12 @@
+/** npm 包标识（单一来源，供 registry 查询与全局安装共用）。 */
+import { PACKAGE_NAME } from './constants.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 
 /** npm dist-tag to check. */
-const REGISTRY_URL = 'https://registry.npmjs.org/@posuiqianqiu/nova/latest';
+const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 /** Update-check cache TTL (24h, same policy as Gemini CLI). */
 const TTL_MS = 24 * 60 * 60 * 1000;
 /** Network timeout — never block startup on this. */
@@ -36,6 +38,19 @@ function parseVersion(v: string): ParsedVersion {
   return { core: [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0], pre };
 }
 
+/**
+ * Numeric-aware prerelease comparison: `beta.10` > `beta.2`
+ * (falls back to string ordering for non-numeric tails).
+ */
+function comparePrerelease(a: string, b: string): number {
+  const na = Number(a.split('.').pop());
+  const nb = Number(b.split('.').pop());
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) {
+    return na < nb ? -1 : 1;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Minimal semver comparison: numeric fields, then prerelease < release. */
 export function compareSemver(a: string, b: string): number {
   const pa = parseVersion(a);
@@ -46,7 +61,7 @@ export function compareSemver(a: string, b: string): number {
   if (pa.pre === null && pb.pre === null) return 0;
   if (pa.pre === null) return 1; // release > prerelease
   if (pb.pre === null) return -1;
-  return pa.pre < pb.pre ? -1 : pa.pre > pb.pre ? 1 : 0;
+  return comparePrerelease(pa.pre, pb.pre);
 }
 
 interface CacheFile {
