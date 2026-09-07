@@ -15,7 +15,8 @@
     "test:mutation": "stryker run",
     "test:live": "vitest run --config tests/live/vitest.live.config.ts",
     "test:smoke": "vitest run --config tests/smoke/vitest.smoke.config.ts",
-    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build"
+    "prepublishOnly": "node scripts/scan-secrets.mjs && pnpm typecheck && pnpm test && pnpm build",
+    "scan:secrets": "node scripts/scan-secrets.mjs"
   },
   "keywords": [
     "ai",
