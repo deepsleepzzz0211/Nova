@@ -53,6 +53,22 @@ function deepMerge(
   return result;
 }
 
+/** Validate/normalize the merged config. Returns warnings for the caller to surface. */
+export function normalizeConfig(config: AppConfig): { config: AppConfig; warnings: string[] } {
+  const warnings: string[] = [];
+  if (config.agent.contextStrategy !== 'truncate' && config.agent.contextStrategy !== 'compact') {
+    warnings.push(
+      `unknown agent.context_strategy "${config.agent.contextStrategy}" — falling back to "truncate" (valid: truncate, compact)`,
+    );
+    config = { ...config, agent: { ...config.agent, contextStrategy: 'truncate' } };
+  }
+  if (config.agent.subagentMaxConcurrent !== undefined && config.agent.subagentMaxConcurrent < 1) {
+    warnings.push('agent.subagent_max_concurrent must be >= 1 — falling back to 3');
+    config = { ...config, agent: { ...config.agent, subagentMaxConcurrent: 3 } };
+  }
+  return { config, warnings };
+}
+
 /** Read and parse a TOML file, returning an empty object on any failure. */
 function loadTomlFile(filePath: string): Record<string, unknown> {
   try {

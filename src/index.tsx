@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
-import { loadConfig } from './config/loader.js';
+import { loadConfig, normalizeConfig } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
 import type { LLMProvider } from './llm/provider.js';
@@ -35,7 +35,7 @@ import { PermissionPolicy } from './permission/policy.js';
 
 async function main(): Promise<void> {
   const projectDir = process.cwd();
-  const config = loadConfig(projectDir);
+  const { config, warnings: configWarnings } = normalizeConfig(loadConfig(projectDir));
 
   // Parse CLI arguments (highest priority)
   const { values } = parseArgs({
@@ -92,6 +92,12 @@ async function main(): Promise<void> {
   // Session persistence: --list prints sessions and exits; --resume picks
   // a session (interactive picker when several exist, latest otherwise).
   const sessionsDir = path.join(os.homedir(), '.nova', 'sessions');
+  // Startup hygiene: surface config warnings, sweep stale sessions
+  for (const warning of configWarnings) {
+    console.error(`[config] ${warning}`);
+  }
+  const swept = SessionStore.sweep(sessionsDir);
+  if (swept > 0) console.error(`[sessions] removed ${swept} session file(s) older than 30 days`);
   let initialHistory: Message[] = [];
   if (values.list) {
     const sessions = SessionStore.listSummaries(sessionsDir);

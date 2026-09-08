@@ -117,6 +117,34 @@ export class SessionStore {
   }
 
   /**
+   * Delete session files older than maxAgeDays (default 30, Claude-Code
+   * style retention). Returns the number of files removed.
+   */
+  static sweep(dir: string, maxAgeDays = 30): number {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return 0;
+    }
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    let removed = 0;
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+      const full = path.join(dir, entry.name);
+      try {
+        if (fs.statSync(full).mtimeMs < cutoff) {
+          fs.unlinkSync(full);
+          removed++;
+        }
+      } catch {
+        // Skip files that vanish or cannot be stat'ed/unlinked
+      }
+    }
+    return removed;
+  }
+
+  /**
    * Summaries of every session in a directory, newest first: file path,
    * message count, and a preview of the first user message (truncated to
    * 60 chars; system/skill messages do not count as the preview).
