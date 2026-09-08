@@ -313,15 +313,23 @@ describe('AgentLoop context management', () => {
   });
 
   it('reactively compacts and retries once when the API reports context overflow', async () => {
-    let callCount = 0;
+    // The estimate says the context fits (no proactive compaction fires),
+    // but the provider still rejects it — the reactive safety net must
+    // compact and retry the round exactly once.
+    let chatCalls = 0;
     const llm: LLMProvider = {
-      async *chat(): AsyncIterable<StreamChunk> {
-        callCount++;
-        if (callCount === 1) {
-          yield { type: 'text_delta', content: 'reply '.repeat(200) }; // turn 1 fills the window
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        // Summarizer calls (tool-free) always succeed
+        if (opts.tools === undefined) {
+          yield { type: 'text_delta', content: 'User tested overflow recovery.' };
           return;
         }
-        if (callCount === 2) {
+        chatCalls++;
+        if (chatCalls === 1) {
+          yield { type: 'text_delta', content: 'reply '.repeat(200) }; // big turn-1 reply
+          return;
+        }
+        if (chatCalls === 2) {
           throw new Error("This model's maximum context length is 128000 tokens. However, your messages resulted in 150000 tokens. Please reduce the length of the messages.");
         }
         yield { type: 'text_delta', content: 'recovered' };
@@ -334,7 +342,8 @@ describe('AgentLoop context management', () => {
       toolRegistry: new ToolRegistry(),
       toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
-      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      // High trigger (no proactive compaction) but the provider overflows anyway
+      context: { maxTokens: 1000, strategy: 'compact', keepRecentTokens: 0 },
       onCompaction: (info) => compactions.push(info),
       onToken: () => {},
       onToolCall: () => {},
@@ -342,12 +351,11 @@ describe('AgentLoop context management', () => {
       onPermissionRequest: async () => true,
     });
 
-    // Turn 1 fills the window; turn 2 overflows → reactive compaction → retry
-    await loop.processUserInput(longText());
-    const turn = await loop.processUserInput(longText());
+    await loop.processUserInput('hello '.repeat(15));
+    const turn = await loop.processUserInput('hello '.repeat(15));
 
     expect(turn.text).toBe('recovered');
-    expect(callCount).toBe(3); // turn1 + overflow + one retry
+    expect(chatCalls).toBe(3); // turn1 + overflow + one retry
     expect(compactions.some((c) => c.strategy === 'compact')).toBe(true);
   });
 
