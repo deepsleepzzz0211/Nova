@@ -238,7 +238,9 @@ describe('AgentLoop context management', () => {
           yield { type: 'text_delta', content: 'User tested context compaction.' };
           return;
         }
-        yield { type: 'text_delta', content: 'done' };
+        // First turn replies long (like a real tool-heavy turn) so that
+        // summarizing it actually shrinks the context.
+        yield { type: 'text_delta', content: callIndex === 1 ? 'reply '.repeat(200) : 'done' };
       },
     };
 
@@ -250,7 +252,7 @@ describe('AgentLoop context management', () => {
       toolRegistry: registry,
       toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
-      context: { maxTokens: 150, strategy: 'compact' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
       onCompaction: (info) => compactions.push(info),
       onToken: () => {},
       onToolCall: () => {},

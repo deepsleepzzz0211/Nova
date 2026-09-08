@@ -26,6 +26,8 @@ export interface LoopContextConfig {
   maxTokens: number;
   /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
   reserveTokens?: number;
+  /** Recent tokens kept verbatim during compaction. Default 20000. */
+  keepRecentTokens?: number;
   /** What to do when the budget is approached: drop old messages or summarize. */
   strategy: 'truncate' | 'compact';
 }
@@ -105,7 +107,9 @@ export class AgentLoop {
       : null;
     this.contextStrategy = options.context?.strategy ?? null;
     this.compactor = options.context?.strategy === 'compact'
-      ? new Compactor(options.llm, options.config.model)
+      ? new Compactor(options.llm, options.config.model, {
+          keepRecentTokens: options.context.keepRecentTokens,
+        })
       : null;
     this.session = options.session ?? null;
     this.skills = options.skills ?? null;
@@ -402,11 +406,12 @@ export class AgentLoop {
       );
     }
 
-    if (after.length === this.messages.length) {
+    const afterTokens = this.contextManager.countTokens(after);
+    // Compaction is meaningful only when it actually shrank the context
+    // (the summary can outweigh toy-size summarized content).
+    if (afterTokens >= beforeTokens) {
       return { compacted: false, strategy: this.contextStrategy, beforeTokens };
     }
-
-    const afterTokens = this.contextManager.countTokens(after);
     this.messages = after;
     this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
     return { compacted: true, strategy: this.contextStrategy, beforeTokens, afterTokens };

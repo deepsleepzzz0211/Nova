@@ -213,6 +213,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           ? {
               maxTokens: config.contextWindow,
               reserveTokens: config.contextReserveTokens,
+              keepRecentTokens: config.contextKeepRecentTokens,
               strategy: config.contextStrategy ?? 'truncate',
             }
           : undefined,

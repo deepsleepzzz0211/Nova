@@ -130,13 +130,16 @@ describe('AgentLoop.compactNow', () => {
   }
 
   it('forces compaction regardless of the trigger threshold', async () => {
+    let replyIndex = 0;
     const llm: LLMProvider = {
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'text_delta', content: 'summary of everything' };
           return;
         }
-        yield { type: 'text_delta', content: 'ok' };
+        // First turn replies long (realistic tool-heavy turn) so that
+        // summarizing it shrinks the context.
+        yield { type: 'text_delta', content: replyIndex++ === 0 ? 'reply '.repeat(200) : 'ok' };
       },
     };
 
@@ -145,7 +148,7 @@ describe('AgentLoop.compactNow', () => {
       toolRegistry: new ToolRegistry(),
       toolExecutionPipeline: makePipeline(),
       config: { maxToolRounds: 10, model: 'test' },
-      context: { maxTokens: 100_000, strategy: 'compact' }, // high threshold: never auto-triggers
+      context: { maxTokens: 100_000, strategy: 'compact', keepRecentTokens: 0 }, // never auto-triggers; manual /compact forces it
       onToken: () => {},
       onToolCall: () => {},
       onToolResult: () => {},
@@ -160,11 +163,12 @@ describe('AgentLoop.compactNow', () => {
 
     expect(result.compacted).toBe(true);
     expect(result.beforeTokens).toBeGreaterThan(result.afterTokens!);
-    // History replaced by summary + recent messages
+    // History replaced by summary + kept messages (summary replaces the
+    // summarized ones 1:1, so the count stays equal — tokens must shrink)
     const after = loop.getMessages();
     expect(after[0].role).toBe('system');
     expect(after[0].content).toContain(SUMMARY_MARKER);
-    expect(after.length).toBeLessThan(before);
+    expect(after.length).toBe(before);
   });
 
   it('falls back to truncation when strategy is truncate', async () => {

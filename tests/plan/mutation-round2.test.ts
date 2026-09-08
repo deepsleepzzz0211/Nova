@@ -127,22 +127,28 @@ describe('SessionStore edge cases', () => {
   });
 });
 
-describe('Compactor two-message boundary (keep = 1)', () => {
-  it('summarizes the older half and keeps the last message for 2-message history', async () => {
+describe('Compactor boundary (tiny keep budget)', () => {
+  it('summarizes non-user messages outside the budget, keeps users + newest verbatim', async () => {
     const llm: LLMProvider = {
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'short summary' };
       },
     };
-    const compactor = new Compactor(llm, 'm', 6);
+    const compactor = new Compactor(llm, 'm', {
+      keepRecentTokens: 1,
+      countTokens: (t) => Math.ceil(t.length / 4),
+    });
     const history: Message[] = [
-      { role: 'user', content: 'huge first message' },
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'middle' },
       { role: 'assistant', content: 'recent answer' },
     ];
     const result = await compactor.compact(history);
-    expect(result).toHaveLength(2); // summary + 1 kept
+    // summary + user (always verbatim) + newest assistant
+    expect(result).toHaveLength(3);
     expect(result![0].content).toContain('short summary');
-    expect(result![1]).toEqual(history[1]);
+    expect(result![1]).toEqual(history[0]);
+    expect(result![2]).toEqual(history[2]);
   });
 });
 

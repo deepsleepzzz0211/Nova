@@ -4,10 +4,7 @@ import type { Message } from '../llm/types.js';
 /** Marker that prefixes the synthesized summary message. */
 export const SUMMARY_MARKER = '[Conversation summary]';
 
-/**
- * Structured summary instruction, aligned with how mainstream coding agents
- * compact context: preserve intent, file changes, errors/fixes, pending work.
- */
+/** Structured summary instruction, aligned with mainstream coding agents. */
 const SUMMARY_INSTRUCTION = `Summarize the conversation so far as a structured handoff. Keep it concise but complete. Include these sections when relevant:
 1. User intent — what the user asked for and any constraints.
 2. Files & changes — files read/created/modified, with important snippets or paths.
@@ -17,25 +14,58 @@ const SUMMARY_INSTRUCTION = `Summarize the conversation so far as a structured h
 
 Output only the summary.`;
 
+/** Options for the Compactor. */
+export interface CompactorOptions {
+  /**
+   * Token budget of recent non-user messages kept verbatim during
+   * compaction (pi-style `keepRecentTokens`). Default 20000.
+   */
+  keepRecentTokens?: number;
+  /** Text token estimator. Default: ~4 chars/token heuristic. */
+  countTokens?: (text: string) => number;
+}
+
+/** Framing overhead assumed per message in token estimates. */
+const MESSAGE_FRAMING_TOKENS = 8;
+
 /**
  * Compacts a conversation by replacing older messages with an LLM-generated
- * structured summary, keeping the most recent messages verbatim.
+ * structured summary, keeping a token-budgeted recent window verbatim.
+ *
+ * Keep-window rules (mainstream practice):
+ * - Recent non-user messages up to `keepRecentTokens` are kept verbatim.
+ * - ALL user messages are kept verbatim regardless of position — the user's
+ *   own words (constraints, preferences) must not suffer summary drift.
+ * - A tool call is never split from its result at the cut point.
+ * - The newest message is always kept, even when it alone exceeds the budget.
  */
 export class Compactor {
   private readonly llm: LLMProvider;
   private readonly model: string;
-  private readonly keepRecentCount: number;
+  private readonly keepRecentTokens: number;
+  private readonly countTokens: (text: string) => number;
 
-  constructor(llm: LLMProvider, model: string, keepRecentCount = 6) {
+  constructor(llm: LLMProvider, model: string, options: CompactorOptions = {}) {
     this.llm = llm;
     this.model = model;
-    this.keepRecentCount = keepRecentCount;
+    this.keepRecentTokens = options.keepRecentTokens ?? 20_000;
+    this.countTokens = options.countTokens ?? ((text: string) => Math.ceil(text.length / 4));
+  }
+
+  /** Rough token estimate for one message (content + tool call args). */
+  private estimateMessageTokens(msg: Message): number {
+    let total = MESSAGE_FRAMING_TOKENS;
+    if (msg.content) total += this.countTokens(msg.content);
+    if ('tool_calls' in msg && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        total += this.countTokens(tc.function.name) + this.countTokens(tc.function.arguments);
+      }
+    }
+    return total;
   }
 
   /**
-   * Compact messages into [summary, ...recent].
-   * When the history has few messages (e.g. one huge user/tool message),
-   * half of them are summarized and the recent half kept verbatim.
+   * Compact messages into [summary, ...kept].
    * Returns null when there is nothing to compact or summarization fails
    * (fail-open: the caller keeps the original messages).
    */
@@ -44,21 +74,65 @@ export class Compactor {
       return null;
     }
 
-    const keep = messages.length <= this.keepRecentCount
-      ? Math.max(1, Math.floor(messages.length / 2))
-      : this.keepRecentCount;
+    // 1. Walk backward: keep the newest non-user messages within budget.
+    //    User messages are always kept and cost no budget.
+    let boundary = messages.length; // exclusive start of the keep window
+    let budget = this.keepRecentTokens;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === 'user') continue;
+      const cost = this.estimateMessageTokens(msg);
+      // The newest message is always kept even when it alone exceeds budget.
+      if (i !== messages.length - 1 && cost > budget) break;
+      budget -= cost;
+      boundary = i;
+    }
 
-    const old = messages.slice(0, -keep);
-    const kept = messages.slice(-keep);
+    // 2. Cut-point rule: never split a tool call from its result. If the
+    //    boundary lands on a tool result, pull its owning assistant message
+    //    (and the whole call batch) back into the keep window.
+    while (boundary < messages.length && messages[boundary].role === 'tool') {
+      const first = messages[boundary] as { tool_call_id?: string };
+      const toolId = first.tool_call_id;
+      let owner = boundary;
+      while (owner > 0) {
+        owner--;
+        const m = messages[owner];
+        if (
+          m.role === 'assistant' &&
+          'tool_calls' in m &&
+          m.tool_calls?.some((tc) => tc.id === toolId)
+        ) {
+          break;
+        }
+      }
+      boundary = owner;
+    }
 
-    const summary = await this.summarize(old);
+    // 3. Partition: keep window + all user messages; summarize the rest.
+    const kept = new Set<number>();
+    for (let i = boundary; i < messages.length; i++) kept.add(i);
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'user') kept.add(i);
+    }
+
+    const toSummarize: Message[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (!kept.has(i)) toSummarize.push(messages[i]);
+    }
+    if (toSummarize.length === 0) {
+      return null;
+    }
+
+    const summary = await this.summarize(toSummarize);
     if (summary === null) {
       return null;
     }
 
+    const keptMessages = [...kept].sort((a, b) => a - b).map((i) => messages[i]);
     return [
       { role: 'system', content: `${SUMMARY_MARKER}\n${summary}` },
-      ...kept,
+      ...keptMessages,
     ];
   }
 
