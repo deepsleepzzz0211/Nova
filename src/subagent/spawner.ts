@@ -5,6 +5,10 @@ import { AgentLoop } from '../agent/loop.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { SkillRegistry } from '../skills/registry.js';
+/** Model-resolution callback (catalog-driven; provided by the entrypoint). */
+export type ModelSpecResolver = (spec: string) =>
+  | { ok: true; llm: LLMProvider; model: string }
+  | { ok: false; message: string };
 
 /** Result of a subagent run. */
 export interface SubagentResult {
@@ -26,6 +30,10 @@ export interface SubagentDeps {
   promptOptions?: BuildPromptOptions;
   /** Skill registry for progressive disclosure inside the subagent. */
   skills?: SkillRegistry;
+  /** Subagent default model spec (routing tier 2). */
+  defaultModel?: string;
+  /** Catalog-driven model resolution (routing tier 1). */
+  resolveModelSpec?: ModelSpecResolver;
 }
 
 /** Options for a single subagent run. */
@@ -34,6 +42,8 @@ export interface SubagentRunOptions {
   confirm?: ConfirmCallback;
   /** Max tool rounds for the subagent. Default 10. */
   maxRounds?: number;
+  /** Per-invocation model spec (routing tier 1). */
+  model?: string;
 }
 
 const DEFAULT_MAX_ROUNDS = 10;
@@ -90,6 +100,21 @@ export class SubagentSpawner {
       );
     }
     try {
+      // Model routing: per-call spec > configured default > parent model.
+      let llm = this.deps.llm;
+      let model = this.deps.model;
+      let modelNote = '';
+      const spec = options?.model ?? this.deps.defaultModel;
+      if (spec && this.deps.resolveModelSpec) {
+        const resolved = this.deps.resolveModelSpec(spec);
+        if (resolved.ok) {
+          llm = resolved.llm;
+          model = resolved.model;
+        } else {
+          modelNote = ` (requested model "${spec}" unavailable: ${resolved.message} — fell back to ${model})`;
+        }
+      }
+
       // The loop builds its own frozen system prompt from promptOptions
       // (environment / project instructions / learned memory) and the skill
       // listing — same source and freeze semantics as the parent — and
@@ -98,10 +123,10 @@ export class SubagentSpawner {
       const maxRounds = options?.maxRounds ?? DEFAULT_MAX_ROUNDS;
 
       const loop = new AgentLoop({
-        llm: this.deps.llm,
+        llm,
         toolRegistry: this.childToolRegistry(),
         toolExecutionPipeline: this.deps.toolExecutionPipeline,
-        config: { maxToolRounds: maxRounds, model: this.deps.model },
+        config: { maxToolRounds: maxRounds, model },
         promptOptions: {
           ...this.deps.promptOptions,
           customPrompt: [
@@ -125,8 +150,8 @@ export class SubagentSpawner {
       const summary = turn.text.trim();
       return {
         summary: summary.length > 0
-          ? summary
-          : 'Subagent did not complete within its round budget or produced no summary.',
+          ? summary + modelNote
+          : 'Subagent did not complete within its round budget or produced no summary.' + modelNote,
         rounds: turn.rounds,
       };
     } finally {

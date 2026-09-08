@@ -19,6 +19,7 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
       properties: {
         task: { type: 'string', description: 'Self-contained task description for the subagent' },
         context: { type: 'string', description: 'Optional extra context to include in the task' },
+        model: { type: 'string', description: 'Optional model spec for this subagent (overrides the configured default)' },
       },
       required: ['task'],
     },
@@ -41,6 +42,7 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
       try {
         const result = await spawner.run(fullTask, {
           confirm: options?.confirm,
+          model: typeof params.model === 'string' && params.model.trim() ? params.model.trim() : undefined,
         });
         return { content: result.summary, metadata: { rounds: result.rounds } };
       } catch (error) {

@@ -17,6 +17,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     contextStrategy: 'truncate',
     contextReserveTokens: 16384,
     contextKeepRecentTokens: 20000,
+    subagentModel: '',
+    subagentMaxConcurrent: 3,
     thinkingLevel: 'off',
   },
   search: {

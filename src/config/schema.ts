@@ -22,6 +22,10 @@ export interface AgentConfig {
   contextReserveTokens?: number;
   /** Tokens of recent non-user messages kept verbatim during compaction. */
   contextKeepRecentTokens?: number;
+  /** Default model spec for subagents (routing: call param > this > parent). */
+  subagentModel?: string;
+  /** Max concurrently running subagents. Default 3. */
+  subagentMaxConcurrent?: number;
   /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
   thinkingLevel: string;
 }

@@ -129,8 +129,9 @@ async function main(): Promise<void> {
 
   // /model listing + resolution (catalog-driven; loop application in useAgent)
   const listModels = (): string => describeModels(catalog, selectionRef.provider, selectionRef.model);
-  const resolveSwitch = (spec: string):
-    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+  // Shared spec resolution (used by /model and subagent model routing)
+  const resolveSpec = (spec: string):
+    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string }
     | { ok: false; message: string } => {
     try {
       const parsed = parseModelSpec(spec, selectionRef.provider);
@@ -155,19 +156,28 @@ async function main(): Promise<void> {
         thinkingLevelMap: next.model.thinkingLevelMap,
         reasoning: next.model.reasoning,
       });
-      selectionRef.provider = next.name;
-      selectionRef.model = next.model.id;
       return {
         ok: true,
         llm: llmNext,
         model: next.model.id,
         contextWindow: next.model.contextWindow,
         providerName: next.name,
-        message: `Switched to ${next.name}/${next.model.id} (ctx ${next.model.contextWindow.toLocaleString()}${next.model.reasoning ? ', reasoning' : ''})`,
       };
     } catch (err: unknown) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
+  };
+  type SwitchResult =
+    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+    | { ok: false; message: string };
+  const resolveSwitch = (spec: string): SwitchResult => {
+    const result = resolveSpec(spec);
+    if (result.ok) {
+      selectionRef.provider = result.providerName;
+      selectionRef.model = result.model;
+      return { ...result, message: `Switched to ${result.providerName}/${result.model} (ctx ${result.contextWindow.toLocaleString()})` };
+    }
+    return result;
   };
 
   // Skills: scan user-level and project-level skill directories
@@ -206,6 +216,9 @@ async function main(): Promise<void> {
     toolRegistry,
     toolExecutionPipeline,
     model: config.llm.model,
+    maxConcurrent: config.agent.subagentMaxConcurrent,
+    defaultModel: config.agent.subagentModel,
+    resolveModelSpec: resolveSpec,
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));
 

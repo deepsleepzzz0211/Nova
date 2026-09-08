@@ -301,6 +301,76 @@ describe('SubagentSpawner context injection (ticket 02)', () => {
   });
 });
 
+describe('SubagentSpawner model routing (ticket 03)', () => {
+  function routingFixture() {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm: parentLLM, chats } = toolCallingLLM();
+    const cheapLLM: LLMProvider = {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        chats.push({ msgs: [...msgs], opts });
+        yield { type: 'text_delta', content: 'CHEAP MODEL SUMMARY' };
+      },
+    };
+    const resolveCalls: string[] = [];
+    const spawner = new SubagentSpawner({
+      llm: parentLLM,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'parent-model',
+      defaultModel: 'cheap-default',
+      resolveModelSpec: (spec: string) => {
+        resolveCalls.push(spec);
+        if (spec === 'bad-model') return { ok: false as const, message: 'unknown model' };
+        return { ok: true as const, llm: cheapLLM, model: spec };
+      },
+    });
+    return { spawner, chats, resolveCalls, parentLLM };
+  }
+
+  it('resolves the per-invocation model over the configured default', async () => {
+    const { spawner, chats, resolveCalls, parentLLM } = routingFixture();
+    await spawner.run('scout work', { model: 'haiku-fast' });
+    expect(resolveCalls).toEqual(['haiku-fast']); // per-call wins over default
+    expect(chats[0].opts.model).toBe('haiku-fast');
+    expect(chats[0].opts).toBeDefined();
+    // The routed provider was used, not the parent's
+    expect(chats[0].opts.model).not.toBe('parent-model');
+    void parentLLM;
+  });
+
+  it('falls back to the configured default when no per-call model', async () => {
+    const { spawner, chats, resolveCalls } = routingFixture();
+    await spawner.run('scout work');
+    expect(resolveCalls).toEqual(['cheap-default']);
+    expect(chats[0].opts.model).toBe('cheap-default');
+  });
+
+  it('falls back to the parent model when resolution fails, and notes it', async () => {
+    const { spawner, chats, resolveCalls } = routingFixture();
+    const result = await spawner.run('scout work', { model: 'bad-model' });
+    expect(resolveCalls).toContain('bad-model');
+    // Parent model used and the fallback is visible in the summary
+    expect(chats.at(-1)!.opts.model).toBe('parent-model');
+    expect(result.summary).toContain('parent-model');
+  });
+
+  it('uses the parent provider directly when no routing is configured', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm: parentLLM, chats } = toolCallingLLM();
+    const spawner = new SubagentSpawner({
+      llm: parentLLM,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'parent-model',
+    });
+    await spawner.run('work');
+    expect(chats[0].opts.model).toBe('parent-model');
+    void parentLLM;
+  });
+});
+
 describe('spawn_subagent tool', () => {
   it('wraps the spawner and returns the summary as tool result', async () => {
     const registry = new ToolRegistry();
