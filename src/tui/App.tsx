@@ -45,6 +45,8 @@ export interface AppProps {
   contextReserveTokens?: number;
   /** Recent tokens kept verbatim during compaction. Default 20000 (context-compaction ticket 02). */
   contextKeepRecentTokens?: number;
+  /** Subagent progress sink (useAgent assigns notify once mounted). */
+  subagentSink?: { notify?: (message: string) => void };
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -78,6 +80,7 @@ export function App({
   contextStrategy,
   contextReserveTokens,
   contextKeepRecentTokens,
+  subagentSink,
   thinkingLevel,
   listModels,
   resolveSwitch,
@@ -99,6 +102,7 @@ export function App({
     contextStrategy,
     contextReserveTokens,
     contextKeepRecentTokens,
+    subagentSink,
     thinkingLevel,
     listModels,
     resolveSwitch,

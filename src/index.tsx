@@ -211,6 +211,9 @@ async function main(): Promise<void> {
   toolRegistry.register(createMemoryTool(path.join(projectDir, '.nova', 'memory', 'MEMORY.md')));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
+  // Subagent progress sink: useAgent assigns the real notify() once the
+  // TUI mounts; start/end events surface as system messages.
+  const subagentSink: { notify?: (message: string) => void } = {};
   const spawner = new SubagentSpawner({
     llm,
     toolRegistry,
@@ -219,6 +222,14 @@ async function main(): Promise<void> {
     maxConcurrent: config.agent.subagentMaxConcurrent,
     defaultModel: config.agent.subagentModel,
     resolveModelSpec: resolveSpec,
+    onEvent: (event) => {
+      if (event.type === 'start') {
+        const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
+        subagentSink.notify?.(`[subagent ${event.agentId} started] ${task}`);
+      } else if (event.type === 'end') {
+        subagentSink.notify?.(`[subagent ${event.agentId} finished: ${event.rounds} rounds]`);
+      }
+    },
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));
 
@@ -249,6 +260,7 @@ async function main(): Promise<void> {
       contextWindow={resolution.model.contextWindow}
       contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
       contextReserveTokens={config.agent.contextReserveTokens}
+      subagentSink={subagentSink}
       contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
       model={config.llm.model}

@@ -56,6 +56,8 @@ export interface AgentLoopConfig {
   onUsage?: (usage: TurnUsage) => void;
   /** Unified thinking level forwarded to every chat call. */
   thinkingLevel?: ThinkingLevel;
+  /** Cancellation signal: aborts in-flight tool execution (and future rounds). */
+  abortSignal?: AbortSignal;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
   onToolResult: (result: ToolResult, callId?: string) => void;
@@ -87,6 +89,7 @@ export class AgentLoop {
    * Turn-scoped content (skills) travels as append-only messages instead.
    */
   private readonly frozenSystemPrompt: string;
+  private readonly abortSignal?: AbortSignal;
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
   private readonly onToolResult: (result: ToolResult, callId?: string) => void;
@@ -119,6 +122,7 @@ export class AgentLoop {
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
     this.thinkingLevel = options.thinkingLevel;
+    this.abortSignal = options.abortSignal;
     this.frozenSystemPrompt = buildSystemPrompt(this.toolRegistry.getAll(), options.skills?.findAll() ?? [], {
       ...this.promptOptions,
     });
@@ -367,6 +371,13 @@ export class AgentLoop {
           });
         }
 
+        // Cancelled mid-run: stop without another LLM round
+        if (this.abortSignal?.aborted) {
+          this.pushMessage({ role: 'assistant', content: '' });
+          this.emitUsage(turnUsage);
+          return { text: '', rounds };
+        }
+
         // Continue to next round — call LLM again with tool results
         continue;
       }
@@ -402,6 +413,11 @@ export class AgentLoop {
 
   /** Execute one tool call through the pipeline and notify the UI. */
   private async executeToolCall(call: ToolCall): Promise<ToolResult> {
+    if (this.abortSignal?.aborted) {
+      const result: ToolResult = { content: 'Aborted.', isError: true };
+      this.onToolResult(result, call.id);
+      return result;
+    }
     const tool = this.toolRegistry.get(call.function.name);
     if (!tool) {
       const result: ToolResult = {
@@ -419,7 +435,7 @@ export class AgentLoop {
         params,
         {
           workingDirectory: process.cwd(),
-          abortSignal: new AbortController().signal,
+          abortSignal: this.abortSignal ?? new AbortController().signal,
         },
         { confirm: () => this.onPermissionRequest(call) },
       );

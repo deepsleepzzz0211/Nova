@@ -371,6 +371,92 @@ describe('SubagentSpawner model routing (ticket 03)', () => {
   });
 });
 
+describe('SubagentSpawner progress & cancellation (ticket 04)', () => {
+  function observingFixture(signal?: AbortSignal) {
+    const registry = new ToolRegistry();
+    const toolCalls: string[] = [];
+    registry.register({
+      name: 'bash',
+      description: 'Run a shell command',
+      parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+      execute: async (params) => {
+        toolCalls.push(String(params.command));
+        return { content: `ran ${String(params.command)}` };
+      },
+    });
+    const events: Array<{ agentId: string; type: string; payload?: unknown }> = [];
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
+        const lastTool = [...msgs].reverse().find((m) => m.role === 'tool');
+        if (!lastTool) {
+          yield { type: 'tool_call_start', id: 's1', name: 'bash' };
+          yield { type: 'tool_call_delta', id: 's1', arguments: '{"command":"echo hi"}' };
+          yield { type: 'tool_call_end', id: 's1' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'all done' };
+      },
+    };
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      onEvent: (e) => events.push(e),
+    });
+    return { spawner, events, toolCalls };
+  }
+
+  it('allocates a unique agentId and forwards start/tool/end events', async () => {
+    const { spawner, events } = observingFixture();
+    const r1 = await spawner.run('task A');
+    const r2 = await spawner.run('task B');
+
+    expect(r1.agentId).toMatch(/^sub-/);
+    expect(r2.agentId).toMatch(/^sub-/);
+    expect(r1.agentId).not.toBe(r2.agentId);
+
+    const types = events.map((e) => e.type);
+    expect(types).toContain('start');
+    expect(types).toContain('tool_call');
+    expect(types).toContain('tool_result');
+    expect(types).toContain('end');
+    // Every event carries the agent id it belongs to
+    for (const e of events) expect(e.agentId).toMatch(/^sub-/);
+  });
+
+  it('propagates an aborted signal into tool execution (cancel mid-run)', async () => {
+    const registry = new ToolRegistry();
+    const executeSpy = vi.fn(async () => ({ content: 'should not run' }));
+    registry.register({
+      name: 'bash',
+      description: 'Run a shell command',
+      parameters: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] },
+      execute: executeSpy,
+    });
+    const controller = new AbortController();
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'tool_call_start', id: 's1', name: 'bash' };
+        yield { type: 'tool_call_delta', id: 's1', arguments: '{"command":"x"}' };
+        yield { type: 'tool_call_end', id: 's1' };
+      },
+    };
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+    });
+
+    controller.abort();
+    const result = await spawner.run('cancelled task', { signal: controller.signal, confirm: async () => true });
+    // The tool never executed
+    expect(executeSpy).not.toHaveBeenCalled();
+    expect(result.summary).toBeTruthy();
+  });
+});
+
 describe('spawn_subagent tool', () => {
   it('wraps the spawner and returns the summary as tool result', async () => {
     const registry = new ToolRegistry();

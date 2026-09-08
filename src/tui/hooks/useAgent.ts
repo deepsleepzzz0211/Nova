@@ -57,6 +57,8 @@ export interface UseAgentConfig {
   contextReserveTokens?: number;
   /** Recent tokens kept verbatim during compaction. Default 20000 (context-compaction ticket 02). */
   contextKeepRecentTokens?: number;
+  /** Subagent progress sink (assign notify once mounted). */
+  subagentSink?: { notify?: (message: string) => void };
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -253,6 +255,16 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       }
     }
   }
+
+  // Wire the subagent progress sink once mounted (index.tsx feeds events
+  // from the spawner; they surface as system messages here).
+  useEffect(() => {
+    if (config.subagentSink) {
+      config.subagentSink.notify = (message: string) => {
+        setMessages((prev) => [...prev, { role: 'system' as const, content: message }]);
+      };
+    }
+  }, [config.subagentSink]);
 
   // Clean up pending permission on unmount
   useEffect(() => {

@@ -16,6 +16,18 @@ export interface SubagentResult {
   summary: string;
   /** Number of LLM rounds consumed. */
   rounds: number;
+  /** Stable id for this run (progress routing, transcript addressing). */
+  agentId: string;
+}
+
+/** Progress event emitted while a subagent runs. */
+export interface SubagentEvent {
+  agentId: string;
+  type: 'start' | 'tool_call' | 'tool_result' | 'end';
+  /** Call / result / summary payload depending on type. */
+  payload?: unknown;
+  /** Round count (on end). */
+  rounds?: number;
 }
 
 /** Dependencies for spawning subagents. */
@@ -34,6 +46,8 @@ export interface SubagentDeps {
   defaultModel?: string;
   /** Catalog-driven model resolution (routing tier 1). */
   resolveModelSpec?: ModelSpecResolver;
+  /** Progress sink for every spawned subagent (ticket 04). */
+  onEvent?: (event: SubagentEvent) => void;
 }
 
 /** Options for a single subagent run. */
@@ -44,6 +58,8 @@ export interface SubagentRunOptions {
   maxRounds?: number;
   /** Per-invocation model spec (routing tier 1). */
   model?: string;
+  /** Cancellation signal propagated into the subagent's tool execution. */
+  signal?: AbortSignal;
 }
 
 const DEFAULT_MAX_ROUNDS = 10;
@@ -66,6 +82,7 @@ export class SubagentSpawner {
   /** Max concurrently running subagents (ticket 01 guardrail). */
   readonly maxConcurrent: number;
   private active = 0;
+  private seq = 0;
 
   constructor(deps: SubagentDeps) {
     this.deps = deps;
@@ -99,6 +116,11 @@ export class SubagentSpawner {
           'Do not spawn more right now — retry after earlier subagents finish, or do the work directly.',
       );
     }
+    const agentId = `sub-${Date.now().toString(36)}-${++this.seq}`;
+    const emit = (event: Omit<SubagentEvent, 'agentId'>): void => {
+      this.deps.onEvent?.({ agentId, ...event });
+    };
+    emit({ type: 'start', payload: task });
     try {
       // Model routing: per-call spec > configured default > parent model.
       let llm = this.deps.llm;
@@ -124,6 +146,7 @@ export class SubagentSpawner {
 
       const loop = new AgentLoop({
         llm,
+        abortSignal: options?.signal,
         toolRegistry: this.childToolRegistry(),
         toolExecutionPipeline: this.deps.toolExecutionPipeline,
         config: { maxToolRounds: maxRounds, model },
@@ -138,14 +161,15 @@ export class SubagentSpawner {
         },
         skills: this.deps.skills,
         onToken: () => {},
-        onToolCall: () => {},
-        onToolResult: () => {},
+        onToolCall: (call) => emit({ type: 'tool_call', payload: call }),
+        onToolResult: (result) => emit({ type: 'tool_result', payload: result }),
         onPermissionRequest: async (call) => options?.confirm
           ? options.confirm(call.function.name, safeParse(call.function.arguments))
           : false,
       });
 
       const turn = await loop.processUserInput(task);
+      emit({ type: 'end', payload: turn.text, rounds: turn.rounds });
 
       const summary = turn.text.trim();
       return {
@@ -153,6 +177,7 @@ export class SubagentSpawner {
           ? summary + modelNote
           : 'Subagent did not complete within its round budget or produced no summary.' + modelNote,
         rounds: turn.rounds,
+        agentId,
       };
     } finally {
       this.active--;
