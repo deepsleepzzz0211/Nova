@@ -229,7 +229,17 @@ async function main(): Promise<void> {
         subagentSink.notify?.(`[subagent ${event.agentId} started] ${task}`);
       } else if (event.type === 'end') {
         subagentSink.notify?.(`[subagent ${event.agentId} finished: ${event.rounds} rounds]`);
+      } else if (event.type === 'tool_call') {
+        const call = event.payload as { function?: { name?: string } } | undefined;
+        subagentSink.notify?.(`[subagent ${event.agentId}] ▸ ${call?.function?.name ?? 'tool'}`);
+      } else if (event.type === 'tool_result') {
+        const result = event.payload as { isError?: boolean } | undefined;
+        subagentSink.notify?.(
+          `[subagent ${event.agentId}] ${result?.isError ? '✗ tool error' : '✓ tool done'}`,
+        );
       }
+      // token events are forwarded to the sink API but not rendered as
+      // messages (high-volume; available to future richer UI)
     },
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));

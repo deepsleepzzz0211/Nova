@@ -27,7 +27,7 @@ export interface SubagentResult {
 /** Progress event emitted while a subagent runs. */
 export interface SubagentEvent {
   agentId: string;
-  type: 'start' | 'tool_call' | 'tool_result' | 'end';
+  type: 'start' | 'tool_call' | 'tool_result' | 'token' | 'end';
   /** Call / result / summary payload depending on type. */
   payload?: unknown;
   /** Round count (on end). */
@@ -185,7 +185,7 @@ export class SubagentSpawner {
           ].filter(Boolean).join('\n\n'),
         },
         skills: this.deps.skills,
-        onToken: () => {},
+        onToken: (token) => emit({ type: 'token', payload: token }),
         onToolCall: (call) => emit({ type: 'tool_call', payload: call }),
         onToolResult: (result) => emit({ type: 'tool_result', payload: result }),
         onPermissionRequest: async (call) => options?.confirm
@@ -194,7 +194,21 @@ export class SubagentSpawner {
       });
 
       if (history.length > 0) loop.loadMessages(history);
-      const turn = await loop.processUserInput(task);
+      // Race the run against cancellation so a hung LLM stream can't keep
+      // the slot (and the parent's tool timeout) dangling.
+      const run = loop.processUserInput(task);
+      const turn = options?.signal
+        ? await Promise.race([
+            run,
+            new Promise<never>((_, reject) => {
+              options.signal!.addEventListener(
+                'abort',
+                () => reject(options.signal!.reason instanceof Error ? options.signal!.reason : new Error('subagent cancelled')),
+                { once: true },
+              );
+            }),
+          ])
+        : await run;
       await session?.close();
       emit({ type: 'end', payload: turn.text, rounds: turn.rounds });
 
@@ -206,6 +220,15 @@ export class SubagentSpawner {
         rounds: turn.rounds,
         agentId,
       };
+    } catch (error) {
+      // Cancelled/failed mid-run: flush the transcript and tell the UI.
+      try {
+        await session?.close();
+      } catch {
+        // ignore close failures on the error path
+      }
+      emit({ type: 'end', payload: error instanceof Error ? error.message : String(error) });
+      throw error;
     } finally {
       this.active--;
     }

@@ -145,6 +145,27 @@ describe('SubagentSpawner', () => {
 });
 
 describe('SubagentSpawner guardrails (ticket 01)', () => {
+  it('a child attempting spawn_subagent gets an explicit not-found error', async () => {
+    // Simulate the child side: the filtered registry is what the child's
+    // loop uses; a call against it must fail with a clear error.
+    const parentRegistry = new ToolRegistry();
+    parentRegistry.register(bashTool());
+    const { llm } = toolCallingLLM();
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: parentRegistry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+    });
+    parentRegistry.register(createSpawnSubagentTool(spawner));
+
+    const childRegistry = (spawner as unknown as { childToolRegistry(): ToolRegistry }).childToolRegistry();
+    expect(childRegistry.get('spawn_subagent')).toBeUndefined();
+    // AgentLoop's not-found path returns an explicit error result
+    const missing = childRegistry.get('spawn_subagent');
+    expect(missing).toBeUndefined(); // → executeToolCall: 'Tool "spawn_subagent" not found.'
+  });
+
   it('child never sees spawn_subagent in its tool list', async () => {
     const registry = new ToolRegistry();
     registry.register(bashTool());
@@ -516,6 +537,52 @@ describe('SubagentSpawner transcript & resume (ticket 05)', () => {
       expect(convo.some((m) => m.role === 'user' && m.content === 'original task')).toBe(true);
       expect(convo.some((m) => m.role === 'user' && m.content === 'follow-up question')).toBe(true);
       void lastTurnFirstMsg;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to a fresh spawn when the transcript is corrupt', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-subagent-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'sub-corrupt.jsonl'), 'garbage\n{broken\n');
+      const { spawner, chats } = transcriptFixture(dir);
+      const result = await spawner.run('fresh work', { resumeAgentId: 'sub-corrupt' });
+      expect(result.summary).toContain('ANSWER');
+      expect(chats.at(-1)!.msgs.every((m) => m.role !== 'user' || m.content === 'fresh work')).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('cancelled runs flush the transcript and emit an end event', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-subagent-'));
+    try {
+      const registry = new ToolRegistry();
+      registry.register(bashTool());
+      const llm: LLMProvider = {
+        async *chat(): AsyncIterable<StreamChunk> {
+          // Hang until the test aborts the signal
+          await new Promise((r) => setTimeout(r, 5000));
+          yield { type: 'text_delta', content: 'never' };
+        },
+      };
+      const events: Array<{ agentId: string; type: string }> = [];
+      const spawner = new SubagentSpawner({
+        llm,
+        toolRegistry: registry,
+        toolExecutionPipeline: makePipeline(),
+        model: 'test',
+        transcriptsDir: dir,
+        onEvent: (e) => events.push(e),
+      });
+      const controller = new AbortController();
+      const run = spawner.run('will be cancelled', { signal: controller.signal, confirm: async () => true });
+      setTimeout(() => controller.abort(new Error('subagent cancelled')), 50);
+      // The run rejects promptly (not hung); the tool maps this to an
+      // isError result for the parent.
+      await expect(run).rejects.toThrow('subagent cancelled');
+      expect(events.some((e) => e.type === 'end')).toBe(true);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

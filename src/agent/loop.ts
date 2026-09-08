@@ -248,19 +248,12 @@ export class AgentLoop {
     return this.runTurn(input);
   }
 
-  /** Run a turn with an explicit system prompt (used by subagents). */
-  async processUserInputWithSystemPrompt(input: string, systemPrompt: string): Promise<AgentTurnResult> {
-    return this.runTurn(input, systemPrompt);
-  }
-
-  /** Result of a single user-input turn. */
-  private async runTurn(input: string, systemPromptOverride?: string): Promise<AgentTurnResult> {
+  /** Run a single user-input turn against the frozen system prompt. */
+  private async runTurn(input: string): Promise<AgentTurnResult> {
     this.pushMessage({ role: 'user', content: input });
 
-    if (!systemPromptOverride) {
-      await this.injectSkills(input);
-    }
-    const systemPrompt = systemPromptOverride ?? this.frozenSystemPrompt;
+    await this.injectSkills(input);
+    const systemPrompt = this.frozenSystemPrompt;
     let rounds = 0;
     let finalText = '';
     const turnUsage: Required<Pick<TurnUsage, 'inputTokens' | 'outputTokens'>> & Partial<TurnUsage> = {

@@ -24,6 +24,7 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
         task: { type: 'string', description: 'Self-contained task description for the subagent' },
         context: { type: 'string', description: 'Optional extra context to include in the task' },
         model: { type: 'string', description: 'Optional model spec for this subagent (overrides the configured default)' },
+        resumeAgentId: { type: 'string', description: 'Resume an earlier subagent by id: task becomes a follow-up on its existing context' },
       },
       required: ['task'],
     },
@@ -57,6 +58,7 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
         const result = await spawner.run(fullTask, {
           confirm: options?.confirm,
           model: typeof params.model === 'string' && params.model.trim() ? params.model.trim() : undefined,
+          resumeAgentId: typeof params.resumeAgentId === 'string' && params.resumeAgentId.trim() ? params.resumeAgentId.trim() : undefined,
           signal: controller.signal,
         });
         // Scan before the report enters the parent context (ticket 06)

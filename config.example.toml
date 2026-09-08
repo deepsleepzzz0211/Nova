@@ -30,6 +30,10 @@ context_strategy = "truncate"
 # context_reserve_tokens = 16384
 # Recent tokens kept verbatim during compaction. Default 20000.
 # context_keep_recent_tokens = 20000
+# Default model spec for subagents (call param > this > parent model).
+# subagent_model = ""
+# Max concurrently running subagents. Default 3.
+# subagent_max_concurrent = 3
 
 [search]
 # Search backend: Tavily API (free 1000/month at tavily.com).
