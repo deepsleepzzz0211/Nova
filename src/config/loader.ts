@@ -53,6 +53,11 @@ function deepMerge(
   return result;
 }
 
+/** Nova home directory (NOVA_HOME override for test isolation / portable installs). */
+export function novaHome(): string {
+  return process.env.NOVA_HOME || os.homedir();
+}
+
 /** Validate/normalize the merged config. Returns warnings for the caller to surface. */
 export function normalizeConfig(config: AppConfig): { config: AppConfig; warnings: string[] } {
   const warnings: string[] = [];
@@ -92,8 +97,8 @@ function loadTomlFile(filePath: string): Record<string, unknown> {
  * installs).
  */
 export function loadConfig(projectDir: string): AppConfig {
-  const novaHome = process.env.NOVA_HOME || os.homedir();
-  const userConfigPath = path.join(novaHome, '.nova', 'config.toml');
+  const home = novaHome();
+  const userConfigPath = path.join(home, '.nova', 'config.toml');
   const userConfig = loadTomlFile(userConfigPath);
 
   const projectConfigPath = path.join(projectDir, 'config.toml');
