@@ -5,6 +5,9 @@ import { AgentLoop } from '../agent/loop.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { SkillRegistry } from '../skills/registry.js';
+import { SessionStore } from '../agent/session.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 /** Model-resolution callback (catalog-driven; provided by the entrypoint). */
 export type ModelSpecResolver = (spec: string) =>
   | { ok: true; llm: LLMProvider; model: string }
@@ -48,6 +51,8 @@ export interface SubagentDeps {
   resolveModelSpec?: ModelSpecResolver;
   /** Progress sink for every spawned subagent (ticket 04). */
   onEvent?: (event: SubagentEvent) => void;
+  /** Directory for per-subagent transcripts (<agentId>.jsonl). Enables resume. */
+  transcriptsDir?: string;
 }
 
 /** Options for a single subagent run. */
@@ -60,6 +65,8 @@ export interface SubagentRunOptions {
   model?: string;
   /** Cancellation signal propagated into the subagent's tool execution. */
   signal?: AbortSignal;
+  /** Resume an earlier subagent by id: task becomes a follow-up on its transcript. */
+  resumeAgentId?: string;
 }
 
 const DEFAULT_MAX_ROUNDS = 10;
@@ -116,7 +123,23 @@ export class SubagentSpawner {
           'Do not spawn more right now — retry after earlier subagents finish, or do the work directly.',
       );
     }
-    const agentId = `sub-${Date.now().toString(36)}-${++this.seq}`;
+    // Identity: resume keeps the original id and replays its transcript;
+    // a missing/corrupt transcript falls back to a fresh spawn.
+    let agentId = `sub-${Date.now().toString(36)}-${++this.seq}`;
+    let session: SessionStore | undefined;
+    if (this.deps.transcriptsDir) {
+      session = new SessionStore(path.join(this.deps.transcriptsDir, `${agentId}.jsonl`));
+    }
+    let history: Message[] = [];
+    if (options?.resumeAgentId && this.deps.transcriptsDir) {
+      const transcriptPath = path.join(this.deps.transcriptsDir, `${options.resumeAgentId}.jsonl`);
+      const prior = SessionStore.load(transcriptPath);
+      if (prior.length > 0) {
+        agentId = options.resumeAgentId;
+        history = prior;
+        session = new SessionStore(transcriptPath); // append to the same log
+      }
+    }
     const emit = (event: Omit<SubagentEvent, 'agentId'>): void => {
       this.deps.onEvent?.({ agentId, ...event });
     };
@@ -146,6 +169,7 @@ export class SubagentSpawner {
 
       const loop = new AgentLoop({
         llm,
+        session,
         abortSignal: options?.signal,
         toolRegistry: this.childToolRegistry(),
         toolExecutionPipeline: this.deps.toolExecutionPipeline,
@@ -168,7 +192,9 @@ export class SubagentSpawner {
           : false,
       });
 
+      if (history.length > 0) loop.loadMessages(history);
       const turn = await loop.processUserInput(task);
+      await session?.close();
       emit({ type: 'end', payload: turn.text, rounds: turn.rounds });
 
       const summary = turn.text.trim();

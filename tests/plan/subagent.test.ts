@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { SubagentSpawner } from '../../src/subagent/spawner.js';
+import { SessionStore } from '../../src/agent/session.js';
 import { createSpawnSubagentTool } from '../../src/subagent/tool.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
@@ -454,6 +458,80 @@ describe('SubagentSpawner progress & cancellation (ticket 04)', () => {
     // The tool never executed
     expect(executeSpy).not.toHaveBeenCalled();
     expect(result.summary).toBeTruthy();
+  });
+});
+
+describe('SubagentSpawner transcript & resume (ticket 05)', () => {
+  function transcriptFixture(dir: string) {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const chats: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
+    let round = 0;
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        chats.push({ msgs: [...msgs], opts });
+        const lastTool = [...msgs].reverse().find((m) => m.role === 'tool');
+        if (!lastTool) {
+          yield { type: 'text_delta', content: `ANSWER round ${++round}` };
+          return;
+        }
+        yield { type: 'text_delta', content: `ANSWER round ${round} (with tool)` };
+      },
+    };
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      transcriptsDir: dir,
+    });
+    return { spawner, chats };
+  }
+
+  it('persists the child conversation to its own transcript file', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-subagent-'));
+    try {
+      const { spawner } = transcriptFixture(dir);
+      const result = await spawner.run('first task');
+      const file = path.join(dir, `${result.agentId}.jsonl`);
+      const transcript = SessionStore.load(file);
+      expect(transcript.some((m) => m.role === 'user' && m.content === 'first task')).toBe(true);
+      expect(transcript.some((m) => m.role === 'assistant')).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resume continues the same context instead of starting fresh', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-subagent-'));
+    try {
+      const { spawner, chats } = transcriptFixture(dir);
+      const first = await spawner.run('original task');
+      const followUp = await spawner.run('follow-up question', { resumeAgentId: first.agentId });
+
+      expect(followUp.agentId).toBe(first.agentId);
+      // The follow-up run saw the original conversation
+      const lastTurnFirstMsg = chats.at(-1)!.msgs[0];
+      const convo = chats.at(-1)!.msgs;
+      expect(convo.some((m) => m.role === 'user' && m.content === 'original task')).toBe(true);
+      expect(convo.some((m) => m.role === 'user' && m.content === 'follow-up question')).toBe(true);
+      void lastTurnFirstMsg;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to a fresh spawn when the transcript is missing', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-subagent-'));
+    try {
+      const { spawner, chats } = transcriptFixture(dir);
+      const result = await spawner.run('new work', { resumeAgentId: 'sub-never-existed' });
+      expect(result.summary).toContain('ANSWER');
+      // Fresh context: no phantom history
+      expect(chats.at(-1)!.msgs.every((m) => m.role !== 'user' || m.content === 'new work')).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
