@@ -14,6 +14,8 @@ export interface BuildPromptOptions {
   environment?: PromptEnvironment;
   /** Project-level instructions (AGENTS.md / CLAUDE.md content). */
   projectInstructions?: string;
+  /** Cross-session learned memory (user + project MEMORY.md content). */
+  memory?: string;
   /** Extra prompt section from config (agent.systemPrompt). */
   customPrompt?: string;
 }
@@ -54,6 +56,11 @@ export function buildSystemPrompt(
   // Project instructions
   if (options?.projectInstructions) {
     parts.push('', '## Project Instructions', options.projectInstructions);
+  }
+
+  // Learned memory (loaded once at startup; frozen for the session)
+  if (options?.memory) {
+    parts.push('', '## Memory', options.memory);
   }
 
   // Tool descriptions

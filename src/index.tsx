@@ -26,6 +26,7 @@ import { createBashTool } from './tools/bash.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { createTodoTool } from './tools/todo.js';
+import { readMemorySections, createMemoryTool } from './memory/store.js';
 import { ToolResultCache } from './cache/tool-result-cache.js';
 import { ToolExecutionPipeline } from './tools/execution-pipeline.js';
 import { PermissionPolicy } from './permission/policy.js';
@@ -154,6 +155,13 @@ async function main(): Promise<void> {
   const environment = gatherEnvironment(projectDir);
   const projectInstructions = loadProjectInstructions(projectDir);
 
+  // Learned memory: user-level + project-level, read ONCE and frozen into
+  // the system prompt for the whole session (cache philosophy).
+  const memory = readMemorySections([
+    path.join(os.homedir(), '.nova', 'memory', 'MEMORY.md'),
+    path.join(projectDir, '.nova', 'memory', 'MEMORY.md'),
+  ]);
+
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
   const todoState = { todos: [] };
@@ -166,6 +174,7 @@ async function main(): Promise<void> {
   }));
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool(todoState));
+  toolRegistry.register(createMemoryTool(path.join(projectDir, '.nova', 'memory', 'MEMORY.md')));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
   const spawner = new SubagentSpawner({
@@ -195,7 +204,7 @@ async function main(): Promise<void> {
       sessionStore={sessionStore}
       initialHistory={initialHistory}
       skills={skillRegistry}
-      promptOptions={{ environment, projectInstructions }}
+      promptOptions={{ environment, projectInstructions, memory }}
       customPrompt={config.agent.systemPrompt || undefined}
       todoState={todoState}
       listModels={listModels}
