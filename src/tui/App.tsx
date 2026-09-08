@@ -43,7 +43,7 @@ export interface AppProps {
   contextStrategy?: 'truncate' | 'compact';
   /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
   contextReserveTokens?: number;
-  /** Recent tokens kept verbatim during compaction. Default 20000 (ticket 02). */
+  /** Recent tokens kept verbatim during compaction. Default 20000 (context-compaction ticket 02). */
   contextKeepRecentTokens?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;

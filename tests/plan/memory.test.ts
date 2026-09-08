@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { readMemory, appendMemory, createMemoryTool } from '../../src/memory/store.js';
+import { readMemory, readMemorySections, appendMemory, createMemoryTool } from '../../src/memory/store.js';
 import { buildSystemPrompt } from '../../src/agent/prompt.js';
 
 describe('Memory store', () => {
@@ -45,6 +45,23 @@ describe('Memory store', () => {
     const tool = createMemoryTool(path.join(dir, 'MEMORY.md'));
     const result = await tool.execute({ fact: '   ' }, { workingDirectory: dir } as never);
     expect(result.isError).toBe(true);
+  });
+
+  it('full chain: appendMemory → readMemorySections → frozen prompt injection', () => {
+    const userFile = path.join(dir, 'user', 'MEMORY.md');
+    const projectFile = path.join(dir, 'project', 'MEMORY.md');
+    appendMemory(userFile, 'user prefers pnpm');
+    appendMemory(projectFile, 'tests live in tests/plan');
+    const memory = readMemorySections([userFile, projectFile]);
+    const prompt = buildSystemPrompt([], [], { memory });
+    expect(prompt).toContain('## Memory');
+    expect(prompt).toContain('user prefers pnpm');
+    expect(prompt).toContain('tests live in tests/plan');
+  });
+
+  it('readMemory degrades to empty string on unreadable paths (EISDIR)', () => {
+    // A directory path makes readFileSync throw EISDIR — the real corruption path
+    expect(readMemory(dir)).toBe('');
   });
 
   it('memory section is injected into the frozen system prompt', () => {

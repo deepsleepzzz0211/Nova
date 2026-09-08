@@ -11,12 +11,17 @@ export interface SessionSummary {
   preview: string;
 }
 
-/** Compaction checkpoint entry persisted to the session log. */
+/** Compaction checkpoint entry persisted to the session log. Also
+ *  written by /undo (post-truncation state) — replay treats both as
+ *  "replace accumulated history with this snapshot". */
 export interface CompactionEntry {
   type: 'compaction';
   /** Full post-compaction message state (summary + kept messages). */
   messages: Message[];
 }
+
+/** Anything storable on one JSONL line of the session log. */
+export type SessionEntry = Message | CompactionEntry;
 
 /**
  * JSONL-based conversation persistence (Codex "rollout" style).
@@ -44,13 +49,13 @@ export class SessionStore {
     return new SessionStore(path.join(dir, `session-${timestamp}.jsonl`));
   }
 
-  /** Append a message. Writes are chained to preserve ordering. */
-  append(message: Message): Promise<void> {
+  /** Append an entry (message or checkpoint). Writes are chained to preserve ordering. */
+  append(entry: SessionEntry): Promise<void> {
     if (this.closed) {
       return Promise.reject(new Error('SessionStore is closed.'));
     }
     this.queue = this.queue.then(() => {
-      fs.appendFileSync(this.filePath, `${JSON.stringify(message)}\n`, 'utf-8');
+      fs.appendFileSync(this.filePath, `${JSON.stringify(entry)}\n`, 'utf-8');
     });
     return this.queue;
   }
@@ -62,7 +67,7 @@ export class SessionStore {
    */
   appendCompaction(messages: Message[]): Promise<void> {
     const entry: CompactionEntry = { type: 'compaction', messages };
-    return this.append(entry as unknown as Message);
+    return this.append(entry);
   }
 
   /** Flush pending writes. */

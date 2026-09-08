@@ -266,7 +266,7 @@ export class AgentLoop {
 
     const tools = this.toolRegistry.toToolDefinitions();
 
-    // Reactive overflow recovery (ticket 04): token estimates can never be
+    // Reactive overflow recovery (context-compaction ticket 04): token estimates can never be
     // exact, so when the provider rejects the request for exceeding the
     // context window we compact once (with the truncate fallback) and retry
     // the same round exactly once. A second overflow surfaces as a normal
