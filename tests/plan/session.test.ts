@@ -101,6 +101,43 @@ describe('SessionStore', () => {
     expect(SessionStore.load(file)).toEqual([{ role: 'user', content: 'ok' }]);
   });
 
+  it('listSummaries lists sessions newest-first with count and preview', () => {
+    const old = path.join(dir, 'session-old.jsonl');
+    const newer = path.join(dir, 'session-new.jsonl');
+    fs.writeFileSync(old, [
+      JSON.stringify({ role: 'user', content: 'first user question in old session' }),
+      JSON.stringify({ role: 'assistant', content: 'answer' }),
+    ].join('\n'));
+    fs.writeFileSync(newer, [
+      JSON.stringify({ role: 'system', content: 'skill body' }),
+      JSON.stringify({ role: 'user', content: 'fix the login bug please' }),
+    ].join('\n'));
+    const past = new Date(Date.now() - 10_000);
+    fs.utimesSync(old, past, past);
+
+    const list = SessionStore.listSummaries(dir);
+    expect(list).toHaveLength(2);
+    expect(list[0].file).toBe(newer); // newest first
+    expect(list[0].messageCount).toBe(2);
+    // Preview = first USER message (not system noise), truncated to 60
+    expect(list[0].preview).toBe('fix the login bug please');
+    expect(list[1].messageCount).toBe(2);
+    expect(list[1].preview.length).toBeLessThanOrEqual(60);
+  });
+
+  it('listSummaries returns [] for empty or missing directories', () => {
+    expect(SessionStore.listSummaries(dir)).toEqual([]);
+    expect(SessionStore.listSummaries(path.join(dir, 'nope'))).toEqual([]);
+  });
+
+  it('listSummaries ignores non-session files', () => {
+    fs.writeFileSync(path.join(dir, 'README.txt'), 'not a session');
+    fs.writeFileSync(path.join(dir, 'session-a.jsonl'), '{"role":"user","content":"hi"}\n');
+    const list = SessionStore.listSummaries(dir);
+    expect(list).toHaveLength(1);
+    expect(list[0].file).toContain('session-a.jsonl');
+  });
+
   it('load skips malformed lines', () => {
     const file = path.join(dir, 'corrupt.jsonl');
     fs.writeFileSync(

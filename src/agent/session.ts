@@ -2,6 +2,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Message } from '../llm/types.js';
 
+/** Digest of one stored session (for lists/pickers). */
+export interface SessionSummary {
+  file: string;
+  mtimeMs: number;
+  messageCount: number;
+  /** First user message, truncated to 60 chars. */
+  preview: string;
+}
+
 /** Compaction checkpoint entry persisted to the session log. */
 export interface CompactionEntry {
   type: 'compaction';
@@ -98,24 +107,43 @@ export class SessionStore {
 
   /** Return the most recently modified session file, or null. */
   static findLatest(dir: string): string | null {
+    const list = SessionStore.listSummaries(dir);
+    return list.length > 0 ? list[0].file : null;
+  }
+
+  /**
+   * Summaries of every session in a directory, newest first: file path,
+   * message count, and a preview of the first user message (truncated to
+   * 60 chars; system/skill messages do not count as the preview).
+   */
+  static listSummaries(dir: string): SessionSummary[] {
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
-      return null;
+      return [];
     }
 
-    let latest: string | null = null;
-    let latestMtime = -1;
+    const summaries: SessionSummary[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
       const full = path.join(dir, entry.name);
-      const mtime = fs.statSync(full).mtimeMs;
-      if (mtime > latestMtime) {
-        latestMtime = mtime;
-        latest = full;
+      let mtimeMs = 0;
+      let messages: Message[] = [];
+      try {
+        mtimeMs = fs.statSync(full).mtimeMs;
+        messages = SessionStore.load(full);
+      } catch {
+        continue;
       }
+      const firstUser = messages.find(
+        (m) => m.role === 'user' && typeof m.content === 'string' && m.content.length > 0,
+      );
+      const preview = typeof firstUser?.content === 'string'
+        ? firstUser.content.slice(0, 60)
+        : '(no user messages)';
+      summaries.push({ file: full, mtimeMs, messageCount: messages.length, preview });
     }
-    return latest;
+    return summaries.sort((a, b) => b.mtimeMs - a.mtimeMs);
   }
 }

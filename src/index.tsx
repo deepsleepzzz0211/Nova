@@ -15,6 +15,8 @@ import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
 import { SessionStore } from './agent/session.js';
+import type { SessionSummary } from './agent/session.js';
+import { SessionPicker, formatSessionList } from './tui/SessionPicker.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
 import { SkillRegistry } from './skills/registry.js';
 import { SubagentSpawner } from './subagent/spawner.js';
@@ -42,6 +44,7 @@ async function main(): Promise<void> {
       'api-key': { type: 'string' },
       'base-url': { type: 'string' },
       resume: { type: 'boolean', short: 'r' },
+      list: { type: 'boolean' },
       thinking: { type: 'string' },
     },
     strict: false,
@@ -86,13 +89,34 @@ async function main(): Promise<void> {
   // Initialize tool execution pipeline (single execution path)
   const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy);
 
-  // Session persistence: resume the latest session when requested
+  // Session persistence: --list prints sessions and exits; --resume picks
+  // a session (interactive picker when several exist, latest otherwise).
   const sessionsDir = path.join(os.homedir(), '.nova', 'sessions');
   let initialHistory: Message[] = [];
+  if (values.list) {
+    const sessions = SessionStore.listSummaries(sessionsDir);
+    console.log(formatSessionList(sessions));
+    process.exit(0);
+  }
   if (values.resume) {
-    const latest = SessionStore.findLatest(sessionsDir);
-    if (latest) {
-      initialHistory = SessionStore.load(latest);
+    const sessions = SessionStore.listSummaries(sessionsDir);
+    if (sessions.length === 0) {
+      console.error('No previous sessions found in', sessionsDir);
+    } else {
+      let picked: SessionSummary | null = sessions[0]; // default: latest (previous behavior)
+      if (sessions.length > 1 && process.stdin.isTTY) {
+        picked = await new Promise<SessionSummary | null>((resolve) => {
+          const { waitUntilExit } = render(
+            <SessionPicker sessions={sessions} defaultIndex={0} onPick={resolve} />,
+          );
+          void waitUntilExit();
+        });
+      }
+      if (!picked) {
+        console.error('Resume cancelled.');
+        process.exit(0);
+      }
+      initialHistory = SessionStore.load(picked.file);
     }
   }
   const sessionStore = SessionStore.create(sessionsDir);
