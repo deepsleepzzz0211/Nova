@@ -22,20 +22,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4   # reads packageManager from package.json
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
-          registry-url: "https://registry.npmjs.org/"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Secret scan (tree + full history)
-        run: node scripts/scan-secrets.mjs
-      - name: Audit (prod deps, high+)
-        run: pnpm audit --prod --audit-level=high
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
 
   publish:
     needs: test
@@ -53,6 +42,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Dry-run pack (catch file-inclusion surprises before publishing)
+        run: npm publish --dry-run --access public
       - name: Publish
         id: publish
         shell: bash
