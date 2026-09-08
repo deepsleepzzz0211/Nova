@@ -1,4 +1,5 @@
 import type { LLMProvider } from '../llm/provider.js';
+import type { Message } from '../llm/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline, ConfirmCallback } from '../tools/execution-pipeline.js';
 import { AgentLoop } from '../agent/loop.js';
