@@ -45,7 +45,9 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
         return { content: result.summary, metadata: { rounds: result.rounds } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { content: `Subagent failed: ${message}`, isError: true };
+        // Concurrency-limit errors pass through verbatim (they carry the
+        // retry hint for the parent); everything else is prefixed.
+        return { content: message, isError: true };
       }
     },
   };

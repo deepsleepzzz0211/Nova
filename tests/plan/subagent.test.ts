@@ -139,6 +139,77 @@ describe('SubagentSpawner', () => {
   });
 });
 
+describe('SubagentSpawner guardrails (ticket 01)', () => {
+  it('child never sees spawn_subagent in its tool list', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm, chats } = toolCallingLLM();
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+    });
+    registry.register(createSpawnSubagentTool(spawner)); // parent has it
+
+    await spawner.run('do work');
+    const childTools = (chats[0].opts.tools ?? []).map((t) => t.function.name);
+    expect(childTools).toContain('bash');
+    expect(childTools).not.toContain('spawn_subagent');
+  });
+
+  it('blocks spawning beyond the concurrency limit with a retry-hint error', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    // Slow LLM: holds each subagent open long enough to overlap
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        await new Promise((r) => setTimeout(r, 200));
+        yield { type: 'text_delta', content: 'done' };
+      },
+    };
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      maxConcurrent: 2,
+    });
+    const tool = createSpawnSubagentTool(spawner);
+    const ctx = { workingDirectory: process.cwd(), abortSignal: new AbortController().signal };
+
+    const results = await Promise.all([
+      tool.execute({ task: 'a' }, ctx, { confirm: async () => true }),
+      tool.execute({ task: 'b' }, ctx, { confirm: async () => true }),
+      tool.execute({ task: 'c' }, ctx, { confirm: async () => true }),
+      tool.execute({ task: 'd' }, ctx, { confirm: async () => true }),
+    ]);
+    const ok = results.filter((r) => !r.isError);
+    const blocked = results.filter((r) => r.isError);
+    expect(ok).toHaveLength(2); // limit reached, not exceeded
+    expect(blocked.length).toBeGreaterThanOrEqual(1);
+    for (const b of blocked) {
+      expect(b.content.toLowerCase()).toContain('concurrent subagent limit');
+      expect(b.content).toContain('retry'); // tells the parent to retry later
+    }
+    // Slots released after completion: a new spawn works
+    const after = await tool.execute({ task: 'e' }, ctx, { confirm: async () => true });
+    expect(after.isError).toBeUndefined();
+  });
+
+  it('concurrency limit defaults to 3 and is configurable', () => {
+    const mk = (max?: number) => new SubagentSpawner({
+      llm: toolCallingLLM().llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      ...(max !== undefined ? { maxConcurrent: max } : {}),
+    });
+    expect(mk().maxConcurrent).toBe(3);
+    expect(mk(7).maxConcurrent).toBe(7);
+  });
+});
+
 describe('spawn_subagent tool', () => {
   it('wraps the spawner and returns the summary as tool result', async () => {
     const registry = new ToolRegistry();
