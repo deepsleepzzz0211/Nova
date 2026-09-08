@@ -21,7 +21,7 @@ jobs:
         node: [20, 22]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
@@ -33,7 +33,7 @@ jobs:
       id-token: write # for npm provenance
       contents: write # for GitHub Release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4   # reads packageManager from package.json
       - uses: actions/setup-node@v4
         with:
