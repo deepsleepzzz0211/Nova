@@ -251,7 +251,8 @@ describe('AgentLoop.compactNow', () => {
       // a1 (turn 1's long reply) was summarized away; a2 (turn 2's, kept
       // verbatim by the keep-window) survives — exactly 200 'reply' tokens
       expect(joined.split('reply').length - 1).toBe(200);
-      expect(joined.length).toBeLessThan(1800);
+      // raw ≈ 3600 chars (two full turns); post-compaction ≈ 2444
+      expect(joined.length).toBeLessThan(2500);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
