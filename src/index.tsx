@@ -222,6 +222,7 @@ async function main(): Promise<void> {
     maxConcurrent: config.agent.subagentMaxConcurrent,
     defaultModel: config.agent.subagentModel,
     resolveModelSpec: resolveSpec,
+    transcriptsDir: path.join(os.homedir(), '.nova', 'subagents'),
     onEvent: (event) => {
       if (event.type === 'start') {
         const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
