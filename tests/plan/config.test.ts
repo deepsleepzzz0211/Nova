@@ -19,7 +19,11 @@ describe('Config Loader', () => {
   });
   afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
-  it('returns defaults when no config exists', () => {
+  it('intentional red for CI gate verification', () => {
+    expect(1).toBe(2);
+  });
+
+it('returns defaults when no config exists', () => {
     const c = loadConfig(tmpDir);
     expect(c.llm.model).toBe('gpt-4o');
     expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
