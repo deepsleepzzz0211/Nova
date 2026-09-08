@@ -49,6 +49,58 @@ describe('SessionStore', () => {
     expect(SessionStore.findLatest(path.join(dir, 'nope'))).toBeNull();
   });
 
+  it('persists a compaction snapshot and replay replaces prior history', async () => {
+    const file = path.join(dir, 'session-2.jsonl');
+    const store = new SessionStore(file);
+    await store.append({ role: 'user', content: 'long question' });
+    await store.append({ role: 'assistant', content: 'long answer' });
+    // Compaction collapses everything into a summarized state
+    await store.appendCompaction([
+      { role: 'system', content: '[Conversation summary]\nuser asked something' },
+      { role: 'user', content: 'next question' },
+    ]);
+    await store.close();
+
+    const loaded = SessionStore.load(file);
+    // Pre-compaction messages replaced by the snapshot
+    expect(loaded).toHaveLength(2);
+    expect(loaded[0].role).toBe('system');
+    expect(loaded[0].content).toContain('[Conversation summary]');
+    expect(loaded[1]).toEqual({ role: 'user', content: 'next question' });
+  });
+
+  it('replays multiple compaction entries progressively', async () => {
+    const file = path.join(dir, 'session-3.jsonl');
+    const store = new SessionStore(file);
+    await store.append({ role: 'user', content: 'a' });
+    await store.appendCompaction([{ role: 'system', content: 'summary one' }]);
+    await store.append({ role: 'user', content: 'b' });
+    await store.appendCompaction([{ role: 'system', content: 'summary two' }]);
+    await store.close();
+
+    const loaded = SessionStore.load(file);
+    expect(loaded).toEqual([{ role: 'system', content: 'summary two' }]);
+  });
+
+  it('loads legacy session files (messages only) unchanged', () => {
+    const file = path.join(dir, 'legacy.jsonl');
+    fs.writeFileSync(file, '{"role":"user","content":"old format"}\n');
+    expect(SessionStore.load(file)).toEqual([{ role: 'user', content: 'old format' }]);
+  });
+
+  it('skips malformed compaction entries', () => {
+    const file = path.join(dir, 'corrupt2.jsonl');
+    fs.writeFileSync(
+      file,
+      [
+        JSON.stringify({ role: 'user', content: 'ok' }),
+        JSON.stringify({ type: 'compaction' }), // missing messages
+        JSON.stringify({ type: 'compaction', messages: 'not-an-array' }),
+      ].join('\n'),
+    );
+    expect(SessionStore.load(file)).toEqual([{ role: 'user', content: 'ok' }]);
+  });
+
   it('load skips malformed lines', () => {
     const file = path.join(dir, 'corrupt.jsonl');
     fs.writeFileSync(

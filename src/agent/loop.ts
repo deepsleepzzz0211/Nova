@@ -179,7 +179,13 @@ export class AgentLoop {
 
     const afterTokens = this.contextManager.countTokens(after);
     this.messages = after;
+    this.persistCompaction(after);
     this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens });
+  }
+
+  /** Persist a compaction checkpoint so --resume replays the slim state. */
+  private persistCompaction(messages: Message[]): void {
+    void this.session?.appendCompaction(messages);
   }
 
   /**
@@ -454,6 +460,7 @@ export class AgentLoop {
       return { compacted: false, strategy: this.contextStrategy, beforeTokens };
     }
     this.messages = after;
+    this.persistCompaction(after);
     this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
     return { compacted: true, strategy: this.contextStrategy, beforeTokens, afterTokens };
   }

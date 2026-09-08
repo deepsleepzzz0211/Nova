@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { AgentLoop } from '../../src/agent/loop.js';
+import { SessionStore } from '../../src/agent/session.js';
 import { SUMMARY_MARKER } from '../../src/agent/compaction.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
@@ -201,6 +205,54 @@ describe('AgentLoop.compactNow', () => {
     expect(result.compacted).toBe(true);
     expect(result.strategy).toBe('truncate');
     expect(loop.getMessages().length).toBeLessThan(4);
+  });
+
+  it('persists a compaction checkpoint that --resume replays slim', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-persist-'));
+    try {
+      const llm: LLMProvider = {
+        async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+          if (opts.tools === undefined) {
+            yield { type: 'text_delta', content: 'summary of everything' };
+            return;
+          }
+          yield { type: 'text_delta', content: 'reply '.repeat(200) };
+        },
+      };
+
+      const sessionFile = path.join(dir, 'session-x.jsonl');
+      const session = new SessionStore(sessionFile);
+      const loop = new AgentLoop({
+        llm,
+        toolRegistry: new ToolRegistry(),
+        toolExecutionPipeline: makePipeline(),
+        session,
+        config: { maxToolRounds: 10, model: 'test' },
+        context: { maxTokens: 100_000, strategy: 'compact', keepRecentTokens: 0 },
+        onToken: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        onPermissionRequest: async () => true,
+      });
+
+      await loop.processUserInput('hello '.repeat(100));
+      await loop.processUserInput('hello '.repeat(100));
+      const result = await loop.compactNow();
+      expect(result.compacted).toBe(true);
+      await session.close();
+
+      // Replay: the pre-compaction raw messages are replaced by the snapshot
+      // (count stays equal — a1 is replaced 1:1 by the summary; the invariant
+      // is token slimness: no long turn reply survives verbatim)
+      const replayed = SessionStore.load(sessionFile);
+      expect(replayed[0].role).toBe('system');
+      expect(String(replayed[0].content)).toContain('[Conversation summary]');
+      const joined = replayed.map((m) => String(m.content ?? '')).join('');
+      expect(joined).not.toContain('reply reply reply reply');
+      expect(joined.length).toBeLessThan(1000);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('falls back to truncation when the /compact summary fails', async () => {

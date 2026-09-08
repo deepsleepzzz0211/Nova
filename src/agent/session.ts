@@ -2,11 +2,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Message } from '../llm/types.js';
 
+/** Compaction checkpoint entry persisted to the session log. */
+export interface CompactionEntry {
+  type: 'compaction';
+  /** Full post-compaction message state (summary + kept messages). */
+  messages: Message[];
+}
+
 /**
  * JSONL-based conversation persistence (Codex "rollout" style).
  *
  * Every conversation message is appended as one JSON line, enabling exact
- * replay/resume of a session after a crash or explicit --resume.
+ * replay/resume of a session after a crash or explicit --resume. Compaction
+ * checkpoints are appended as typed entries: on replay they replace the
+ * accumulated history with the post-compaction snapshot, so a resumed
+ * session keeps its compacted (slim) context instead of blowing back up to
+ * the full original history.
  */
 export class SessionStore {
   private readonly filePath: string;
@@ -35,13 +46,24 @@ export class SessionStore {
     return this.queue;
   }
 
+  /**
+   * Persist a compaction checkpoint: the full post-compaction message
+   * state. On replay this replaces the accumulated history, keeping the
+   * resumed session slim (see class docs).
+   */
+  appendCompaction(messages: Message[]): Promise<void> {
+    const entry: CompactionEntry = { type: 'compaction', messages };
+    return this.append(entry as unknown as Message);
+  }
+
   /** Flush pending writes. */
   async close(): Promise<void> {
     await this.queue;
     this.closed = true;
   }
 
-  /** Load all messages from a session file. Malformed lines are skipped. */
+  /** Load all messages from a session file, replaying compaction
+   *  checkpoints. Malformed lines are skipped. */
   static load(filePath: string): Message[] {
     let raw: string;
     try {
@@ -54,11 +76,22 @@ export class SessionStore {
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      let parsed: unknown;
       try {
-        messages.push(JSON.parse(trimmed) as Message);
+        parsed = JSON.parse(trimmed);
       } catch {
-        // Skip malformed lines (e.g. partially written)
+        continue; // Skip malformed lines (e.g. partially written)
       }
+      const entry = parsed as { type?: string; messages?: unknown };
+      if (entry?.type === 'compaction') {
+        // Checkpoint: replace the accumulated history with the snapshot.
+        if (Array.isArray(entry.messages)) {
+          messages.length = 0;
+          messages.push(...(entry.messages as Message[]));
+        }
+        continue;
+      }
+      messages.push(parsed as Message);
     }
     return messages;
   }
