@@ -155,18 +155,22 @@ export class AgentLoop {
     const beforeTokens = this.contextManager.countTokens(this.messages);
     if (!this.contextManager.isNearLimit(beforeTokens)) return;
 
-    let after: Message[];
+    // Fallback chain: compact → truncate. A failed summary must still
+    // shrink the context; fail-open here would hit the window on the
+    // very next round.
+    let after: Message[] | null = null;
+    let applied: LoopContextConfig['strategy'] = this.contextStrategy;
     if (this.contextStrategy === 'compact' && this.compactor) {
-      const compacted = await this.compactor.compact(this.messages);
-      if (compacted === null) return; // fail-open: keep as-is
-      after = compacted;
-    } else {
+      after = await this.compactor.compact(this.messages);
+      if (after === null) applied = 'truncate';
+    }
+    if (after === null) {
       after = this.contextManager.truncate(this.messages);
     }
 
     const afterTokens = this.contextManager.countTokens(after);
     this.messages = after;
-    this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
+    this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens });
   }
 
   /**

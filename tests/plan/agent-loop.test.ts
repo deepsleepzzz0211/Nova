@@ -273,6 +273,45 @@ describe('AgentLoop context management', () => {
     expect(sawSummary).toBe(true);
   });
 
+  it('falls back to truncation when the compaction summary fails', async () => {
+    // Summary requests (tools === undefined) always fail → the loop must
+    // degrade to truncate instead of fail-open (which would hit the
+    // context window on the next round).
+    const llm: LLMProvider = {
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (opts.tools === undefined) {
+          yield { type: 'error', error: 'summarizer unavailable' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+
+    const registry = new ToolRegistry();
+    const compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      onCompaction: (info) => compactions.push(info),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput(longText());
+    await loop.processUserInput(longText());
+
+    // Degraded compaction still shrank the context — via truncation
+    expect(compactions.length).toBeGreaterThan(0);
+    expect(compactions[0].strategy).toBe('truncate');
+    expect(compactions[0].afterTokens).toBeLessThan(compactions[0].beforeTokens);
+  });
+
   it('truncates context when strategy is truncate', async () => {
     const llm: LLMProvider = {
       async *chat(): AsyncIterable<StreamChunk> {
