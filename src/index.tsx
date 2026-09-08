@@ -7,7 +7,7 @@ import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
-import { loadConfig, normalizeConfig } from './config/loader.js';
+import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
 import type { LLMProvider } from './llm/provider.js';
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   if (values.thinking && typeof values.thinking === 'string') config.agent.thinkingLevel = values.thinking;
 
   // Model catalog: user-level models.json merged over built-in providers
-  const catalog = loadModelCatalog([path.join(os.homedir(), '.nova', 'models.json')]);
+  const catalog = loadModelCatalog([path.join(novaHome(), '.nova', 'models.json')]);
   const resolution = resolveModel(
     {
       provider: config.llm.provider || 'openai',
@@ -91,13 +91,16 @@ async function main(): Promise<void> {
 
   // Session persistence: --list prints sessions and exits; --resume picks
   // a session (interactive picker when several exist, latest otherwise).
-  const sessionsDir = path.join(os.homedir(), '.nova', 'sessions');
+  const sessionsDir = path.join(novaHome(), '.nova', 'sessions');
   // Startup hygiene: surface config warnings, sweep stale sessions
   for (const warning of configWarnings) {
     console.error(`[config] ${warning}`);
   }
   const swept = SessionStore.sweep(sessionsDir);
   if (swept > 0) console.error(`[sessions] removed ${swept} session file(s) older than 30 days`);
+  const subagentsDir = path.join(novaHome(), '.nova', 'subagents');
+  const sweptSubagents = SessionStore.sweep(subagentsDir);
+  if (sweptSubagents > 0) console.error(`[subagents] removed ${sweptSubagents} stale transcript(s)`);
   let initialHistory: Message[] = [];
   if (values.list) {
     const sessions = SessionStore.listSummaries(sessionsDir);
@@ -188,7 +191,7 @@ async function main(): Promise<void> {
 
   // Skills: scan user-level and project-level skill directories
   const skillRegistry = new SkillRegistry();
-  await skillRegistry.scan(path.join(os.homedir(), '.nova', 'skills'));
+  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'));
   await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'));
 
   // Environment facts + project instructions for the system prompt
@@ -198,7 +201,7 @@ async function main(): Promise<void> {
   // Learned memory: user-level + project-level, read ONCE and frozen into
   // the system prompt for the whole session (cache philosophy).
   const memory = readMemorySections([
-    path.join(os.homedir(), '.nova', 'memory', 'MEMORY.md'),
+    path.join(novaHome(), '.nova', 'memory', 'MEMORY.md'),
     path.join(projectDir, '.nova', 'memory', 'MEMORY.md'),
   ]);
 
@@ -228,7 +231,7 @@ async function main(): Promise<void> {
     maxConcurrent: config.agent.subagentMaxConcurrent,
     defaultModel: config.agent.subagentModel,
     resolveModelSpec: resolveSpec,
-    transcriptsDir: path.join(os.homedir(), '.nova', 'subagents'),
+    transcriptsDir: subagentsDir,
     onEvent: (event) => {
       if (event.type === 'start') {
         const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
