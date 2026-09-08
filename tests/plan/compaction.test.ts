@@ -200,6 +200,45 @@ describe('Compactor (token-budget keep window)', () => {
     expect(transcript).toContain('chars truncated');
   });
 
+  it('handles 6 oversized tool results: recent ones kept, old ones summarized', async () => {
+    let summaryCalls = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        summaryCalls++;
+        yield { type: 'text_delta', content: 'summary of old tool results' };
+      },
+    };
+    const big = 't'.repeat(4000); // ~1000 tokens each
+    const messages: Message[] = [];
+    for (let i = 0; i < 6; i++) {
+      messages.push({ role: 'user', content: `step ${i}` });
+      messages.push({
+        role: 'assistant',
+        content: null,
+        tool_calls: [{ id: `c${i}`, type: 'function', function: { name: 'read_file', arguments: `{"path":"f${i}.ts"}` } }],
+      });
+      messages.push({ role: 'tool', tool_call_id: `c${i}`, content: big });
+    }
+
+    // Budget admits the last ~2 pairs only (~2100 tokens); the rest must
+    // be summarized, never dropped.
+    const compactor = new Compactor(llm, model, {
+      keepRecentTokens: msgEstimate(messages[13]) + msgEstimate(messages[14]) + msgEstimate(messages[15]),
+      countTokens: est,
+    });
+    const result = await compactor.compact(messages);
+
+    expect(result).not.toBeNull();
+    expect(result!.method).toBe('summary');
+    expect(summaryCalls).toBe(1);
+    // Only the last tool result survives verbatim
+    const keptTools = result!.messages.filter((m) => m.role === 'tool' && m.content === big);
+    expect(keptTools).toHaveLength(1);
+    expect((keptTools[0] as { tool_call_id?: string }).tool_call_id).toBe('c5');
+    // Summary present
+    expect(result!.messages[0].content).toContain(SUMMARY_MARKER);
+  });
+
   it('reports summarized=false for a single message', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: 'unused' }]);
     const spy = vi.spyOn(llm, 'chat');

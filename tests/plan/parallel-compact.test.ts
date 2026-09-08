@@ -203,6 +203,41 @@ describe('AgentLoop.compactNow', () => {
     expect(loop.getMessages().length).toBeLessThan(4);
   });
 
+  it('falls back to truncation when the /compact summary fails', async () => {
+    const llm: LLMProvider = {
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (opts.tools === undefined) {
+          yield { type: 'error', error: 'summarizer unavailable' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const medium = 'word '.repeat(100);
+    await loop.processUserInput(medium);
+    await loop.processUserInput(medium);
+
+    const result = await loop.compactNow();
+    // Summary failed → degraded to aggressive truncate (triggerTokens/2 = 37,
+    // far below each ~100-token message), still compacted
+    expect(result.compacted).toBe(true);
+    expect(result.strategy).toBe('compact'); // strategy config, degraded internally
+    expect(loop.getMessages().length).toBeLessThan(4);
+  });
+
   it('returns compacted=false when no context management is configured', async () => {
     const llm: LLMProvider = {
       async *chat(): AsyncIterable<StreamChunk> {

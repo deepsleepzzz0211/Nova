@@ -23,8 +23,13 @@ prompt_cache = false
 max_tool_rounds = 50
 # Additional system prompt
 system_prompt = ""
-# Context strategy: "truncate" or "summarize"
+# Context strategy: "truncate" or "compact"
 context_strategy = "truncate"
+# Compaction trigger reserve (tokens kept for the LLM response);
+# trigger = model context window − reserve. Default 16384.
+# context_reserve_tokens = 16384
+# Recent tokens kept verbatim during compaction. Default 20000.
+# context_keep_recent_tokens = 20000
 
 [search]
 # Search backend: Tavily API (free 1000/month at tavily.com).

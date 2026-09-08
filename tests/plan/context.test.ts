@@ -34,11 +34,12 @@ describe('ContextManager', () => {
   });
 
   it('isNearLimit uses the reserve-based trigger (window − reserveTokens)', () => {
-    // Default reserve 16384: a 200k window triggers at 183616
-    const big = new ContextManager({ model: 'gpt-4o', maxTokens: 200_000 });
-    expect(big.triggerTokens).toBe(200_000 - 16_384);
-    expect(big.isNearLimit(183_616)).toBe(true);
-    expect(big.isNearLimit(183_615)).toBe(false);
+    for (const window of [128_000, 200_000, 1_000_000]) {
+      const cm = new ContextManager({ model: 'gpt-4o', maxTokens: window });
+      expect(cm.triggerTokens).toBe(window - 16_384);
+      expect(cm.isNearLimit(window - 16_384)).toBe(true);
+      expect(cm.isNearLimit(window - 16_385)).toBe(false);
+    }
   });
 
   it('clamps the reserve to half the window for tiny windows', () => {
