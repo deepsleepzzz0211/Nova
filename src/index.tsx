@@ -202,6 +202,8 @@ async function main(): Promise<void> {
       resolveSwitch={resolveSwitch}
       contextWindow={resolution.model.contextWindow}
       contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
+      contextReserveTokens={config.agent.contextReserveTokens}
+      contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}

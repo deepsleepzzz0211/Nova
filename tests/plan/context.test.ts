@@ -33,9 +33,27 @@ describe('ContextManager', () => {
     expect(truncated[0].role).toBe('system');
   });
 
-  it('isNearLimit returns true when close to max', () => {
-    const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 100 });
-    expect(cm.isNearLimit(85)).toBe(true);  // 85% of 100
-    expect(cm.isNearLimit(50)).toBe(false);
+  it('isNearLimit uses the reserve-based trigger (window − reserveTokens)', () => {
+    // Default reserve 16384: a 200k window triggers at 183616
+    const big = new ContextManager({ model: 'gpt-4o', maxTokens: 200_000 });
+    expect(big.triggerTokens).toBe(200_000 - 16_384);
+    expect(big.isNearLimit(183_616)).toBe(true);
+    expect(big.isNearLimit(183_615)).toBe(false);
+  });
+
+  it('clamps the reserve to half the window for tiny windows', () => {
+    // maxTokens 100: full 16384 reserve would make the trigger negative
+    const tiny = new ContextManager({ model: 'gpt-4o', maxTokens: 100 });
+    expect(tiny.triggerTokens).toBe(50); // reserve clamped to maxTokens/2
+  });
+
+  it('honors an explicit reserveTokens override', () => {
+    const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 200_000, reserveTokens: 40_000 });
+    expect(cm.triggerTokens).toBe(160_000);
+  });
+
+  it('override is also clamped to half the window', () => {
+    const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 100, reserveTokens: 90 });
+    expect(cm.triggerTokens).toBe(50);
   });
 });

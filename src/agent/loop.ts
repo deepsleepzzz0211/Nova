@@ -22,8 +22,10 @@ export interface AgentTurnResult {
 
 /** Context management configuration. */
 export interface LoopContextConfig {
-  /** Token budget for the conversation. */
+  /** Model context window size. */
   maxTokens: number;
+  /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
+  reserveTokens?: number;
   /** What to do when the budget is approached: drop old messages or summarize. */
   strategy: 'truncate' | 'compact';
 }
@@ -95,7 +97,11 @@ export class AgentLoop {
     this.maxToolRounds = options.config.maxToolRounds;
     this.model = options.config.model;
     this.contextManager = options.context
-      ? new ContextManager({ model: options.config.model, maxTokens: options.context.maxTokens })
+      ? new ContextManager({
+          model: options.config.model,
+          maxTokens: options.context.maxTokens,
+          reserveTokens: options.context.reserveTokens,
+        })
       : null;
     this.contextStrategy = options.context?.strategy ?? null;
     this.compactor = options.context?.strategy === 'compact'

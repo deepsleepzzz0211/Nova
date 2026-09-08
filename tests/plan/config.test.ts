@@ -24,6 +24,18 @@ describe('Config Loader', () => {
     expect(c.llm.model).toBe('gpt-4o');
     expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
     expect(c.agent.maxToolRounds).toBe(50);
+    expect(c.agent.contextReserveTokens).toBe(16384);
+    expect(c.agent.contextKeepRecentTokens).toBe(20000);
+  });
+
+  it('honors context reserve / keep-recent overrides from TOML', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.toml'),
+      '[agent]\ncontext_reserve_tokens = 8000\ncontext_keep_recent_tokens = 12000\n',
+    );
+    const c = loadConfig(tmpDir);
+    expect(c.agent.contextReserveTokens).toBe(8000);
+    expect(c.agent.contextKeepRecentTokens).toBe(12000);
   });
 
   it('merges partial TOML config with defaults', () => {

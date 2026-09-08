@@ -15,6 +15,13 @@ export interface AgentConfig {
   maxToolRounds: number;
   systemPrompt: string;
   contextStrategy: string;
+  /**
+   * Tokens reserved for the LLM response when computing the compaction
+   * trigger (contextWindow − reserveTokens). Default 16384.
+   */
+  contextReserveTokens?: number;
+  /** Tokens of recent non-user messages kept verbatim during compaction. */
+  contextKeepRecentTokens?: number;
   /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
   thinkingLevel: string;
 }

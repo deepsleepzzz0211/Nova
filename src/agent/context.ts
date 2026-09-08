@@ -4,9 +4,14 @@ import type { Message } from '../llm/types.js';
 /** Options for creating a ContextManager. */
 export interface ContextManagerOptions {
   model: string;
+  /** Model context window size. */
   maxTokens: number;
-  /** Fraction of maxTokens at which compaction/truncation triggers. Default 0.8. */
-  triggerRatio?: number;
+  /**
+   * Tokens reserved for the LLM response: the compaction trigger is
+   * `maxTokens − reserveTokens`. Default 16384 (pi-style), clamped to
+   * half the window so tiny windows keep a sane trigger point.
+   */
+  reserveTokens?: number;
 }
 
 /**
@@ -35,12 +40,15 @@ function getEncoder(): { encode(text: string): Uint32Array } | null {
 export class ContextManager {
   private readonly maxTokens: number;
   private readonly model: string;
-  private readonly triggerRatio: number;
+  private readonly reserveTokens: number;
 
   constructor(options: ContextManagerOptions) {
     this.model = options.model;
     this.maxTokens = options.maxTokens;
-    this.triggerRatio = options.triggerRatio ?? 0.8;
+    this.reserveTokens = Math.min(
+      options.reserveTokens ?? 16_384,
+      Math.floor(this.maxTokens / 2),
+    );
   }
 
   /** Estimate the token count for a single piece of text. */
@@ -76,7 +84,7 @@ export class ContextManager {
 
   /** Token budget at which context management triggers. */
   get triggerTokens(): number {
-    return Math.floor(this.maxTokens * this.triggerRatio);
+    return this.maxTokens - this.reserveTokens;
   }
 
   /** True when the given token count is at or past the trigger point. */

@@ -41,6 +41,10 @@ export interface AppProps {
   contextWindow?: number;
   /** Context management strategy ('truncate' | 'compact'). */
   contextStrategy?: 'truncate' | 'compact';
+  /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
+  contextReserveTokens?: number;
+  /** Recent tokens kept verbatim during compaction. Default 20000 (ticket 02). */
+  contextKeepRecentTokens?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -72,6 +76,8 @@ export function App({
   todoState,
   contextWindow,
   contextStrategy,
+  contextReserveTokens,
+  contextKeepRecentTokens,
   thinkingLevel,
   listModels,
   resolveSwitch,
@@ -91,6 +97,8 @@ export function App({
     customPrompt,
     contextWindow,
     contextStrategy,
+    contextReserveTokens,
+    contextKeepRecentTokens,
     thinkingLevel,
     listModels,
     resolveSwitch,

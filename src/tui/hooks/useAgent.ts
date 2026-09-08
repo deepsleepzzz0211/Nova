@@ -53,6 +53,10 @@ export interface UseAgentConfig {
   contextWindow?: number;
   /** Context management strategy ('truncate' | 'compact'). */
   contextStrategy?: 'truncate' | 'compact';
+  /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
+  contextReserveTokens?: number;
+  /** Recent tokens kept verbatim during compaction. Default 20000 (ticket 02). */
+  contextKeepRecentTokens?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -206,7 +210,11 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
       context:
         config.contextWindow !== undefined
-          ? { maxTokens: config.contextWindow, strategy: config.contextStrategy ?? 'truncate' }
+          ? {
+              maxTokens: config.contextWindow,
+              reserveTokens: config.contextReserveTokens,
+              strategy: config.contextStrategy ?? 'truncate',
+            }
           : undefined,
       thinkingLevel: config.thinkingLevel,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },

@@ -15,6 +15,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxToolRounds: 50,
     systemPrompt: '',
     contextStrategy: 'truncate',
+    contextReserveTokens: 16384,
+    contextKeepRecentTokens: 20000,
     thinkingLevel: 'off',
   },
   search: {
