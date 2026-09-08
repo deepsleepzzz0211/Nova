@@ -312,6 +312,99 @@ describe('AgentLoop context management', () => {
     expect(compactions[0].afterTokens).toBeLessThan(compactions[0].beforeTokens);
   });
 
+  it('reactively compacts and retries once when the API reports context overflow', async () => {
+    let callCount = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        callCount++;
+        if (callCount === 1) {
+          yield { type: 'text_delta', content: 'reply '.repeat(200) }; // turn 1 fills the window
+          return;
+        }
+        if (callCount === 2) {
+          throw new Error("This model's maximum context length is 128000 tokens. However, your messages resulted in 150000 tokens. Please reduce the length of the messages.");
+        }
+        yield { type: 'text_delta', content: 'recovered' };
+      },
+    };
+
+    const compactions: Array<{ strategy: string }> = [];
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      onCompaction: (info) => compactions.push(info),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    // Turn 1 fills the window; turn 2 overflows → reactive compaction → retry
+    await loop.processUserInput(longText());
+    const turn = await loop.processUserInput(longText());
+
+    expect(turn.text).toBe('recovered');
+    expect(callCount).toBe(3); // turn1 + overflow + one retry
+    expect(compactions.some((c) => c.strategy === 'compact')).toBe(true);
+  });
+
+  it('gives up cleanly when the retry still overflows (no compaction loop)', async () => {
+    let callCount = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        callCount++;
+        throw new Error('maximum context length exceeded');
+      },
+    };
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput(longText());
+    const turn = await loop.processUserInput(longText());
+
+    expect(callCount).toBe(2); // original + single retry, then clean failure
+    expect(turn.text).toBe('');
+  });
+
+  it('does not retry on ordinary errors', async () => {
+    let callCount = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        callCount++;
+        throw new Error('connection refused');
+      },
+    };
+
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 150, strategy: 'compact', keepRecentTokens: 0 },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const turn = await loop.processUserInput(longText());
+    expect(callCount).toBe(1);
+    expect(turn.text).toBe('');
+  });
+
   it('truncates context when strategy is truncate', async () => {
     const llm: LLMProvider = {
       async *chat(): AsyncIterable<StreamChunk> {

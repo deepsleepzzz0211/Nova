@@ -6,6 +6,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
+import { isContextOverflowError } from '../llm/errors.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -233,6 +234,13 @@ export class AgentLoop {
 
     const tools = this.toolRegistry.toToolDefinitions();
 
+    // Reactive overflow recovery (ticket 04): token estimates can never be
+    // exact, so when the provider rejects the request for exceeding the
+    // context window we compact once (with the truncate fallback) and retry
+    // the same round exactly once. A second overflow surfaces as a normal
+    // error — no compaction loop.
+    let overflowRetried = false;
+
     for (let toolRound = 0; toolRound <= this.maxToolRounds; toolRound++) {
       await this.prepareContext();
       rounds++;
@@ -278,6 +286,15 @@ export class AgentLoop {
           }
         }
       } catch (err: unknown) {
+        if (isContextOverflowError(err) && !overflowRetried) {
+          const compacted = await this.compactNow();
+          if (compacted.compacted) {
+            overflowRetried = true;
+            toolRound--; // retry the same round after compaction
+            rounds--; // the retry is the same round, not a new one
+            continue;
+          }
+        }
         const msg = err instanceof Error ? err.message : String(err);
         this.onToken(`[Error: ${msg}]`);
         this.emitUsage(turnUsage);
