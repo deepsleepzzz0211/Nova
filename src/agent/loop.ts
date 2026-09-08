@@ -189,6 +189,31 @@ export class AgentLoop {
   }
 
   /**
+   * Undo the last N conversation turns (a turn = one user message and
+   * everything after it until the next user message). Conversation-only:
+   * file changes made by tools are NOT reverted (use git for those).
+   * Persistence stays append-only: the post-undo state is written as a
+   * checkpoint, which --resume replays as the truncated history.
+   * N is clamped to the number of available turns.
+   */
+  undoTurns(n = 1): { undone: boolean; undoneTurns: number } {
+    const userIdxs: number[] = [];
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i].role === 'user') userIdxs.push(i);
+    }
+    if (userIdxs.length === 0 || n < 1) {
+      return { undone: false, undoneTurns: 0 };
+    }
+
+    const undoneTurns = Math.min(n, userIdxs.length);
+    const cut = undoneTurns === userIdxs.length ? 0 : userIdxs[userIdxs.length - undoneTurns];
+    const after = this.messages.slice(0, cut);
+    this.messages = after;
+    this.persistCompaction(after); // append-only checkpoint; replay truncates
+    return { undone: true, undoneTurns };
+  }
+
+  /**
    * Load full bodies of skills matching the user input as an append-only
    * system message. The frozen system prompt itself is never mutated, so
    * the provider prompt-cache prefix stays valid.

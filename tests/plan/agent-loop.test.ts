@@ -1,11 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { AgentLoop } from '../../src/agent/loop.js';
+import { SessionStore } from '../../src/agent/session.js';
+import type { Tool } from '../../src/tools/types.js';
 import { SUMMARY_MARKER } from '../../src/agent/compaction.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
-import type { Tool } from '../../src/tools/types.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { StreamChunk, Message, ChatOptions } from '../../src/llm/types.js';
 
@@ -218,6 +222,157 @@ describe('AgentLoop', () => {
     ];
     loop.loadMessages(history);
     expect(loop.getMessages()).toEqual(history);
+  });
+});
+
+describe('AgentLoop.undoTurns', () => {
+  function makeTool(name: string): Tool {
+    return {
+      name,
+      description: `Tool ${name}`,
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: async (params) => ({ content: `${name}:${String(params.text)}` }),
+    };
+  }
+
+  function toolCallChunks(id: string, name: string, text: string): StreamChunk[] {
+    return [
+      { type: 'tool_call_start', id, name },
+      { type: 'tool_call_delta', id, arguments: JSON.stringify({ text }) },
+      { type: 'tool_call_end', id },
+    ];
+  }
+
+  function makeToolTurnLoop(): { loop: AgentLoop; llm: LLMProvider } {
+    const llm: LLMProvider = {
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (opts.tools === undefined) {
+          yield { type: 'text_delta', content: 'summary' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    return { loop, llm };
+  }
+
+  it('undoes the last turn (user + assistant replies) by default', async () => {
+    const { loop } = makeToolTurnLoop();
+    await loop.processUserInput('turn one');
+    await loop.processUserInput('turn two');
+
+    const result = loop.undoTurns();
+    expect(result.undone).toBe(true);
+    expect(result.undoneTurns).toBe(1);
+    const msgs = loop.getMessages();
+    expect(msgs.some((m) => m.role === 'user' && m.content === 'turn two')).toBe(false);
+    expect(msgs.some((m) => m.role === 'user' && m.content === 'turn one')).toBe(true);
+  });
+
+  it('undoes N turns and clamps to the conversation start', async () => {
+    const { loop } = makeToolTurnLoop();
+    await loop.processUserInput('one');
+    await loop.processUserInput('two');
+    await loop.processUserInput('three');
+
+    const two = loop.undoTurns(2);
+    expect(two.undoneTurns).toBe(2);
+    expect(loop.getMessages().some((m) => m.role === 'user' && m.content === 'three')).toBe(false);
+    expect(loop.getMessages().some((m) => m.role === 'user' && m.content === 'one')).toBe(true);
+
+    const clamped = loop.undoTurns(99);
+    expect(clamped.undone).toBe(true);
+    expect(clamped.undoneTurns).toBe(1); // only 'one' remained
+    expect(loop.getMessages().filter((m) => m.role === 'user')).toHaveLength(0);
+  });
+
+  it('keeps tool call/result pairs intact across the cut', async () => {
+    const registry = new ToolRegistry();
+    registry.register(makeTool('tool_a'));
+    let callIndex = 0;
+    const llm: LLMProvider = {
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (opts.tools === undefined) {
+          yield { type: 'text_delta', content: 'summary' };
+          return;
+        }
+        if (callIndex++ === 0) {
+          return yield* toolCallChunks('c1', 'tool_a', 'x').values() as Generator<StreamChunk>;
+        }
+        yield { type: 'text_delta', content: 'done' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput('run the tool');
+    const result = loop.undoTurns();
+    expect(result.undone).toBe(true);
+    const msgs = loop.getMessages();
+    // No orphan tool results / dangling tool_calls after the cut
+    expect(msgs.filter((m) => m.role === 'tool')).toHaveLength(0);
+    expect(msgs.filter((m) => m.role === 'assistant' && 'tool_calls' in m)).toHaveLength(0);
+  });
+
+  it('persists the post-undo state for --resume replay', async () => {
+    const { loop } = makeToolTurnLoop();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-undo-'));
+    try {
+      const sessionFile = path.join(dir, 's.jsonl');
+      const store = new SessionStore(sessionFile);
+      const llm2: LLMProvider = {
+        async *chat(): AsyncIterable<StreamChunk> {
+          yield { type: 'text_delta', content: 'ok' };
+        },
+      };
+      const loop2 = new AgentLoop({
+        llm: llm2,
+        toolRegistry: new ToolRegistry(),
+        toolExecutionPipeline: makePipeline(),
+        session: store,
+        config: { maxToolRounds: 10, model: 'test' },
+        onToken: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        onPermissionRequest: async () => true,
+      });
+      await loop2.processUserInput('one');
+      await loop2.processUserInput('two');
+      loop2.undoTurns(1);
+      await store.close();
+
+      const replayed = SessionStore.load(sessionFile);
+      expect(replayed.some((m) => m.role === 'user' && m.content === 'two')).toBe(false);
+      expect(replayed.some((m) => m.role === 'user' && m.content === 'one')).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    void loop;
+  });
+
+  it('returns undone=false when there is no user turn to undo', () => {
+    const { loop } = makeToolTurnLoop();
+    const result = loop.undoTurns();
+    expect(result.undone).toBe(false);
+    expect(result.undoneTurns).toBe(0);
   });
 });
 

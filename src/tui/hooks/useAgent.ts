@@ -304,6 +304,33 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       return;
     }
 
+    // Slash command: /undo [n] — revert the last n conversation turns
+    // (conversation only; code changes are NOT reverted — check git).
+    if (trimmed === '/undo' || trimmed.startsWith('/undo ')) {
+      const arg = trimmed.slice('/undo'.length).trim();
+      const n = Number.parseInt(arg, 10);
+      const turns = Number.isFinite(n) && n >= 1 ? n : 1;
+      setMessages((prev) => [...prev, { role: 'user' as const, content: trimmed }]);
+      const result = loop.undoTurns(turns);
+      if (result.undone) {
+        // Rebuild the display from the reverted conversation
+        const restored = loop
+          .getMessages()
+          .filter((msg): msg is { role: 'user' | 'assistant'; content: string } =>
+            (msg.role === 'user' || msg.role === 'assistant') &&
+            typeof msg.content === 'string' && msg.content.length > 0)
+          .map((msg) => ({ role: msg.role, content: msg.content }));
+        setMessages(restored);
+        setMessages((prev) => [...prev, {
+          role: 'system' as const,
+          content: `[undone ${result.undoneTurns} turn(s) — conversation reverted; code changes are NOT reverted, check git status]`,
+        }]);
+      } else {
+        setMessages((prev) => [...prev, { role: 'system' as const, content: '[nothing to undo]' }]);
+      }
+      return;
+    }
+
     // Slash command: /compact — force a context compaction pass
     if (trimmed === '/compact') {
       setMessages((prev) => [...prev, { role: 'user' as const, content: '/compact' }]);
