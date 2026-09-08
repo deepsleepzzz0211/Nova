@@ -3,6 +3,8 @@ import { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline, ConfirmCallback } from '../tools/execution-pipeline.js';
 import { AgentLoop } from '../agent/loop.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
+import type { BuildPromptOptions } from '../agent/prompt.js';
+import type { SkillRegistry } from '../skills/registry.js';
 
 /** Result of a subagent run. */
 export interface SubagentResult {
@@ -20,6 +22,10 @@ export interface SubagentDeps {
   model: string;
   /** Max concurrently running subagents. Default 3. */
   maxConcurrent?: number;
+  /** Environment facts, project instructions, learned memory — same source as the parent. */
+  promptOptions?: BuildPromptOptions;
+  /** Skill registry for progressive disclosure inside the subagent. */
+  skills?: SkillRegistry;
 }
 
 /** Options for a single subagent run. */
@@ -84,13 +90,11 @@ export class SubagentSpawner {
       );
     }
     try {
-      const systemPrompt = buildSystemPrompt(this.childToolRegistry().getAll(), [], {
-        customPrompt:
-          'You are a focused subagent completing a single task. Work autonomously, ' +
-          'use the available tools, and finish with a concise summary of what you did ' +
-          'and what you found. Do not ask the user questions.',
-      });
-
+      // The loop builds its own frozen system prompt from promptOptions
+      // (environment / project instructions / learned memory) and the skill
+      // listing — same source and freeze semantics as the parent — and
+      // progressive skill injection works because no prompt override is
+      // passed (processUserInput keeps the injectSkills path alive).
       const maxRounds = options?.maxRounds ?? DEFAULT_MAX_ROUNDS;
 
       const loop = new AgentLoop({
@@ -98,6 +102,16 @@ export class SubagentSpawner {
         toolRegistry: this.childToolRegistry(),
         toolExecutionPipeline: this.deps.toolExecutionPipeline,
         config: { maxToolRounds: maxRounds, model: this.deps.model },
+        promptOptions: {
+          ...this.deps.promptOptions,
+          customPrompt: [
+            this.deps.promptOptions?.customPrompt,
+            'You are a focused subagent completing a single task. Work autonomously, ' +
+              'use the available tools, and finish with a concise summary of what you did ' +
+              'and what you found. Do not ask the user questions.',
+          ].filter(Boolean).join('\n\n'),
+        },
+        skills: this.deps.skills,
         onToken: () => {},
         onToolCall: () => {},
         onToolResult: () => {},
@@ -106,7 +120,7 @@ export class SubagentSpawner {
           : false,
       });
 
-      const turn = await loop.processUserInputWithSystemPrompt(task, systemPrompt);
+      const turn = await loop.processUserInput(task);
 
       const summary = turn.text.trim();
       return {

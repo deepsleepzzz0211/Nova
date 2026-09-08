@@ -3,6 +3,7 @@ import { SubagentSpawner } from '../../src/subagent/spawner.js';
 import { createSpawnSubagentTool } from '../../src/subagent/tool.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
+import type { SkillRegistry, SkillMeta } from '../../src/skills/registry.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
 import type { Tool } from '../../src/tools/types.js';
@@ -207,6 +208,96 @@ describe('SubagentSpawner guardrails (ticket 01)', () => {
     });
     expect(mk().maxConcurrent).toBe(3);
     expect(mk(7).maxConcurrent).toBe(7);
+  });
+});
+
+describe('SubagentSpawner context injection (ticket 02)', () => {
+  function stubSkills(): {
+    registry: SkillRegistry;
+    calls: { keywords: string; query: string }[];
+  } {
+    const calls: { keywords: string; query: string }[] = [];
+    const meta: SkillMeta = { name: 'deploy', description: 'How to deploy the app', path: '/x/SKILL.md' };
+    const registry = {
+      findAll: () => [meta],
+      findByKeywords: (query: string) => {
+        const matched = /deploy/i.test(query) ? [meta] : [];
+        calls.push({ keywords: matched.map((m) => m.name).join(','), query });
+        return matched;
+      },
+      load: async () => '# Deploy skill\nRun deploy.sh',
+    } as unknown as SkillRegistry;
+    return { registry, calls };
+  }
+
+  it('injects environment, project instructions and memory into the child prompt', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm, chats } = toolCallingLLM();
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      promptOptions: {
+        environment: { workingDirectory: '/proj', platform: 'win32' },
+        projectInstructions: 'Always use pnpm.',
+        memory: '- user prefers pnpm',
+      },
+    });
+
+    await spawner.run('do work');
+    const sys = chats[0].opts.systemPrompt ?? '';
+    expect(sys).toContain('## Environment');
+    expect(sys).toContain('/proj');
+    expect(sys).toContain('## Project Instructions');
+    expect(sys).toContain('Always use pnpm.');
+    expect(sys).toContain('## Memory');
+    expect(sys).toContain('user prefers pnpm');
+    // Subagent identity retained
+    expect(sys).toContain('focused subagent');
+  });
+
+  it('forwards the skill registry so the child gets progressive skill injection', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm, chats } = toolCallingLLM();
+    const { registry: skills, calls } = stubSkills();
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      skills,
+    });
+
+    // Round 1: the model asks to run the deploy skill (via bash echo as the trigger input is the task)
+    await spawner.run('deploy the app to production');
+    // Skill matching ran against the task input
+    expect(calls[0].query).toContain('deploy');
+    // Second LLM round received the injected Active Skills message
+    const sawSkills = chats[1].msgs.some(
+      (m) => m.role === 'system' && String(m.content).includes('## Active Skills'),
+    );
+    expect(sawSkills).toBe(true);
+    // Skill listing also present in the frozen prompt
+    expect(chats[0].opts.systemPrompt).toContain('## Available Skills');
+  });
+
+  it('degrades gracefully when no promptOptions/skills are provided', async () => {
+    const registry = new ToolRegistry();
+    registry.register(bashTool());
+    const { llm, chats } = toolCallingLLM();
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+    });
+    await spawner.run('do work');
+    const sys = chats[0].opts.systemPrompt ?? '';
+    expect(sys).not.toContain('## Project Instructions');
+    expect(sys).not.toContain('## Memory');
   });
 });
 
