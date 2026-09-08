@@ -2,7 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/api/schema/stryker-schema.json",
   "packageManager": "pnpm",
   "testRunner": "vitest",
-  "plugins": ["@stryker-mutator/vitest-runner"],
+  "plugins": [
+    "@stryker-mutator/vitest-runner"
+  ],
   "coverageAnalysis": "perTest",
   "concurrency": 8,
   "timeoutMS": 60000,
@@ -18,7 +20,12 @@
     "src/hooks/**/*.ts",
     "!src/**/*.d.ts"
   ],
-  "reporters": ["html", "clear-text", "progress"],
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress",
+    "json"
+  ],
   "clearTextReporter": {
     "allowColor": false,
     "logTests": false,
@@ -28,5 +35,8 @@
     "fileName": "reports/mutation/mutation.html"
   },
   "tempDirName": "reports/mutation/stryker-tmp",
-  "cleanTempDir": false
+  "cleanTempDir": false,
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  }
 }

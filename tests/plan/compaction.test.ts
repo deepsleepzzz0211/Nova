@@ -239,6 +239,56 @@ describe('Compactor (token-budget keep window)', () => {
     expect(result!.messages[0].content).toContain(SUMMARY_MARKER);
   });
 
+  it('treats a user message as the newest when it ends the history (walk skips users)', async () => {
+    const llm = makeLLM(() => [{ type: 'text_delta', content: 'summary' }]);
+    const messages: Message[] = [
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2 latest' },
+    ];
+    // Tiny budget: a1 must be summarized; the newest is u2 (a user), which
+    // is kept regardless — the always-keep exemption must not leak onto a1.
+    const compactor = new Compactor(llm, model, { keepRecentTokens: 1, countTokens: est });
+    const result = await compactor.compact(messages);
+    expect(result).not.toBeNull();
+    expect(result!.method).toBe('summary');
+    const keptUsers = result!.messages.filter((m) => m.role === 'user');
+    expect(keptUsers.map((m) => m.content)).toEqual(['u1', 'u2 latest']);
+    expect(result!.messages.some((m) => m.role === 'assistant')).toBe(false);
+  });
+
+  it('tool-batch owner resolution matches the exact tool_call id', async () => {
+    let summaryCalls = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        summaryCalls++;
+        yield { type: 'text_delta', content: 'summary' };
+      },
+    };
+    const messages: Message[] = [
+      { role: 'user', content: 'start' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: 'x'.repeat(400) },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c2', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c2', content: 'y'.repeat(400) },
+      { role: 'assistant', content: 'small' },
+    ];
+    // Budget admits [r2(c2) + a3]; the naive boundary lands on r2 → the
+    // owner search must pull a2 (owner of c2), NOT a1 (owner of c1).
+    const budget = msgEstimate(messages[4]) + msgEstimate(messages[5]);
+    const compactor = new Compactor(llm, model, { keepRecentTokens: budget, countTokens: est });
+    const result = await compactor.compact(messages);
+
+    expect(result).not.toBeNull();
+    expect(result!.method).toBe('summary');
+    // c2 pair kept together; c1 pair summarized together (never split)
+    const kept = result!.messages;
+    expect(kept.some((m) => m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'c2')).toBe(true);
+    expect(kept.some((m) => m.role === 'assistant' && 'tool_calls' in m && m.tool_calls?.[0]?.id === 'c2')).toBe(true);
+    expect(kept.some((m) => m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'c1')).toBe(false);
+    expect(summaryCalls).toBe(1);
+  });
+
   it('reports summarized=false for a single message', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: 'unused' }]);
     const spy = vi.spyOn(llm, 'chat');
