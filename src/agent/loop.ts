@@ -157,12 +157,19 @@ export class AgentLoop {
 
     // Fallback chain: compact → truncate. A failed summary must still
     // shrink the context; fail-open here would hit the window on the
-    // very next round.
+    // very next round. "Nothing to summarize" is NOT a failure — keep
+    // the messages as-is (e.g. a single huge user message). 
     let after: Message[] | null = null;
     let applied: LoopContextConfig['strategy'] = this.contextStrategy;
     if (this.contextStrategy === 'compact' && this.compactor) {
-      after = await this.compactor.compact(this.messages);
-      if (after === null) applied = 'truncate';
+      const result = await this.compactor.compact(this.messages);
+      if (result === null) {
+        applied = 'truncate';
+      } else if (result.summarized) {
+        after = result.messages;
+      } else {
+        return; // nothing to summarize — no compaction possible
+      }
     }
     if (after === null) {
       after = this.contextManager.truncate(this.messages);
@@ -400,7 +407,19 @@ export class AgentLoop {
 
     let after: Message[] | null = null;
     if (this.compactor) {
-      after = await this.compactor.compact(this.messages);
+      const result = await this.compactor.compact(this.messages);
+      if (result === null) {
+        // Summary failed → degrade to an aggressive truncate
+        after = this.contextManager.truncateToTokens(
+          this.messages,
+          Math.floor(this.contextManager.triggerTokens / 2),
+        );
+      } else if (result.summarized) {
+        after = result.messages;
+      } else {
+        // Nothing to summarize (e.g. all user messages): nothing to do
+        return { compacted: false, strategy: this.contextStrategy, beforeTokens };
+      }
     }
     if (after === null) {
       // Manual truncate target: half the trigger budget (aggressive cleanup)

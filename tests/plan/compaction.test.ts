@@ -49,16 +49,16 @@ describe('Compactor (token-budget keep window)', () => {
 
     expect(result).not.toBeNull();
     // summary + all user messages (verbatim) + newest non-user message
-    expect(result![0].role).toBe('system');
-    expect(result![0].content).toContain(SUMMARY_MARKER);
-    expect(result![0].content).toContain('parser bug fix');
+    expect(result!.messages[0].role).toBe('system');
+    expect(result!.messages[0].content).toContain(SUMMARY_MARKER);
+    expect(result!.messages[0].content).toContain('parser bug fix');
 
     // All user messages survive verbatim
-    const keptUsers = result!.filter((m) => m.role === 'user');
+    const keptUsers = result!.messages.filter((m) => m.role === 'user');
     expect(keptUsers.map((m) => m.content)).toEqual(['Fix the bug in parser.ts', 'Now write tests']);
 
     // The newest message is kept
-    expect(result!.at(-1)).toEqual(messages[5]);
+    expect(result!.messages.at(-1)).toEqual(messages[5]);
 
     // Summary request must be tool-free and structured
     expect(chatCalls[0].opts.tools).toBeUndefined();
@@ -98,8 +98,8 @@ describe('Compactor (token-budget keep window)', () => {
 
     expect(result).not.toBeNull();
     // Tool result and its owning assistant message are BOTH kept
-    expect(result!.some((m) => m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'c1')).toBe(true);
-    expect(result!.some((m) => m.role === 'assistant' && 'tool_calls' in m)).toBe(true);
+    expect(result!.messages.some((m) => m.role === 'tool' && (m as { tool_call_id?: string }).tool_call_id === 'c1')).toBe(true);
+    expect(result!.messages.some((m) => m.role === 'assistant' && 'tool_calls' in m)).toBe(true);
     // The pre-boundary message was summarized (sent to the summarizer),
     // not silently dropped
     expect(chatCalls[0].msgs[1].content).toContain('old work');
@@ -117,10 +117,10 @@ describe('Compactor (token-budget keep window)', () => {
     const compactor = new Compactor(llm, model, { keepRecentTokens: 100, countTokens: est });
     const result = await compactor.compact(messages);
     expect(result).not.toBeNull();
-    expect(result!.at(-1)).toEqual(messages[3]);
+    expect(result!.messages.at(-1)).toEqual(messages[3]);
   });
 
-  it('returns null when there is nothing to summarize (all within budget)', async () => {
+  it('reports summarized=false when there is nothing to summarize (all within budget)', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: 'unused' }]);
     const spy = vi.spyOn(llm, 'chat');
     const compactor = new Compactor(llm, model, { keepRecentTokens: 100_000, countTokens: est });
@@ -128,27 +128,32 @@ describe('Compactor (token-budget keep window)', () => {
       { role: 'user', content: 'hi' },
       { role: 'assistant', content: 'hello' },
     ];
-    expect(await compactor.compact(messages)).toBeNull();
+    const result = await compactor.compact(messages);
+    expect(result).not.toBeNull();
+    expect(result!.summarized).toBe(false);
+    expect(result!.messages).toEqual(messages);
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('returns null for a single message', async () => {
+  it('reports summarized=false for a single message', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: 'unused' }]);
     const spy = vi.spyOn(llm, 'chat');
     const compactor = new Compactor(llm, model, { keepRecentTokens: 100, countTokens: est });
-    expect(await compactor.compact([{ role: 'user', content: 'hi' }])).toBeNull();
+    const r = await compactor.compact([{ role: 'user', content: 'hi' }]);
+    expect(r!.summarized).toBe(false);
+    expect(r!.messages).toHaveLength(1);
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('returns null when summarization fails (fail-open)', async () => {
+  it('returns null when summarization fails (caller falls back)', async () => {
     const llm = makeLLM(() => [{ type: 'error', error: 'boom' }]);
-    const compactor = new Compactor(llm, model, { keepRecentTokens: 50, countTokens: est });
+    const compactor = new Compactor(llm, model, { keepRecentTokens: 1, countTokens: est });
     const messages: Message[] = [
       { role: 'user', content: 'a' },
       { role: 'assistant', content: 'b' },
       { role: 'assistant', content: 'c' },
     ];
-    expect(await compactor.compact(messages)).toBeNull();
+    expect(await compactor.compact(messages)).toBeNull(); // null = summary failure
   });
 
   it('returns null when the summary stream throws', async () => {
@@ -157,23 +162,23 @@ describe('Compactor (token-budget keep window)', () => {
         throw new Error('socket reset');
       },
     };
-    const compactor = new Compactor(llm, model, { keepRecentTokens: 50, countTokens: est });
+    const compactor = new Compactor(llm, model, { keepRecentTokens: 1, countTokens: est });
     const messages: Message[] = [
       { role: 'user', content: 'a' },
       { role: 'assistant', content: 'b' },
       { role: 'assistant', content: 'c' },
     ];
-    expect(await compactor.compact(messages)).toBeNull();
+    expect(await compactor.compact(messages)).toBeNull(); // null = summary failure
   });
 
   it('returns null when the summary is empty', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: '' }]);
-    const compactor = new Compactor(llm, model, { keepRecentTokens: 50, countTokens: est });
+    const compactor = new Compactor(llm, model, { keepRecentTokens: 1, countTokens: est });
     const messages: Message[] = [
       { role: 'user', content: 'a' },
       { role: 'assistant', content: 'b' },
       { role: 'assistant', content: 'c' },
     ];
-    expect(await compactor.compact(messages)).toBeNull();
+    expect(await compactor.compact(messages)).toBeNull(); // null = summary failure
   });
 });

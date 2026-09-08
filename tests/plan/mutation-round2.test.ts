@@ -145,10 +145,10 @@ describe('Compactor boundary (tiny keep budget)', () => {
     ];
     const result = await compactor.compact(history);
     // summary + user (always verbatim) + newest assistant
-    expect(result).toHaveLength(3);
-    expect(result![0].content).toContain('short summary');
-    expect(result![1]).toEqual(history[0]);
-    expect(result![2]).toEqual(history[2]);
+    expect(result!.messages).toHaveLength(3);
+    expect(result!.messages[0].content).toContain('short summary');
+    expect(result!.messages[1]).toEqual(history[0]);
+    expect(result!.messages[2]).toEqual(history[2]);
   });
 });
 

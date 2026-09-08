@@ -28,6 +28,14 @@ export interface CompactorOptions {
 /** Framing overhead assumed per message in token estimates. */
 const MESSAGE_FRAMING_TOKENS = 8;
 
+/** Result of a successful compact() call. */
+export interface CompactResult {
+  /** New message list (summary + kept, or the unchanged input). */
+  messages: Message[];
+  /** True when an LLM summary replaced old messages. */
+  summarized: boolean;
+}
+
 /**
  * Compacts a conversation by replacing older messages with an LLM-generated
  * structured summary, keeping a token-budgeted recent window verbatim.
@@ -38,6 +46,10 @@ const MESSAGE_FRAMING_TOKENS = 8;
  *   own words (constraints, preferences) must not suffer summary drift.
  * - A tool call is never split from its result at the cut point.
  * - The newest message is always kept, even when it alone exceeds the budget.
+ *
+ * Returns null ONLY when the summarization call fails (caller should fall
+ * back to truncation). "Nothing to summarize" is a success with
+ * `summarized: false` — it must not trigger the fallback.
  */
 export class Compactor {
   private readonly llm: LLMProvider;
@@ -66,12 +78,13 @@ export class Compactor {
 
   /**
    * Compact messages into [summary, ...kept].
-   * Returns null when there is nothing to compact or summarization fails
-   * (fail-open: the caller keeps the original messages).
+   * Returns null when the summarization call fails (fail-open is the
+   * caller's concern); returns `summarized: false` when there is nothing
+   * to compact.
    */
-  async compact(messages: Message[]): Promise<Message[] | null> {
+  async compact(messages: Message[]): Promise<CompactResult | null> {
     if (messages.length <= 1) {
-      return null;
+      return { messages, summarized: false };
     }
 
     // 1. Walk backward: keep the newest non-user messages within budget.
@@ -121,7 +134,7 @@ export class Compactor {
       if (!kept.has(i)) toSummarize.push(messages[i]);
     }
     if (toSummarize.length === 0) {
-      return null;
+      return { messages, summarized: false };
     }
 
     const summary = await this.summarize(toSummarize);
@@ -130,10 +143,13 @@ export class Compactor {
     }
 
     const keptMessages = [...kept].sort((a, b) => a - b).map((i) => messages[i]);
-    return [
-      { role: 'system', content: `${SUMMARY_MARKER}\n${summary}` },
-      ...keptMessages,
-    ];
+    return {
+      messages: [
+        { role: 'system', content: `${SUMMARY_MARKER}\n${summary}` },
+        ...keptMessages,
+      ],
+      summarized: true,
+    };
   }
 
   /** Summarize a list of messages; returns null on failure or empty output. */
