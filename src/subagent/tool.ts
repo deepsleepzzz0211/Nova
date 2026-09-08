@@ -1,5 +1,6 @@
 import type { Tool, ToolContext, ToolResult } from '../tools/types.js';
 import type { SubagentSpawner } from './spawner.js';
+import { scanSubagentOutput } from './output-scan.js';
 
 /**
  * spawn_subagent — delegate a focused task to a fresh subagent context.
@@ -44,7 +45,8 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
           confirm: options?.confirm,
           model: typeof params.model === 'string' && params.model.trim() ? params.model.trim() : undefined,
         });
-        return { content: result.summary, metadata: { rounds: result.rounds } };
+        // Scan before the report enters the parent context (ticket 06)
+        return { content: scanSubagentOutput(result.summary), metadata: { rounds: result.rounds } };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // Concurrency-limit errors pass through verbatim (they carry the
