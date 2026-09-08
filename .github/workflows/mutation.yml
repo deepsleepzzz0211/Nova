@@ -1,0 +1,26 @@
+name: Mutation
+
+# Weekly drift alarm: Stryker's perTest coverage silently broke when vitest
+# drifted 4 -> 5 (score 71.95% -> 7.11% with everything "no coverage").
+# This scheduled run catches such breakage without paying 7 minutes per PR.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/verify
+        with:
+          node-version: 22
+      - run: pnpm test:mutation
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/mutation.html
