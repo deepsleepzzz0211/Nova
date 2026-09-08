@@ -107,9 +107,10 @@ export class AgentLoop {
         })
       : null;
     this.contextStrategy = options.context?.strategy ?? null;
-    this.compactor = options.context?.strategy === 'compact'
+    this.compactor = options.context?.strategy === 'compact' && options.context
       ? new Compactor(options.llm, options.config.model, {
           keepRecentTokens: options.context.keepRecentTokens,
+          triggerTokens: this.contextManager?.triggerTokens,
         })
       : null;
     this.session = options.session ?? null;
@@ -166,10 +167,10 @@ export class AgentLoop {
       const result = await this.compactor.compact(this.messages);
       if (result === null) {
         applied = 'truncate';
-      } else if (result.summarized) {
-        after = result.messages;
+      } else if (result.method !== 'none') {
+        after = result.messages; // summary or placeholder pass
       } else {
-        return; // nothing to summarize — no compaction possible
+        return; // nothing to compact — no compaction possible
       }
     }
     if (after === null) {
@@ -431,8 +432,8 @@ export class AgentLoop {
           this.messages,
           Math.floor(this.contextManager.triggerTokens / 2),
         );
-      } else if (result.summarized) {
-        after = result.messages;
+      } else if (result.method !== 'none') {
+        after = result.messages; // summary or placeholder pass
       } else {
         // Nothing to summarize (e.g. all user messages): nothing to do
         return { compacted: false, strategy: this.contextStrategy, beforeTokens };

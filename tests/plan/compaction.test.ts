@@ -130,9 +130,74 @@ describe('Compactor (token-budget keep window)', () => {
     ];
     const result = await compactor.compact(messages);
     expect(result).not.toBeNull();
-    expect(result!.summarized).toBe(false);
+    expect(result!.method).toBe('none');
     expect(result!.messages).toEqual(messages);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('placeholder pass clears old tool results without calling the LLM', async () => {
+    const llm = makeLLM(() => [{ type: 'text_delta', content: 'should not be called' }]);
+    const spy = vi.spyOn(llm, 'chat');
+    const big = 'x'.repeat(4000); // ~1000 tokens
+    const messages: Message[] = [
+      { role: 'user', content: 'start' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: big },
+      { role: 'user', content: 'continue' },
+      { role: 'assistant', content: 'small reply' },
+    ];
+    // trigger: after clearing the old tool result the context fits
+    const compactor = new Compactor(llm, model, {
+      keepRecentTokens: msgEstimate(messages[4]) + msgEstimate(messages[3]),
+      countTokens: est,
+      triggerTokens: 400,
+    });
+    const result = await compactor.compact(messages);
+
+    expect(result).not.toBeNull();
+    expect(result!.method).toBe('placeholder'); // no LLM call needed
+    expect(spy).not.toHaveBeenCalled();
+    // Old tool result replaced with a placeholder, identity preserved
+    const toolMsg = result!.messages.find((m) => m.role === 'tool') as { content: string; tool_call_id?: string };
+    expect(toolMsg.tool_call_id).toBe('c1');
+    expect(toolMsg.content).toContain('cleared');
+    expect(toolMsg.content).toContain('4000');
+    expect(toolMsg.content).not.toContain(big);
+    // Kept messages untouched
+    expect(result!.messages.at(-1)).toEqual(messages[4]);
+  });
+
+  it('falls through to the LLM summary when placeholders are not enough', async () => {
+    const chatCalls: Array<{ msgs: Message[] }> = [];
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
+        chatCalls.push({ msgs });
+        yield { type: 'text_delta', content: 'full summary' };
+      },
+    };
+    const big = 'y'.repeat(8000); // ~2000 tokens — placeholder alone won't fit
+    const messages: Message[] = [
+      { role: 'user', content: 'start' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: 'c1', content: big },
+      { role: 'user', content: 'continue' },
+      { role: 'assistant', content: 'z'.repeat(1200) }, // kept-verbatim newest reply (~300 tokens, can't be cleared)
+    ];
+    const compactor = new Compactor(llm, model, {
+      keepRecentTokens: msgEstimate(messages[4]) + msgEstimate(messages[3]),
+      countTokens: est,
+      triggerTokens: 300,
+    });
+    const result = await compactor.compact(messages);
+
+    expect(result).not.toBeNull();
+    expect(result!.method).toBe('summary');
+    expect(result!.messages[0].role).toBe('system');
+    // Serialization: the giant tool result is capped at 2000 chars
+    const transcript = chatCalls[0].msgs[1].content ?? '';
+    expect(transcript).toContain('y'.repeat(2000));
+    expect(transcript).not.toContain('y'.repeat(2001));
+    expect(transcript).toContain('chars truncated');
   });
 
   it('reports summarized=false for a single message', async () => {
@@ -140,7 +205,7 @@ describe('Compactor (token-budget keep window)', () => {
     const spy = vi.spyOn(llm, 'chat');
     const compactor = new Compactor(llm, model, { keepRecentTokens: 100, countTokens: est });
     const r = await compactor.compact([{ role: 'user', content: 'hi' }]);
-    expect(r!.summarized).toBe(false);
+    expect(r!.method).toBe('none');
     expect(r!.messages).toHaveLength(1);
     expect(spy).not.toHaveBeenCalled();
   });
