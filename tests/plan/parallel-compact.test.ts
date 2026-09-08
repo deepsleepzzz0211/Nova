@@ -248,8 +248,10 @@ describe('AgentLoop.compactNow', () => {
       expect(replayed[0].role).toBe('system');
       expect(String(replayed[0].content)).toContain('[Conversation summary]');
       const joined = replayed.map((m) => String(m.content ?? '')).join('');
-      expect(joined).not.toContain('reply reply reply reply');
-      expect(joined.length).toBeLessThan(1000);
+      // a1 (turn 1's long reply) was summarized away; a2 (turn 2's, kept
+      // verbatim by the keep-window) survives — exactly 200 'reply' tokens
+      expect(joined.split('reply').length - 1).toBe(200);
+      expect(joined.length).toBeLessThan(1800);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
