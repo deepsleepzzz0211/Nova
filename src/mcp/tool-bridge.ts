@@ -1,11 +1,16 @@
 import type { Tool, ToolContext, ToolResult } from '../tools/types.js';
 import type { JSONSchema } from '../llm/types.js';
 
-/** Minimal client interface needed by the tool bridge. */
+/** Minimal client interface needed by the tool bridge and the manager. */
 export interface MCPClientLike {
   name: string;
   config: { autoApprove?: boolean };
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
   callTool(name: string, args: Record<string, unknown>): Promise<{ content: string }>;
+  listTools(): Promise<
+    { name: string; description?: string; inputSchema: import('../llm/types.js').JSONSchema }[]
+  >;
 }
 
 /** Shape of an MCP tool returned by listTools(). */
