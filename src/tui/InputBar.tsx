@@ -7,6 +7,8 @@ export interface InputBarProps {
   onSubmit: (input: string) => void;
   /** Whether the agent is currently streaming a response. */
   isStreaming: boolean;
+  /** Called when the user presses Escape while a response is streaming. */
+  onInterrupt?: () => void;
 }
 
 /**
@@ -15,10 +17,14 @@ export interface InputBarProps {
  * Displays a working directory prefix and handles keyboard input.
  * Enter submits, Ctrl+C exits, Backspace deletes.
  */
-export function InputBar({ onSubmit, isStreaming }: InputBarProps): React.ReactElement {
+export function InputBar({ onSubmit, isStreaming, onInterrupt }: InputBarProps): React.ReactElement {
   const [input, setInput] = useState('');
 
   useInput((inputChar, key) => {
+    if (key.escape && isStreaming) {
+      onInterrupt?.();
+      return;
+    }
     if (key.ctrl && inputChar === 'c') {
       process.exit(0);
     }
