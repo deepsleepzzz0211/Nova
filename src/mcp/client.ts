@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { MCPServerConfig } from '../config/schema.js';
 import type { JSONSchema } from '../llm/types.js';
 
@@ -11,6 +12,12 @@ export interface MCPToolInfo {
   inputSchema: JSONSchema;
 }
 
+/** Injectable construction seams (tests pair InMemory transports). */
+export interface MCPClientDeps {
+  createTransport?: (params: StdioServerParameters) => Transport;
+  createClient?: (info: { name: string; version: string }) => Client;
+}
+
 /**
  * Wraps the official MCP SDK Client to provide a simplified interface
  * for spawning a server process, listing tools, and calling tools.
@@ -19,12 +26,14 @@ export class MCPClient {
   readonly name: string;
   readonly config: MCPServerConfig;
 
+  private readonly deps: MCPClientDeps;
   private client: Client | undefined;
-  private transport: StdioClientTransport | undefined;
+  private transport: Transport | undefined;
 
-  constructor(config: MCPServerConfig) {
+  constructor(config: MCPServerConfig, deps: MCPClientDeps = {}) {
     this.config = config;
     this.name = config.name;
+    this.deps = deps;
   }
 
   /** Spawn the server process and perform the MCP handshake. */
@@ -36,12 +45,13 @@ export class MCPClient {
       stderr: 'pipe',
     };
 
-    this.transport = new StdioClientTransport(serverParams);
+    this.transport = this.deps.createTransport?.(serverParams) ?? new StdioClientTransport(serverParams);
 
-    this.client = new Client(
-      { name: `nova-${this.name}`, version: '1.0.0' },
-      { capabilities: {} },
-    );
+    this.client = this.deps.createClient?.({ name: `nova-${this.name}`, version: '1.0.0' }) ??
+      new Client(
+        { name: `nova-${this.name}`, version: '1.0.0' },
+        { capabilities: {} },
+      );
 
     await this.client.connect(this.transport);
   }

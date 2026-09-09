@@ -2,19 +2,22 @@ import type { MCPServerConfig } from '../config/schema.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import { MCPClient } from './client.js';
 import { createMCPTool } from './tool-bridge.js';
+import type { MCPClientLike, MCPToolInfo } from './tool-bridge.js';
 
 /**
  * Manages the lifecycle of all configured MCP server connections
  * and registers their tools into the application's ToolRegistry.
  */
 export class MCPManager {
-  private clients: MCPClient[] = [];
+  private clients: MCPClientLike[] = [];
+
+  constructor(private readonly clientFactory: (config: MCPServerConfig) => MCPClientLike = (config) => new MCPClient(config)) {}
 
   /** Connect to every configured MCP server. */
   async startAll(configs: MCPServerConfig[]): Promise<void> {
     const results = await Promise.allSettled(
       configs.map(async (config) => {
-        const client = new MCPClient(config);
+        const client = this.clientFactory(config);
         await client.connect();
         this.clients.push(client);
       }),
@@ -45,7 +48,11 @@ export class MCPManager {
       try {
         const tools = await client.listTools();
         for (const mcpTool of tools) {
-          const tool = createMCPTool(client, mcpTool);
+          const tool = createMCPTool(client, {
+            ...mcpTool,
+            description: mcpTool.description ?? '',
+            inputSchema: mcpTool.inputSchema as MCPToolInfo['inputSchema'],
+          });
           registry.register(tool);
         }
       } catch (error) {
