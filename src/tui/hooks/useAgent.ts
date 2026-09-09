@@ -61,6 +61,8 @@ export interface UseAgentConfig {
   subagentSink?: { notify?: (message: string) => void };
   /** Live subagent activity sink (assign set once mounted; cleared on end). */
   subagentLiveSink?: { set?: (line: string | null) => void };
+  /** LLM stream idle timeout (ms). */
+  streamIdleTimeoutMs?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -224,6 +226,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
             }
           : undefined,
       thinkingLevel: config.thinkingLevel,
+      streamIdleTimeoutMs: config.streamIdleTimeoutMs,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,

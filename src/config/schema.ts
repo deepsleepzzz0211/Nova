@@ -8,6 +8,8 @@ export interface LLMConfig {
   temperature: number;
   /** Enable provider prompt caching + usage reporting (OpenAI: stream_options). */
   promptCache: boolean;
+  /** LLM stream idle timeout: error out when no chunk arrives for this long (ms). */
+  streamIdleTimeoutMs?: number;
 }
 
 /** Agent behaviour configuration. */

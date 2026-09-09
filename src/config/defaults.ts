@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxTokens: 4096,
     temperature: 0.7,
     promptCache: false,
+    streamIdleTimeoutMs: 60000,
   },
   agent: {
     maxToolRounds: 50,
