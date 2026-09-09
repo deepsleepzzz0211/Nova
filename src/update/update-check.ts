@@ -1,5 +1,6 @@
 /** npm 包标识（单一来源，供 registry 查询与全局安装共用）。 */
 import { PACKAGE_NAME } from './constants.js';
+import { novaHome } from '../config/loader.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -101,7 +102,7 @@ function writeCache(cacheDir: string, latest: string, now: number): void {
  */
 export async function checkForUpdate(options: CheckOptions): Promise<UpdateInfo | null> {
   const { currentVersion, now = Date.now() } = options;
-  const cacheDir = options.cacheDir ?? path.join(process.env.NOVA_HOME || os.homedir(), '.nova');
+  const cacheDir = options.cacheDir ?? path.join(novaHome(), '.nova');
   const fetchImpl =
     options.fetchImpl ??
     ((url: string) => fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) }));

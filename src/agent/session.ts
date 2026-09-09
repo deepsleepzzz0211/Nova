@@ -2,6 +2,30 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Message } from '../llm/types.js';
 
+/** Default retention window for session files (days). */
+export const SESSION_RETENTION_DAYS = 30;
+
+/** List .jsonl files in a directory (empty on missing/unreadable dir). */
+function listJsonlFiles(dir: string): { full: string; mtimeMs: number }[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const files: { full: string; mtimeMs: number }[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const full = path.join(dir, entry.name);
+    try {
+      files.push({ full, mtimeMs: fs.statSync(full).mtimeMs });
+    } catch {
+      // Skip files that vanish between readdir and stat
+    }
+  }
+  return files;
+}
+
 /** Digest of one stored session (for lists/pickers). */
 export interface SessionSummary {
   file: string;
@@ -120,25 +144,17 @@ export class SessionStore {
    * Delete session files older than maxAgeDays (default 30, Claude-Code
    * style retention). Returns the number of files removed.
    */
-  static sweep(dir: string, maxAgeDays = 30): number {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return 0;
-    }
+  static sweep(dir: string, maxAgeDays = SESSION_RETENTION_DAYS): number {
     const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
     let removed = 0;
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
-      const full = path.join(dir, entry.name);
-      try {
-        if (fs.statSync(full).mtimeMs < cutoff) {
+    for (const { full, mtimeMs } of listJsonlFiles(dir)) {
+      if (mtimeMs < cutoff) {
+        try {
           fs.unlinkSync(full);
           removed++;
+        } catch {
+          // Skip files that cannot be unlinked
         }
-      } catch {
-        // Skip files that vanish or cannot be stat'ed/unlinked
       }
     }
     return removed;
@@ -150,21 +166,10 @@ export class SessionStore {
    * 60 chars; system/skill messages do not count as the preview).
    */
   static listSummaries(dir: string): SessionSummary[] {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return [];
-    }
-
     const summaries: SessionSummary[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
-      const full = path.join(dir, entry.name);
-      let mtimeMs = 0;
+    for (const { full, mtimeMs } of listJsonlFiles(dir)) {
       let messages: Message[] = [];
       try {
-        mtimeMs = fs.statSync(full).mtimeMs;
         messages = SessionStore.load(full);
       } catch {
         continue;

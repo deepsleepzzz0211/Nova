@@ -5,6 +5,7 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
+import { novaHome } from '../config/loader.js';
 import * as path from 'path';
 
 /**
@@ -26,7 +27,7 @@ function repoNameFromUrl(gitUrl: string): string {
  */
 export function installSkill(gitUrl: string): string {
   const repoName = repoNameFromUrl(gitUrl);
-  const installDir = path.join(os.homedir(), '.nova', 'skills', repoName);
+  const installDir = path.join(novaHome(), '.nova', 'skills', repoName);
 
   if (!fs.existsSync(path.dirname(installDir))) {
     fs.mkdirSync(path.dirname(installDir), { recursive: true });
