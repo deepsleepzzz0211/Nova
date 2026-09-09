@@ -163,6 +163,17 @@ describe('AnthropicMessagesAdapter stream normalization (SDK mocked)', () => {
     ]);
   });
 
+  it('emits a truncated chunk when stop_reason is max_tokens', async () => {
+    anthropicState.events = [
+      { type: 'message_start', message: { usage: { input_tokens: 5, output_tokens: 1 } } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'cut off' } },
+      { type: 'message_delta', delta: { stop_reason: 'max_tokens' }, usage: { output_tokens: 9 } },
+      { type: 'message_stop' },
+    ];
+    const chunks = await collect(makeAdapter().chat(baseMessages, { model: 'claude-x' }));
+    expect(chunks.at(-1)).toEqual({ type: 'truncated' });
+  });
+
   it('maps thinking block events into thinking_delta chunks', async () => {
     anthropicState.events = [
       { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } },
@@ -267,6 +278,26 @@ describe('OllamaAdapter boundaries (mocked fetch)', () => {
     const chunks = await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
     // Current behavior: the array is yielded verbatim as content
     expect(chunks).toEqual([{ type: 'text_delta', content: [{ type: 'text', text: 'part' }] }]);
+  });
+
+  it('emits a truncated chunk when done_reason is length', async () => {
+    const body = `${JSON.stringify({ message: { content: 'partial' } })}
+${JSON.stringify({ done: true, done_reason: 'length' })}
+`;
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode(body));
+            c.close();
+          },
+        }),
+      }) as unknown as Response) as typeof fetch;
+    const adapter = new OllamaAdapter({ apiKey: '', baseUrl: 'http://x', model: 'llama3' } as never);
+    const chunks = await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
+    expect(chunks.at(-1)).toEqual({ type: 'truncated' });
   });
 
   it('maps the reasoning field into thinking_delta (thinking models)', async () => {

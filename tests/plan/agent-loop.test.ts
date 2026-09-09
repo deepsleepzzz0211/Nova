@@ -376,6 +376,125 @@ describe('AgentLoop.undoTurns', () => {
   });
 });
 
+describe('AgentLoop truncation continuation + empty stream (streaming ticket 05)', () => {
+  it('continues after a truncated stream without duplicating the user message', async () => {
+    const chatMessages: Message[][] = [];
+    let chatCall = 0;
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
+        chatMessages.push(msgs.map((m) => ({ ...m })));
+        chatCall++;
+        if (chatCall === 1) {
+          yield { type: 'text_delta', content: 'partial an' };
+          yield { type: 'truncated' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'swer' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const turn = await loop.processUserInput('question');
+    expect(turn.text).toBe('partial answer');
+    // Continuation request: original user message once, partial assistant
+    // message (with its content), then the continuation instruction.
+    const cont = chatMessages[1];
+    expect(cont.filter((m) => m.role === 'user' && m.content === 'question')).toHaveLength(1);
+    expect(cont.some((m) => m.role === 'assistant' && m.content === 'partial an')).toBe(true);
+    const contMsg = cont.at(-1);
+    expect(contMsg?.role).toBe('user');
+    expect((contMsg as { content: string }).content).toMatch(/Continue exactly where you stopped/);
+    // History keeps exactly one continuation user message
+    const history = loop.getMessages();
+    expect(history.filter((m) => m.role === 'user' && m.content === contMsg?.content)).toHaveLength(1);
+  });
+
+  it('keeps thinking on the partial assistant message across a continuation', async () => {
+    let chatCall = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        chatCall++;
+        if (chatCall === 1) {
+          yield { type: 'thinking_delta', content: 'reasoned' };
+          yield { type: 'text_delta', content: 'part' };
+          yield { type: 'truncated' };
+          return;
+        }
+        yield { type: 'text_delta', content: 'ial' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    await loop.processUserInput('q');
+    const partial = loop.getMessages().find((m) => m.role === 'assistant');
+    expect((partial as { thinking?: string }).thinking).toBe('reasoned');
+    expect(partial?.content).toBe('part');
+  });
+
+  it('retries an empty stream once and succeeds', async () => {
+    let chatCall = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        chatCall++;
+        if (chatCall === 1) return; // empty stream
+        yield { type: 'text_delta', content: 'recovered' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    const turn = await loop.processUserInput('q');
+    expect(turn.text).toBe('recovered');
+    expect(chatCall).toBe(2);
+  });
+
+  it('errors cleanly after a second empty stream', async () => {
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        return; // always empty
+      },
+    };
+    const tokens: string[] = [];
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: (t) => tokens.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    const turn = await loop.processUserInput('q');
+    expect(turn.text).toBe('');
+    expect(tokens.join('')).toBe('[Error: LLM returned an empty stream]');
+  });
+});
+
 describe('AgentLoop pending tool visibility (streaming ticket 04)', () => {
   function makeTool(name: string): Tool {
     return {

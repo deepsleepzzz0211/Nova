@@ -11,6 +11,10 @@ import { withIdleTimeout, consumeWithInterrupt, StreamInterruptedError } from '.
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
+/** Continuation instruction appended after a truncated stream (ticket 05). */
+const TRUNCATION_CONTINUE_PROMPT =
+  'Your previous response was cut off mid-output. Continue exactly where you stopped — do not repeat any content already emitted.';
+
 import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
 import type { ThinkingLevel } from '../llm/compat.js';
 
@@ -290,6 +294,10 @@ export class AgentLoop {
     // the same round exactly once. A second overflow surfaces as a normal
     // error — no compaction loop.
     let overflowRetried = false;
+    // Streaming ticket 05: one continuation after a truncated stream and one
+    // retry after an empty stream, per turn.
+    let truncationContinued = false;
+    let emptyRetried = false;
 
     for (let toolRound = 0; toolRound <= this.maxToolRounds; toolRound++) {
       await this.prepareContext();
@@ -298,6 +306,8 @@ export class AgentLoop {
       const toolCalls = new Map<string, { name: string; args: string }>();
       let textContent = '';
       let thinkingContent = '';
+      let sawTruncated = false;
+      let sawError = false;
 
       // Abort controller for this round's LLM stream (interruptible).
       const runAbort = new AbortController();
@@ -328,6 +338,9 @@ export class AgentLoop {
               thinkingContent += chunk.content;
               this.onThinking?.(chunk.content);
               break;
+            case 'truncated':
+              sawTruncated = true;
+              break;
             case 'tool_call_start':
               toolCalls.set(chunk.id, { name: chunk.name, args: '' });
               // Surface the call immediately (streaming ticket 04): the UI
@@ -348,6 +361,7 @@ export class AgentLoop {
               break;
             }
             case 'error':
+              sawError = true;
               this.onToken(`[Error: ${chunk.error}]`);
               break;
             case 'usage':
@@ -405,6 +419,55 @@ export class AgentLoop {
 
       this.runAbort = null;
 
+      // Truncation: the adapter signaled a max-token cutoff mid-output
+      // (streaming ticket 05). With partial output, ask the model to
+      // continue exactly once; tool-call half-frames are discarded, never
+      // executed. A second truncation keeps whatever partial output exists.
+      if (sawTruncated && (textContent || thinkingContent || toolCalls.size > 0)) {
+        if (!truncationContinued) {
+          truncationContinued = true;
+          for (const id of toolCalls.keys()) {
+            this.onToolResult({ content: 'Truncated before execution.', isError: true }, id);
+          }
+          this.pushMessage({
+            role: 'assistant',
+            content: textContent || null,
+            ...(thinkingContent ? { thinking: thinkingContent } : {}),
+          });
+          this.pushMessage({ role: 'user', content: TRUNCATION_CONTINUE_PROMPT });
+          finalText += textContent;
+          continue;
+        }
+        if (textContent || thinkingContent) {
+          this.pushMessage({
+            role: 'assistant',
+            content: textContent || null,
+            ...(thinkingContent ? { thinking: thinkingContent } : {}),
+          });
+        }
+        finalText += textContent;
+        this.emitUsage(turnUsage);
+        return { text: finalText, rounds };
+      }
+
+      // Empty stream: the adapter finished with zero content — abnormal.
+      // Retry the round once, then surface a clean error (ticket 05).
+      // An explicit error chunk already reported the failure — keep the
+      // legacy report-and-stop semantics, no retry.
+      if (sawError) {
+        this.emitUsage(turnUsage);
+        return { text: finalText, rounds };
+      }
+      if (!textContent && !thinkingContent && toolCalls.size === 0) {
+        if (!emptyRetried) {
+          emptyRetried = true;
+          continue;
+        }
+        this.onToken('[Error: LLM returned an empty stream]');
+        this.emitUsage(turnUsage);
+        return { text: finalText, rounds };
+      }
+
       // If the LLM returned tool calls, process them
       if (toolCalls.size > 0) {
         const callArray: ToolCall[] = [];
@@ -455,7 +518,7 @@ export class AgentLoop {
         content: textContent,
         ...(thinkingContent ? { thinking: thinkingContent } : {}),
       });
-      finalText = textContent;
+      finalText += textContent;
       this.emitUsage(turnUsage);
       return { text: finalText, rounds };
     }

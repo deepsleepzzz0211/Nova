@@ -83,6 +83,7 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
       let currentToolId: string | null = null;
       let currentToolName: string | null = null;
       let inThinkingBlock = false;
+      let stopReason: string | null = null;
 
       // Accumulated usage; emitted once at message_stop as a single chunk
       let usageInput = 0;
@@ -123,9 +124,12 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
             currentToolId = null;
             currentToolName = null;
           }
-        } else if (event.type === 'message_delta' && event.usage?.output_tokens !== undefined) {
-          // Final output token count for this response
-          usageOutput = event.usage.output_tokens;
+        } else if (event.type === 'message_delta') {
+          if (event.delta?.stop_reason) stopReason = event.delta.stop_reason;
+          if (event.usage?.output_tokens !== undefined) {
+            // Final output token count for this response
+            usageOutput = event.usage.output_tokens;
+          }
         } else if (event.type === 'message_stop') {
           yield {
             type: 'usage',
@@ -135,6 +139,11 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
             cacheWriteTokens: usageWrite,
           };
         }
+      }
+
+      // Truncation: the response hit the max-token cutoff mid-output (ticket 05)
+      if (stopReason === 'max_tokens') {
+        yield { type: 'truncated' };
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

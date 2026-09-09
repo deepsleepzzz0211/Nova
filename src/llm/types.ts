@@ -34,6 +34,7 @@ export type Message =
 export type StreamChunk =
   | { type: 'text_delta'; content: string }
   | { type: 'thinking_delta'; content: string }
+  | { type: 'truncated' }
   | { type: 'tool_call_start'; id: string; name: string }
   | { type: 'tool_call_delta'; id: string; arguments: string }
   | { type: 'tool_call_end'; id: string }

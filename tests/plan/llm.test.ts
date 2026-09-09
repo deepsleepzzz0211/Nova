@@ -51,6 +51,19 @@ describe('parseOpenAIStream', () => {
     ]);
   });
 
+  it('yields a truncated chunk when finish_reason is length (ticket 05)', async () => {
+    const stream = mockStream([
+      makeChunk([{ index: 0, delta: { content: 'cut' }, finish_reason: null }]),
+      makeChunk([{ index: 0, delta: {}, finish_reason: 'length' }]),
+    ]);
+
+    const result = await collect(parseOpenAIStream(stream));
+    expect(result).toEqual([
+      { type: 'text_delta', content: 'cut' },
+      { type: 'truncated' },
+    ]);
+  });
+
   it('yields tool_call_start when id and name appear', async () => {
     const stream = mockStream([
       makeChunk([{
