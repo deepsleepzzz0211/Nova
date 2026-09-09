@@ -78,7 +78,7 @@ describe('SessionStore edge cases', () => {
     // write via constructor-adjacent path: build a file manually
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-load-'));
     const file = path.join(dir, 'ws.jsonl');
-    writeFileSync(file, '   \n\n{"role":"user","content":"ok"}\n   \n');
+    fs.writeFileSync(file, '   \n\n{"role":"user","content":"ok"}\n   \n');
     expect(SessionStore.load(file)).toEqual([{ role: 'user', content: 'ok' }]);
   });
 
@@ -86,8 +86,8 @@ describe('SessionStore edge cases', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-sweep-b-'));
     const keep = path.join(dir, 'session-29d.jsonl');
     const drop = path.join(dir, 'session-31d.jsonl');
-    writeFileSync(keep, '{}\n');
-    writeFileSync(drop, '{}\n');
+    fs.writeFileSync(keep, '{}\n');
+    fs.writeFileSync(drop, '{}\n');
     const d29 = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
     const d31 = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
     utimesSync(keep, d29, d29);
@@ -99,7 +99,7 @@ describe('SessionStore edge cases', () => {
 
   it('listSummaries falls back to "(no user messages)" when history has none', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-nouser-'));
-    writeFileSync(join(dir, 'session-a.jsonl'), '{"role":"assistant","content":"only assistant talk"}\n');
+    fs.writeFileSync(join(dir, 'session-a.jsonl'), '{"role":"assistant","content":"only assistant talk"}\n');
     const list = SessionStore.listSummaries(dir);
     expect(list).toHaveLength(1);
     expect(list[0].preview).toBe('(no user messages)');
