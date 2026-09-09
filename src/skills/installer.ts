@@ -12,9 +12,10 @@ import * as path from 'path';
  * Extract the repository name from a git URL.
  * Handles HTTPS URLs (https://host/user/repo.git) and SSH URLs (git@host:user/repo.git).
  */
-function repoNameFromUrl(gitUrl: string): string {
+export function repoNameFromUrl(gitUrl: string): string {
   const stripped = gitUrl.replace(/\.git$/, '');
-  const lastSegment = stripped.split('/').pop() ?? stripped;
+  // Handle both POSIX and Windows separators (local paths on Windows)
+  const lastSegment = stripped.split(/[\\/]/).pop() ?? stripped;
   // For SSH-style git@host:user/repo → last segment after ':'
   return lastSegment.includes(':') ? lastSegment.split(':').pop()! : lastSegment;
 }
