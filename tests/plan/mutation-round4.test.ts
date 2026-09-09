@@ -90,16 +90,16 @@ describe('SessionStore edge cases', () => {
     fs.writeFileSync(drop, '{}\n');
     const d29 = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
     const d31 = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
-    utimesSync(keep, d29, d29);
-    utimesSync(drop, d31, d31);
+    fs.utimesSync(keep, d29, d29);
+    fs.utimesSync(drop, d31, d31);
     expect(SessionStore.sweep(dir, 30)).toBe(1);
-    expect(existsSync(keep)).toBe(true);
-    expect(existsSync(drop)).toBe(false);
+    expect(fs.existsSync(keep)).toBe(true);
+    expect(fs.existsSync(drop)).toBe(false);
   });
 
   it('listSummaries falls back to "(no user messages)" when history has none', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-nouser-'));
-    fs.writeFileSync(join(dir, 'session-a.jsonl'), '{"role":"assistant","content":"only assistant talk"}\n');
+    fs.writeFileSync(path.join(dir, 'session-a.jsonl'), '{"role":"assistant","content":"only assistant talk"}\n');
     const list = SessionStore.listSummaries(dir);
     expect(list).toHaveLength(1);
     expect(list[0].preview).toBe('(no user messages)');
