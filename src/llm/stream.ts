@@ -16,6 +16,7 @@ export async function* parseOpenAIStream(
   stream: AsyncIterable<ChatCompletionChunk>,
 ): AsyncGenerator<StreamChunk> {
   // Track in-progress tool calls by their index
+  let lastFinishReason: string | null = null;
   const pendingToolCalls = new Map<number, { id: string; name: string; arguments: string }>();
 
   for await (const chunk of stream) {
@@ -70,6 +71,9 @@ export async function* parseOpenAIStream(
       }
     }
 
+    // Track the last finish_reason for truncation detection (ticket 05)
+    if (finish_reason) lastFinishReason = finish_reason;
+
     // End tool calls on finish_reason
     if (finish_reason === 'tool_calls' || finish_reason === 'stop') {
       // Flush all pending tool calls
@@ -78,6 +82,11 @@ export async function* parseOpenAIStream(
       }
       pendingToolCalls.clear();
     }
+  }
+
+  // Truncation: the response hit the max-token cutoff mid-output (ticket 05)
+  if (lastFinishReason === 'length') {
+    yield { type: 'truncated' };
   }
 
   // Safety flush: if the stream ended without a proper finish_reason,

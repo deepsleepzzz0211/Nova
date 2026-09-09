@@ -67,6 +67,10 @@ export class OllamaAdapter implements ApiAdapter {
                 yield { type: 'text_delta', content: data.message.content };
               }
               if (data.done) {
+                // Truncation: hit the max-token cutoff mid-output (ticket 05)
+                if (data.done_reason === 'length') {
+                  yield { type: 'truncated' };
+                }
                 return;
               }
             } catch {
