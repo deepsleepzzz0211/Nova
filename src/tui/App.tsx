@@ -49,6 +49,8 @@ export interface AppProps {
   subagentSink?: { notify?: (message: string) => void };
   /** Live subagent activity sink (useAgent assigns set once mounted). */
   subagentLiveSink?: { set?: (line: string | null) => void };
+  /** LLM stream idle timeout (ms). */
+  streamIdleTimeoutMs?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -84,6 +86,7 @@ export function App({
   contextKeepRecentTokens,
   subagentSink,
   subagentLiveSink,
+  streamIdleTimeoutMs,
   thinkingLevel,
   listModels,
   resolveSwitch,
@@ -107,6 +110,7 @@ export function App({
     contextKeepRecentTokens,
     subagentSink,
     subagentLiveSink,
+    streamIdleTimeoutMs,
     thinkingLevel,
     listModels,
     resolveSwitch,

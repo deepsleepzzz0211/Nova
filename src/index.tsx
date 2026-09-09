@@ -294,6 +294,7 @@ async function main(): Promise<void> {
       contextReserveTokens={config.agent.contextReserveTokens}
       subagentSink={subagentSink}
       subagentLiveSink={subagentLiveSink}
+      streamIdleTimeoutMs={config.llm.streamIdleTimeoutMs}
       contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
       model={config.llm.model}

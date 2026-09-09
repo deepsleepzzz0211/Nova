@@ -7,6 +7,7 @@ import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
 import { isContextOverflowError } from '../llm/errors.js';
+import { withIdleTimeout } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -58,6 +59,8 @@ export interface AgentLoopConfig {
   thinkingLevel?: ThinkingLevel;
   /** Cancellation signal: aborts in-flight tool execution (and future rounds). */
   abortSignal?: AbortSignal;
+  /** LLM stream idle timeout (ms). Default 60000. */
+  streamIdleTimeoutMs?: number;
   onToken: (token: string) => void;
   onToolCall: (call: ToolCall) => void;
   onToolResult: (result: ToolResult, callId?: string) => void;
@@ -90,6 +93,7 @@ export class AgentLoop {
    */
   private readonly frozenSystemPrompt: string;
   private readonly abortSignal?: AbortSignal;
+  private readonly streamIdleTimeoutMs: number;
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
   private readonly onToolResult: (result: ToolResult, callId?: string) => void;
@@ -123,6 +127,7 @@ export class AgentLoop {
     this.onUsage = options.onUsage;
     this.thinkingLevel = options.thinkingLevel;
     this.abortSignal = options.abortSignal;
+    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? 60_000;
     this.frozenSystemPrompt = buildSystemPrompt(this.toolRegistry.getAll(), options.skills?.findAll() ?? [], {
       ...this.promptOptions,
     });
@@ -278,12 +283,19 @@ export class AgentLoop {
       let textContent = '';
 
       try {
-        const stream = this.llm.chat(this.messages, {
+        const rawStream = this.llm.chat(this.messages, {
           model: this.model,
           tools,
           systemPrompt,
           thinkingLevel: this.thinkingLevel,
         });
+
+        // Stall watchdog: a provider/proxy that stops emitting bytes must
+        // fail the turn instead of hanging forever (idle measured from the
+        // last chunk, so slow thinking before the first token is fine).
+        const stream = withIdleTimeout(rawStream, this.streamIdleTimeoutMs, () =>
+          new Error(`LLM stream stalled — no data for ${Math.round(this.streamIdleTimeoutMs / 1000)}s`),
+        );
 
         for await (const chunk of stream) {
           switch (chunk.type) {
