@@ -11,6 +11,8 @@ export interface StatusBarProps {
   mcpConnectionCount: number;
   /** One-line update notice (or null when silent). */
   updateNotice?: string;
+  /** Live subagent activity line (or null when idle). */
+  subagentActivity?: string | null;
   /** Prompt-cache metrics (pi-style R/W/CH). */
   cacheStats?: {
     hitRate: number;
@@ -31,7 +33,7 @@ function fmtTokens(n: number): string {
  * Displays a status bar showing the current model, working directory,
  * number of active MCP connections, and prompt-cache usage (R/W/CH).
  */
-export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheStats, updateNotice }: StatusBarProps): React.ReactElement {
+export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheStats, updateNotice, subagentActivity }: StatusBarProps): React.ReactElement {
   const mcpLabel = mcpConnectionCount === 1
     ? '1 MCP server'
     : `${mcpConnectionCount} MCP servers`;
@@ -41,6 +43,9 @@ export function StatusBar({ model, workingDirectory, mcpConnectionCount, cacheSt
       <Text bold color="cyan">{model}</Text>
       <Text color="gray" dimColor>{workingDirectory}</Text>
       <Text color="gray" dimColor>{mcpLabel}</Text>
+      {subagentActivity && (
+        <Text color="magenta">{subagentActivity}</Text>
+      )}
       {updateNotice && (
         <Text color="yellow">{updateNotice}</Text>
       )}

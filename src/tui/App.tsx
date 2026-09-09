@@ -47,6 +47,8 @@ export interface AppProps {
   contextKeepRecentTokens?: number;
   /** Subagent progress sink (useAgent assigns notify once mounted). */
   subagentSink?: { notify?: (message: string) => void };
+  /** Live subagent activity sink (useAgent assigns set once mounted). */
+  subagentLiveSink?: { set?: (line: string | null) => void };
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -81,6 +83,7 @@ export function App({
   contextReserveTokens,
   contextKeepRecentTokens,
   subagentSink,
+  subagentLiveSink,
   thinkingLevel,
   listModels,
   resolveSwitch,
@@ -89,7 +92,7 @@ export function App({
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo } = useAgent({
+  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -103,6 +106,7 @@ export function App({
     contextReserveTokens,
     contextKeepRecentTokens,
     subagentSink,
+    subagentLiveSink,
     thinkingLevel,
     listModels,
     resolveSwitch,
@@ -118,6 +122,7 @@ export function App({
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}
         updateNotice={updateNotice ?? undefined}
+        subagentActivity={subagentActivity}
       />
 
       {todoState && <TodoView todoState={todoState} />}

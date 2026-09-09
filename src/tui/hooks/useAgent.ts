@@ -59,6 +59,8 @@ export interface UseAgentConfig {
   contextKeepRecentTokens?: number;
   /** Subagent progress sink (assign notify once mounted). */
   subagentSink?: { notify?: (message: string) => void };
+  /** Live subagent activity sink (assign set once mounted; cleared on end). */
+  subagentLiveSink?: { set?: (line: string | null) => void };
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
   /** List models for the /model command (returns display text). */
@@ -89,6 +91,8 @@ export interface UseAgentResult {
   cacheStats: CacheStatsView;
   /** Active model selection (updated by /model). */
   modelInfo: { model: string; contextWindow?: number; providerName: string };
+  /** Live subagent activity line (or null when idle). */
+  subagentActivity: string | null;
 }
 
 /**
@@ -257,14 +261,19 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   }
 
   // Wire the subagent progress sink once mounted (index.tsx feeds events
-  // from the spawner; they surface as system messages here).
+  // from the spawner): tool activity → a live StatusBar line, start/end →
+  // system messages.
+  const [subagentActivity, setSubagentActivity] = useState<string | null>(null);
   useEffect(() => {
     if (config.subagentSink) {
       config.subagentSink.notify = (message: string) => {
         setMessages((prev) => [...prev, { role: 'system' as const, content: message }]);
       };
     }
-  }, [config.subagentSink]);
+    if (config.subagentLiveSink) {
+      config.subagentLiveSink.set = (line: string | null) => setSubagentActivity(line);
+    }
+  }, [config.subagentSink, config.subagentLiveSink]);
 
   // Clean up pending permission on unmount
   useEffect(() => {
@@ -380,5 +389,5 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     );
   }, [isStreaming]);
 
-  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo };
+  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo, subagentActivity };
 }
