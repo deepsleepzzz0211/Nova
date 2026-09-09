@@ -163,6 +163,25 @@ describe('AnthropicMessagesAdapter stream normalization (SDK mocked)', () => {
     ]);
   });
 
+  it('maps thinking block events into thinking_delta chunks', async () => {
+    anthropicState.events = [
+      { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } },
+      { type: 'content_block_start', content_block: { type: 'thinking', thinking: '' } },
+      { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'let me think' } },
+      { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: ' carefully' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'the answer' } },
+      { type: 'message_stop' },
+    ];
+    const chunks = await collect(makeAdapter().chat(baseMessages, { model: 'claude-x' }));
+    expect(chunks).toEqual([
+      { type: 'thinking_delta', content: 'let me think' },
+      { type: 'thinking_delta', content: ' carefully' },
+      { type: 'text_delta', content: 'the answer' },
+      { type: 'usage', inputTokens: 10, outputTokens: 1, cachedInputTokens: 0, cacheWriteTokens: 0 },
+    ]);
+  });
+
   it('ignores json deltas without a current tool block and maps thrown errors', async () => {
     anthropicState.events = [
       { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: 'orphan' } },
@@ -248,6 +267,30 @@ describe('OllamaAdapter boundaries (mocked fetch)', () => {
     const chunks = await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
     // Current behavior: the array is yielded verbatim as content
     expect(chunks).toEqual([{ type: 'text_delta', content: [{ type: 'text', text: 'part' }] }]);
+  });
+
+  it('maps the reasoning field into thinking_delta (thinking models)', async () => {
+    const body = `${JSON.stringify({ message: { reasoning: 'pondering...' } })}
+${JSON.stringify({ message: { content: 'answer' } })}
+${JSON.stringify({ done: true })}
+`;
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode(body));
+            c.close();
+          },
+        }),
+      }) as unknown as Response) as typeof fetch;
+    const adapter = new OllamaAdapter({ apiKey: '', baseUrl: 'http://x', model: 'llama3' } as never);
+    const chunks = await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
+    expect(chunks).toEqual([
+      { type: 'thinking_delta', content: 'pondering...' },
+      { type: 'text_delta', content: 'answer' },
+    ]);
   });
 
   it('ends the stream on done even without a trailing newline', async () => {

@@ -34,6 +34,11 @@ export async function* parseOpenAIStream(
 
     const { delta, finish_reason } = choice;
 
+    // Emit thinking deltas (reasoning models: DeepSeek/OpenRouter style)
+    if ((delta as { reasoning_content?: string }).reasoning_content) {
+      yield { type: 'thinking_delta', content: (delta as { reasoning_content: string }).reasoning_content };
+    }
+
     // Emit text deltas
     if (delta.content) {
       yield { type: 'text_delta', content: delta.content };

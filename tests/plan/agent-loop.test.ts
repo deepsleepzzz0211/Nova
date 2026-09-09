@@ -376,6 +376,72 @@ describe('AgentLoop.undoTurns', () => {
   });
 });
 
+describe('AgentLoop thinking channel (streaming ticket 03)', () => {
+  it('forwards thinking deltas and stores thinking on the assistant message', async () => {
+    const thinkingSeen: string[] = [];
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'thinking_delta', content: 'let me ' };
+        yield { type: 'thinking_delta', content: 'think' };
+        yield { type: 'text_delta', content: 'final answer' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onThinking: (d) => thinkingSeen.push(d),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const turn = await loop.processUserInput('question');
+    expect(turn.text).toBe('final answer');
+    expect(thinkingSeen.join('')).toBe('let me think');
+    const assistant = loop.getMessages().find((m) => m.role === 'assistant');
+    expect((assistant as { thinking?: string }).thinking).toBe('let me think');
+    expect(assistant?.content).toBe('final answer');
+  });
+
+  it('interrupt keeps the partial thinking alongside partial text', async () => {
+    let release: (() => void) | undefined;
+    let sawThinking = false;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'thinking_delta', content: 'partial thought' };
+        sawThinking = true;
+        await new Promise<void>((r) => { release = r; });
+        yield { type: 'text_delta', content: 'never' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    const turnPromise = loop.processUserInput('q');
+    const timer = setInterval(() => {
+      if (sawThinking) {
+        clearInterval(timer);
+        loop.interrupt();
+      }
+    }, 5);
+    await turnPromise;
+    const assistant = loop.getMessages().find((m) => m.role === 'assistant');
+    expect((assistant as { thinking?: string }).thinking).toBe('partial thought');
+    release?.();
+    void timer;
+  });
+});
+
 describe('AgentLoop.interrupt (streaming ticket 02)', () => {
   function makeTool(name: string): Tool {
     return {

@@ -26,6 +26,8 @@ export interface DisplayMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   toolCalls?: DisplayToolCall[];
+  /** Reasoning text accumulated before the visible content. */
+  thinking?: string;
 }
 
 /** Pending permission request awaiting user decision. */
@@ -123,14 +125,21 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   });
 
   // Ref to track the current assistant message being built during streaming
-  const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[] } | null>(null);
+  const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
 
   // Create the AgentLoop once
   if (loopRef.current === null) {
+    const snapshot = (): DisplayMessage => ({
+      role: 'assistant' as const,
+      content: currentAssistantRef.current!.content,
+      toolCalls: [...currentAssistantRef.current!.toolCalls],
+      thinking: currentAssistantRef.current!.thinking || undefined,
+    });
+
     const onToken = (token: string): void => {
       if (!currentAssistantRef.current) {
-        currentAssistantRef.current = { content: '', toolCalls: [] };
+        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
       currentAssistantRef.current.content += token;
       // Trigger re-render by updating messages with the latest snapshot
@@ -138,17 +147,26 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
           ? prev.slice(0, -1)
           : prev;
-        return [...withoutLast, {
-          role: 'assistant' as const,
-          content: currentAssistantRef.current!.content,
-          toolCalls: [...currentAssistantRef.current!.toolCalls],
-        }];
+        return [...withoutLast, snapshot()];
+      });
+    };
+
+    const onThinking = (delta: string): void => {
+      if (!currentAssistantRef.current) {
+        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
+      }
+      currentAssistantRef.current.thinking += delta;
+      setMessages((prev) => {
+        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
+          ? prev.slice(0, -1)
+          : prev;
+        return [...withoutLast, snapshot()];
       });
     };
 
     const onToolCall = (call: ToolCall): void => {
       if (!currentAssistantRef.current) {
-        currentAssistantRef.current = { content: '', toolCalls: [] };
+        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
       const displayCall: DisplayToolCall = {
         id: call.id,
@@ -164,6 +182,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         return [...withoutLast, {
           role: 'assistant' as const,
           content: currentAssistantRef.current!.content,
+          thinking: currentAssistantRef.current!.thinking || undefined,
           toolCalls: [...currentAssistantRef.current!.toolCalls],
         }];
       });
@@ -200,6 +219,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         return [...withoutLast, {
           role: 'assistant' as const,
           content: currentAssistantRef.current!.content,
+          thinking: currentAssistantRef.current!.thinking || undefined,
           toolCalls: [...currentAssistantRef.current!.toolCalls],
         }];
       });
@@ -234,6 +254,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       onToolCall,
       onToolResult,
       onPermissionRequest,
+      onThinking,
       onUsage: (usage) => {
         metricsRef.current.record(usage);
         const m = metricsRef.current;

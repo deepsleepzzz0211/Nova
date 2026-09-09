@@ -202,7 +202,13 @@ export class Compactor {
           const calls = msg.tool_calls
             .map((tc) => `${tc.function.name}(${tc.function.arguments})`)
             .join('; ');
-          return `${msg.role}: ${msg.content ?? ''} [tool calls: ${calls}]`;
+          const thinkingPrefix = 'thinking' in msg && msg.thinking
+            ? `[Assistant thinking] ${msg.thinking}\n`
+            : '';
+          return `${thinkingPrefix}${msg.role}: ${msg.content ?? ''} [tool calls: ${calls}]`;
+        }
+        if (msg.role === 'assistant' && 'thinking' in msg && msg.thinking) {
+          return `${msg.role}: [Assistant thinking] ${msg.thinking}\n${msg.role}: ${msg.content ?? ''}`;
         }
         if (msg.role === 'tool') {
           const content = msg.content ?? '';
