@@ -8,6 +8,7 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
+import { StreamBatcher } from '../stream-batcher.js';
 import type { ThinkingLevel } from '../../llm/compat.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
@@ -128,6 +129,26 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
 
+  // Token coalescing (streaming ticket 06): stream deltas mutate the ref;
+  // at most one setState per window keeps long sessions from degrading.
+  const batcherRef = useRef<StreamBatcher | null>(null);
+  if (batcherRef.current === null) {
+    batcherRef.current = new StreamBatcher(() => {
+      setMessages((prev) => {
+        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
+          ? prev.slice(0, -1)
+          : prev;
+        return [...withoutLast, {
+          role: 'assistant' as const,
+          content: currentAssistantRef.current!.content,
+          toolCalls: [...currentAssistantRef.current!.toolCalls],
+          thinking: currentAssistantRef.current!.thinking || undefined,
+        }];
+      });
+    }, 32);
+  }
+  const batcher = batcherRef.current;
+
   // Create the AgentLoop once
   if (loopRef.current === null) {
     const snapshot = (): DisplayMessage => ({
@@ -142,13 +163,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
       currentAssistantRef.current.content += token;
-      // Trigger re-render by updating messages with the latest snapshot
-      setMessages((prev) => {
-        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
-          ? prev.slice(0, -1)
-          : prev;
-        return [...withoutLast, snapshot()];
-      });
+      batcher.schedule();
     };
 
     const onThinking = (delta: string): void => {
@@ -156,12 +171,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
       currentAssistantRef.current.thinking += delta;
-      setMessages((prev) => {
-        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
-          ? prev.slice(0, -1)
-          : prev;
-        return [...withoutLast, snapshot()];
-      });
+      batcher.schedule();
     };
 
     const onToolCall = (call: ToolCall): void => {
@@ -304,6 +314,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   // Clean up pending permission on unmount
   useEffect(() => {
     return () => {
+      // Cancel any pending coalesced flush on unmount (ticket 06)
+      batcherRef.current?.dispose();
       // Resolve any pending permission as denied on unmount
       setPendingPermission((current) => {
         if (current) {
@@ -404,11 +416,14 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     // Run the agent loop (fire-and-forget; state updates happen via callbacks)
     loop.processUserInput(trimmed).then(
       () => {
-        // After tool calls, start a fresh assistant message for the next round
+        // Force-flush any coalesced deltas, then start a fresh assistant
+        // message for the next round (streaming ticket 06).
+        batcher.flushNow();
         currentAssistantRef.current = null;
         setIsStreaming(false);
       },
       () => {
+        batcher.flushNow();
         currentAssistantRef.current = null;
         setIsStreaming(false);
       },
