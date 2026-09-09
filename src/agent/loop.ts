@@ -55,6 +55,8 @@ export interface AgentLoopConfig {
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   /** Notified once per turn with aggregated provider usage (cache metrics). */
   onUsage?: (usage: TurnUsage) => void;
+  /** Notified per thinking delta (reasoning stream, streaming ticket 03). */
+  onThinking?: (delta: string) => void;
   /** Unified thinking level forwarded to every chat call. */
   thinkingLevel?: ThinkingLevel;
   /** Cancellation signal: aborts in-flight tool execution (and future rounds). */
@@ -83,6 +85,7 @@ export class AgentLoop {
   private readonly promptOptions: BuildPromptOptions;
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onUsage: AgentLoopConfig['onUsage'];
+  private readonly onThinking: AgentLoopConfig['onThinking'];
   private readonly thinkingLevel?: ThinkingLevel;
   /**
    * Base system prompt, frozen at construction.
@@ -127,6 +130,7 @@ export class AgentLoop {
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
+    this.onThinking = options.onThinking;
     this.thinkingLevel = options.thinkingLevel;
     this.abortSignal = options.abortSignal;
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? 60_000;
@@ -293,6 +297,7 @@ export class AgentLoop {
 
       const toolCalls = new Map<string, { name: string; args: string }>();
       let textContent = '';
+      let thinkingContent = '';
 
       // Abort controller for this round's LLM stream (interruptible).
       const runAbort = new AbortController();
@@ -318,6 +323,10 @@ export class AgentLoop {
             case 'text_delta':
               textContent += chunk.content;
               this.onToken(chunk.content);
+              break;
+            case 'thinking_delta':
+              thinkingContent += chunk.content;
+              this.onThinking?.(chunk.content);
               break;
             case 'tool_call_start':
               toolCalls.set(chunk.id, { name: chunk.name, args: '' });
@@ -352,8 +361,12 @@ export class AgentLoop {
         // be truncated — executing them would be a hazard). No tool
         // execution, no orphan results; the turn ends cleanly.
         if (err instanceof StreamInterruptedError) {
-          if (textContent) {
-            this.pushMessage({ role: 'assistant', content: textContent });
+          if (textContent || thinkingContent) {
+            this.pushMessage({
+              role: 'assistant',
+              content: textContent || null,
+              ...(thinkingContent ? { thinking: thinkingContent } : {}),
+            });
           }
           this.onToken('[interrupted]');
           this.runAbort = null;
@@ -426,7 +439,11 @@ export class AgentLoop {
       }
 
       // Text-only response — append and done
-      this.pushMessage({ role: 'assistant', content: textContent });
+      this.pushMessage({
+        role: 'assistant',
+        content: textContent,
+        ...(thinkingContent ? { thinking: thinkingContent } : {}),
+      });
       finalText = textContent;
       this.emitUsage(turnUsage);
       return { text: finalText, rounds };

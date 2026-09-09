@@ -289,6 +289,30 @@ describe('Compactor (token-budget keep window)', () => {
     expect(summaryCalls).toBe(1);
   });
 
+  it('serializes assistant thinking into the summary transcript (pi-style)', async () => {
+    const chatCalls: Array<{ msgs: Message[] }> = [];
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
+        chatCalls.push({ msgs });
+        yield { type: 'text_delta', content: 'summary' };
+      },
+    };
+    const messages: Message[] = [
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: 'old answer', thinking: 'I reasoned carefully' } as Message,
+      { role: 'user', content: 'and then?' },
+      { role: 'assistant', content: 'answer' },
+    ];
+    // Keep only the newest assistant message; the older assistant message
+    // (with thinking) must reach the summarizer with its thinking serialized.
+    const compactor = new Compactor(llm, model, { keepRecentTokens: est('answer'), countTokens: est });
+    const result = await compactor.compact(messages);
+    expect(result).not.toBeNull();
+    const transcript = chatCalls[0].msgs[1].content ?? '';
+    expect(transcript).toContain('[Assistant thinking] I reasoned carefully');
+    expect(transcript).toContain('answer');
+  });
+
   it('reports summarized=false for a single message', async () => {
     const llm = makeLLM(() => [{ type: 'text_delta', content: 'unused' }]);
     const spy = vi.spyOn(llm, 'chat');

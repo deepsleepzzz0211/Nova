@@ -27,12 +27,13 @@ export interface ToolDefinition {
 export type Message =
   | { role: 'system'; content: string }
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
+  | { role: 'assistant'; content: string | null; tool_calls?: ToolCall[]; thinking?: string }
   | { role: 'tool'; tool_call_id: string; content: string; is_error?: boolean };
 
 /** A chunk from a streaming LLM response. */
 export type StreamChunk =
   | { type: 'text_delta'; content: string }
+  | { type: 'thinking_delta'; content: string }
   | { type: 'tool_call_start'; id: string; name: string }
   | { type: 'tool_call_delta'; id: string; arguments: string }
   | { type: 'tool_call_end'; id: string }

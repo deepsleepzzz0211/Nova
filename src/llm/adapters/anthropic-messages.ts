@@ -82,6 +82,7 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
       // Track the current tool-use block so input_json_delta chunks carry the id
       let currentToolId: string | null = null;
       let currentToolName: string | null = null;
+      let inThinkingBlock = false;
 
       // Accumulated usage; emitted once at message_stop as a single chunk
       let usageInput = 0;
@@ -104,14 +105,19 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
             currentToolId = event.content_block.id;
             currentToolName = event.content_block.name;
             yield { type: 'tool_call_start', id: currentToolId, name: currentToolName };
+          } else if (event.content_block.type === 'thinking') {
+            inThinkingBlock = true;
           }
         } else if (event.type === 'content_block_delta') {
           if (event.delta.type === 'text_delta') {
             yield { type: 'text_delta', content: event.delta.text };
+          } else if (event.delta.type === 'thinking_delta') {
+            yield { type: 'thinking_delta', content: event.delta.thinking };
           } else if (event.delta.type === 'input_json_delta' && currentToolId) {
             yield { type: 'tool_call_delta', id: currentToolId, arguments: event.delta.partial_json };
           }
         } else if (event.type === 'content_block_stop') {
+          inThinkingBlock = false;
           if (currentToolId) {
             yield { type: 'tool_call_end', id: currentToolId };
             currentToolId = null;

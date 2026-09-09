@@ -29,6 +29,9 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
     );
   }
 
+  // Reasoning stream (dim, italic, above the visible content)
+  const thinking = 'thinking' in message ? message.thinking : undefined;
+
   // System notices (compaction, etc.)
   if (message.role === 'system') {
     return (
@@ -41,6 +44,11 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
   // Assistant message
   return (
     <Box flexDirection="column" marginY={0}>
+      {thinking && (
+        <Box paddingLeft={0} marginBottom={thinking.length > 0 ? 0 : undefined}>
+          <Text color="gray" dimColor italic>{thinking}</Text>
+        </Box>
+      )}
       {message.content.length > 0 && (
         <Box paddingLeft={0}>
           <MarkdownText>{message.content}</MarkdownText>

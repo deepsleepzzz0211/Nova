@@ -60,6 +60,9 @@ export class OllamaAdapter implements ApiAdapter {
           if (line.trim()) {
             try {
               const data = JSON.parse(line);
+              if (data.message?.reasoning) {
+                yield { type: 'thinking_delta', content: data.message.reasoning };
+              }
               if (data.message?.content) {
                 yield { type: 'text_delta', content: data.message.content };
               }
