@@ -330,6 +330,13 @@ export class AgentLoop {
               break;
             case 'tool_call_start':
               toolCalls.set(chunk.id, { name: chunk.name, args: '' });
+              // Surface the call immediately (streaming ticket 04): the UI
+              // shows it as pending while arguments still stream in.
+              this.onToolCall({
+                id: chunk.id,
+                type: 'function',
+                function: { name: chunk.name, arguments: '' },
+              });
               break;
             case 'tool_call_delta': {
               const tc = toolCalls.get(chunk.id);
@@ -361,6 +368,11 @@ export class AgentLoop {
         // be truncated — executing them would be a hazard). No tool
         // execution, no orphan results; the turn ends cleanly.
         if (err instanceof StreamInterruptedError) {
+          // Calls surfaced mid-stream never execute — mark them in the UI
+          // (callback only; no tool results are written to history).
+          for (const id of toolCalls.keys()) {
+            this.onToolResult({ content: 'Interrupted.', isError: true }, id);
+          }
           if (textContent || thinkingContent) {
             this.pushMessage({
               role: 'assistant',
@@ -403,7 +415,6 @@ export class AgentLoop {
             function: { name: tc.name, arguments: tc.args },
           };
           callArray.push(call);
-          this.onToolCall(call);
         }
 
         // Append assistant message with tool_calls
