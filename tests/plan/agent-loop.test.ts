@@ -376,6 +376,85 @@ describe('AgentLoop.undoTurns', () => {
   });
 });
 
+describe('AgentLoop.interrupt (streaming ticket 02)', () => {
+  function makeTool(name: string): Tool {
+    return {
+      name,
+      description: `Tool ${name}`,
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: async (params) => ({ content: `${name}:${String(params.text)}` }),
+    };
+  }
+
+  it('keeps partial text and discards tool-call half-frames on interrupt', async () => {
+    const toolCallsSeen: string[] = [];
+    let sawPartial = false;
+    let release: (() => void) | undefined;
+    const llm: LLMProvider = {
+      async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
+        // Emit partial text, then a half tool-call frame, then hang.
+        yield { type: 'text_delta', content: 'par' };
+        sawPartial = true;
+        yield { type: 'tool_call_start', id: 'c1', name: 'bash' };
+        yield { type: 'tool_call_delta', id: 'c1', arguments: '{"co' };
+        await new Promise<void>((r) => { release = r; }); // hang until released
+        yield { type: 'text_delta', content: ' never' };
+      },
+    };
+    const registry = new ToolRegistry();
+    registry.register(makeTool('bash'));
+    const onToolResult: Array<unknown> = [];
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: (call) => toolCallsSeen.push(call.id),
+      onToolResult: (r) => onToolResult.push(r),
+      onPermissionRequest: async () => true,
+    });
+
+    const turnPromise = loop.processUserInput('long running');
+    // Wait until the partial text has been consumed, then interrupt.
+    const waitPartial = setInterval(() => {
+      if (sawPartial) {
+        clearInterval(waitPartial);
+        loop.interrupt();
+      }
+    }, 5);
+    const turn = await turnPromise;
+
+    expect(turn.text).toBe('par');
+    expect(toolCallsSeen).toEqual([]); // half-frame never surfaced as a call
+    expect(onToolResult).toEqual([]);
+    const msgs = loop.getMessages();
+    expect(msgs.some((m) => m.role === 'assistant' && m.content === 'par')).toBe(true);
+    expect(msgs.some((m) => m.role === 'tool')).toBe(false);
+    release?.(); // unblock the generator so the test can end cleanly
+    void waitPartial;
+  });
+
+  it('interrupt with no in-flight stream is a no-op', () => {
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    expect(() => loop.interrupt()).not.toThrow();
+  });
+});
+
 describe('AgentLoop context management', () => {
   function longText(): string {
     return 'hello '.repeat(200); // ~ 200+ tokens with tiktoken

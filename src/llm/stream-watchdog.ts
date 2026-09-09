@@ -40,3 +40,49 @@ function raceWithTimeout<T>(
     if (timer) clearTimeout(timer);
   });
 }
+
+
+/** Thrown when a stream is interrupted via its abort signal. */
+export class StreamInterruptedError extends Error {
+  constructor() {
+    super('LLM stream interrupted');
+    this.name = 'StreamInterruptedError';
+  }
+}
+
+/**
+ * Consume `source` (already watchdog-wrapped) to completion, yielding each
+ * chunk to `onChunk` as it arrives, but bail out with
+ * StreamInterruptedError as soon as `signal` aborts. The source is
+ * abandoned on interruption (a partially-read stream cannot be drained).
+ */
+export async function consumeWithInterrupt<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal | undefined,
+  onChunk: (chunk: T) => void,
+): Promise<void> {
+  if (signal?.aborted) throw new StreamInterruptedError();
+  const abortPromise = signal
+    ? new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new StreamInterruptedError()), { once: true });
+      })
+    : new Promise<never>(() => {}); // never settles when no signal
+
+  let iterator: AsyncIterator<T> | undefined;
+  const run = (async () => {
+    iterator = source[Symbol.asyncIterator]();
+    while (true) {
+      const result = await iterator.next();
+      if (result.done) return;
+      onChunk(result.value);
+    }
+  })();
+
+  try {
+    await Promise.race([run, abortPromise]);
+  } finally {
+    // Abandon the source on interruption (a partially-read stream cannot
+    // be drained); normal completion already ended it.
+    void iterator?.return?.().catch(() => {});
+  }
+}

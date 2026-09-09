@@ -95,7 +95,7 @@ export function App({
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
+  const { messages, isStreaming, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -135,7 +135,7 @@ export function App({
 
       <PermissionDialog pending={pendingPermission} />
 
-      <InputBar onSubmit={sendMessage} isStreaming={isStreaming} />
+      <InputBar onSubmit={sendMessage} isStreaming={isStreaming} onInterrupt={interrupt} />
     </Box>
   );
 }

@@ -7,7 +7,7 @@ import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
 import { isContextOverflowError } from '../llm/errors.js';
-import { withIdleTimeout } from '../llm/stream-watchdog.js';
+import { withIdleTimeout, consumeWithInterrupt, StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -94,6 +94,8 @@ export class AgentLoop {
   private readonly frozenSystemPrompt: string;
   private readonly abortSignal?: AbortSignal;
   private readonly streamIdleTimeoutMs: number;
+  /** Abort controller for the in-flight LLM stream (set per round). */
+  private runAbort: AbortController | null = null;
   private readonly onToken: (token: string) => void;
   private readonly onToolCall: (call: ToolCall) => void;
   private readonly onToolResult: (result: ToolResult, callId?: string) => void;
@@ -253,6 +255,16 @@ export class AgentLoop {
     return this.runTurn(input);
   }
 
+  /**
+   * Interrupt the in-flight LLM stream (streaming ticket 02). Partial text
+   * already received is kept as the assistant message; incomplete tool-call
+   * half-frames are discarded (their argument JSON may be truncated and
+   * executing them would be a hazard).
+   */
+  interrupt(): void {
+    this.runAbort?.abort(new StreamInterruptedError());
+  }
+
   /** Run a single user-input turn against the frozen system prompt. */
   private async runTurn(input: string): Promise<AgentTurnResult> {
     this.pushMessage({ role: 'user', content: input });
@@ -282,6 +294,10 @@ export class AgentLoop {
       const toolCalls = new Map<string, { name: string; args: string }>();
       let textContent = '';
 
+      // Abort controller for this round's LLM stream (interruptible).
+      const runAbort = new AbortController();
+      this.runAbort = runAbort;
+
       try {
         const rawStream = this.llm.chat(this.messages, {
           model: this.model,
@@ -297,7 +313,7 @@ export class AgentLoop {
           new Error(`LLM stream stalled — no data for ${Math.round(this.streamIdleTimeoutMs / 1000)}s`),
         );
 
-        for await (const chunk of stream) {
+        const handleChunk = (chunk: Awaited<ReturnType<typeof this.llm.chat>> extends AsyncIterable<infer T> ? T : never): void => {
           switch (chunk.type) {
             case 'text_delta':
               textContent += chunk.content;
@@ -325,8 +341,28 @@ export class AgentLoop {
               turnUsage.cacheWriteTokens = (turnUsage.cacheWriteTokens ?? 0) + (chunk.cacheWriteTokens ?? 0);
               break;
           }
-        }
+        };
+
+        // Interruptible consumption: Esc/abort bails out mid-stream while
+        // chunks already received keep flowing through handleChunk.
+        await consumeWithInterrupt(stream, runAbort.signal, handleChunk);
       } catch (err: unknown) {
+        // Interruption: keep the partial text as the assistant message and
+        // DISCARD incomplete tool-call half-frames (their argument JSON may
+        // be truncated — executing them would be a hazard). No tool
+        // execution, no orphan results; the turn ends cleanly.
+        if (err instanceof StreamInterruptedError) {
+          if (textContent) {
+            this.pushMessage({ role: 'assistant', content: textContent });
+          }
+          this.onToken('[interrupted]');
+          this.runAbort = null;
+          this.emitUsage(turnUsage);
+          return { text: textContent, rounds };
+        }
+        // Reactive overflow recovery (context-compaction ticket 04):
+        // compact once and retry the same round.
+        this.runAbort = null;
         if (isContextOverflowError(err) && !overflowRetried) {
           const compacted = await this.compactNow();
           if (compacted.compacted) {
@@ -341,6 +377,8 @@ export class AgentLoop {
         this.emitUsage(turnUsage);
         return { text: finalText, rounds };
       }
+
+      this.runAbort = null;
 
       // If the LLM returned tool calls, process them
       if (toolCalls.size > 0) {

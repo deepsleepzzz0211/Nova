@@ -88,6 +88,8 @@ export interface UseAgentResult {
   messages: DisplayMessage[];
   isStreaming: boolean;
   sendMessage: (input: string) => void;
+  /** Interrupt the in-flight LLM stream (Esc). */
+  interrupt: () => void;
   pendingPermission: PendingPermission | null;
   /** Live prompt-cache metrics (R/W/CH). */
   cacheStats: CacheStatsView;
@@ -392,5 +394,14 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     );
   }, [isStreaming]);
 
-  return { messages, isStreaming, sendMessage, pendingPermission, cacheStats, modelInfo, subagentActivity };
+  return {
+    messages,
+    isStreaming,
+    sendMessage,
+    interrupt: () => loopRef.current?.interrupt(),
+    pendingPermission,
+    cacheStats,
+    modelInfo,
+    subagentActivity,
+  };
 }
