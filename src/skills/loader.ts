@@ -20,7 +20,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 function parseSimpleYaml(raw: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const line of raw.split('\n')) {
-    const match = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    const match = line.replace(/\r$/, '').match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
     if (match) {
       result[match[1]] = match[2].trim();
     }
