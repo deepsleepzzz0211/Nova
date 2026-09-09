@@ -376,6 +376,75 @@ describe('AgentLoop.undoTurns', () => {
   });
 });
 
+describe('AgentLoop pending tool visibility (streaming ticket 04)', () => {
+  function makeTool(name: string): Tool {
+    return {
+      name,
+      description: `Tool ${name}`,
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: async (params) => ({ content: `${name}:${String(params.text)}` }),
+    };
+  }
+
+  it('surfaces tool_call_start immediately and fires onToolCall exactly once', async () => {
+    const callsSeen: Array<{ id: string; args: string }> = [];
+    let release: (() => void) | undefined;
+    let sawStart = false;
+    let chatCall = 0;
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        chatCall++;
+        if (chatCall > 1) {
+          // Second round (after tool execution): finish the turn.
+          yield { type: 'text_delta', content: 'done' };
+          return;
+        }
+        yield { type: 'tool_call_start', id: 't1', name: 'bash' };
+        sawStart = true;
+        yield { type: 'tool_call_delta', id: 't1', arguments: '{"text' };
+        yield { type: 'tool_call_delta', id: 't1', arguments: '":"hi"}' };
+        // Hold the stream open so the UI has the pending call before execution
+        await new Promise<void>((r) => { release = r; });
+        yield { type: 'text_delta', content: 'round 1 tail' };
+      },
+    };
+    let executed = false;
+    const trackingTool: Tool = {
+      name: 'bash',
+      description: 'Tool bash',
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: async () => {
+        executed = true;
+        return { content: 'ran bash' };
+      },
+    };
+    const registry = new ToolRegistry();
+    registry.register(trackingTool);
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: () => {},
+      onToolCall: (call) => callsSeen.push({ id: call.id, args: call.function.arguments }),
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    const turnPromise = loop.processUserInput('use the tool');
+    // Wait until the generator is parked on the hold promise, so release is
+    // assigned; while parked, the call is already surfaced (pending).
+    for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(sawStart).toBe(true);
+    expect(callsSeen).toEqual([{ id: 't1', args: '' }]); // surfaced mid-stream
+    release?.();
+    const turn = await turnPromise;
+    expect(callsSeen).toEqual([{ id: 't1', args: '' }]); // exactly once, not re-fired
+    expect(executed).toBe(true);
+    void turn;
+  });
+});
+
 describe('AgentLoop thinking channel (streaming ticket 03)', () => {
   it('forwards thinking deltas and stores thinking on the assistant message', async () => {
     const thinkingSeen: string[] = [];
@@ -492,11 +561,14 @@ describe('AgentLoop.interrupt (streaming ticket 02)', () => {
     const turn = await turnPromise;
 
     expect(turn.text).toBe('par');
-    expect(toolCallsSeen).toEqual([]); // half-frame never surfaced as a call
-    expect(onToolResult).toEqual([]);
+    // Ticket 04: the half-frame IS surfaced mid-stream as a pending call,
+    // then marked interrupted in the UI — but never executed.
+    expect(toolCallsSeen).toEqual(['c1']);
+    expect(onToolResult).toHaveLength(1);
+    expect((onToolResult[0] as { isError?: boolean }).isError).toBe(true);
     const msgs = loop.getMessages();
     expect(msgs.some((m) => m.role === 'assistant' && m.content === 'par')).toBe(true);
-    expect(msgs.some((m) => m.role === 'tool')).toBe(false);
+    expect(msgs.some((m) => m.role === 'tool')).toBe(false); // never executed
     release?.(); // unblock the generator so the test can end cleanly
     void waitPartial;
   });
