@@ -230,6 +230,7 @@ async function main(): Promise<void> {
   // Subagent progress sink: useAgent assigns the real notify() once the
   // TUI mounts; start/end events surface as system messages.
   const subagentSink: { notify?: (message: string) => void } = {};
+  const subagentLiveSink: { set?: (line: string | null) => void } = {};
   const spawner = new SubagentSpawner({
     llm,
     toolRegistry,
@@ -244,15 +245,19 @@ async function main(): Promise<void> {
         const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
         subagentSink.notify?.(`[subagent ${event.agentId} started] ${task}`);
       } else if (event.type === 'end') {
+        subagentLiveSink.set?.(null);
         subagentSink.notify?.(`[subagent ${event.agentId} finished: ${event.rounds} rounds]`);
       } else if (event.type === 'tool_call') {
         const call = event.payload as { function?: { name?: string } } | undefined;
-        subagentSink.notify?.(`[subagent ${event.agentId}] ▸ ${call?.function?.name ?? 'tool'}`);
+        const tool = call?.function?.name ?? 'tool';
+        subagentSink.notify?.(`[subagent ${event.agentId}] ▸ ${tool}`);
+        subagentLiveSink.set?.(`${event.agentId} ▸ ${tool}`);
       } else if (event.type === 'tool_result') {
         const result = event.payload as { isError?: boolean } | undefined;
         subagentSink.notify?.(
           `[subagent ${event.agentId}] ${result?.isError ? '✗ tool error' : '✓ tool done'}`,
         );
+        subagentLiveSink.set?.(`${event.agentId} ${result?.isError ? '✗' : '✓'} ${result?.isError ? 'error' : 'done'}`);
       }
       // token events are forwarded to the sink API but not rendered as
       // messages (high-volume; available to future richer UI)
@@ -288,6 +293,7 @@ async function main(): Promise<void> {
       contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
       contextReserveTokens={config.agent.contextReserveTokens}
       subagentSink={subagentSink}
+      subagentLiveSink={subagentLiveSink}
       contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
       model={config.llm.model}
