@@ -75,6 +75,11 @@ Priority: CLI args > `NOVA_*` env > project `config.toml` > `~/.nova/config.toml
 
 Tuning knobs (all optional, see `config.example.toml`): `[agent] context_reserve_tokens`, `context_keep_recent_tokens`, `subagent_model`, `subagent_max_concurrent`.
 
+Ops notes:
+- `NOVA_HOME` relocates the whole `~/.nova` tree (config, sessions, memory, subagent transcripts, skills, models) — useful for portable installs and test isolation.
+- Sessions and subagent transcripts older than 30 days are swept at startup.
+- Invalid `[agent] context_strategy` / `subagent_max_concurrent` values warn and fall back at startup instead of being silently ignored.
+
 ## Development
 
 ```bash

@@ -14,7 +14,7 @@ import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
 import { MCPManager } from './mcp/manager.js';
-import { SessionStore } from './agent/session.js';
+import { SessionStore, SESSION_RETENTION_DAYS } from './agent/session.js';
 import type { SessionSummary } from './agent/session.js';
 import { SessionPicker, formatSessionList } from './tui/SessionPicker.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
@@ -92,15 +92,17 @@ async function main(): Promise<void> {
   // Session persistence: --list prints sessions and exits; --resume picks
   // a session (interactive picker when several exist, latest otherwise).
   const sessionsDir = path.join(novaHome(), '.nova', 'sessions');
-  // Startup hygiene: surface config warnings, sweep stale sessions
+  // Startup hygiene: surface config warnings, sweep stale files
   for (const warning of configWarnings) {
     console.error(`[config] ${warning}`);
   }
-  const swept = SessionStore.sweep(sessionsDir);
-  if (swept > 0) console.error(`[sessions] removed ${swept} session file(s) older than 30 days`);
+  const sweepAndReport = (dir: string, label: string): void => {
+    const swept = SessionStore.sweep(dir, SESSION_RETENTION_DAYS);
+    if (swept > 0) console.error(`[${label}] removed ${swept} stale file(s) older than ${SESSION_RETENTION_DAYS} days`);
+  };
+  sweepAndReport(sessionsDir, 'sessions');
   const subagentsDir = path.join(novaHome(), '.nova', 'subagents');
-  const sweptSubagents = SessionStore.sweep(subagentsDir);
-  if (sweptSubagents > 0) console.error(`[subagents] removed ${sweptSubagents} stale transcript(s)`);
+  sweepAndReport(subagentsDir, 'subagents');
   let initialHistory: Message[] = [];
   if (values.list) {
     const sessions = SessionStore.listSummaries(sessionsDir);
@@ -138,6 +140,22 @@ async function main(): Promise<void> {
 
   // /model listing + resolution (catalog-driven; loop application in useAgent)
   const listModels = (): string => describeModels(catalog, selectionRef.provider, selectionRef.model);
+  // Single construction site for catalog-resolved providers (used by
+  // /model switching and subagent model routing).
+  const buildLlmProvider = (next: import('./llm/catalog.js').ResolvedModel) =>
+    providerRegistry.getForApi(next.api, {
+      name: next.name,
+      apiKey: next.apiKey,
+      baseUrl: next.baseUrl,
+      model: next.model.id,
+      compat: {
+        supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
+        streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
+      },
+      thinkingLevelMap: next.model.thinkingLevelMap,
+      reasoning: next.model.reasoning,
+    });
+
   // Shared spec resolution (used by /model and subagent model routing)
   const resolveSpec = (spec: string):
     | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string }
@@ -153,18 +171,7 @@ async function main(): Promise<void> {
         },
         catalog,
       );
-      const llmNext = providerRegistry.getForApi(next.api, {
-        name: next.name,
-        apiKey: next.apiKey,
-        baseUrl: next.baseUrl,
-        model: next.model.id,
-        compat: {
-          supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
-          streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
-        },
-        thinkingLevelMap: next.model.thinkingLevelMap,
-        reasoning: next.model.reasoning,
-      });
+      const llmNext = buildLlmProvider(next);
       return {
         ok: true,
         llm: llmNext,

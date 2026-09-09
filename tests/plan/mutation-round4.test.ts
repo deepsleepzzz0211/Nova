@@ -4,6 +4,9 @@
  * reports/mutation/mutation.json.
  */
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { isContextOverflowError } from '../../src/llm/errors.js';
 import { ContextManager } from '../../src/agent/context.js';
 import { SessionStore } from '../../src/agent/session.js';
@@ -73,22 +76,16 @@ describe('SessionStore edge cases', () => {
 
   it('load skips whitespace-only lines', () => {
     // write via constructor-adjacent path: build a file manually
-    const { mkdtempSync, writeFileSync } = require('node:fs');
-    const { tmpdir } = require('node:os');
-    const { join } = require('node:path');
-    const dir = mkdtempSync(join(tmpdir(), 'nova-load-'));
-    const file = join(dir, 'ws.jsonl');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-load-'));
+    const file = path.join(dir, 'ws.jsonl');
     writeFileSync(file, '   \n\n{"role":"user","content":"ok"}\n   \n');
     expect(SessionStore.load(file)).toEqual([{ role: 'user', content: 'ok' }]);
   });
 
   it('sweep boundary: 29-day-old file kept, 31-day-old removed', () => {
-    const { mkdtempSync, writeFileSync, utimesSync, existsSync } = require('node:fs');
-    const { tmpdir } = require('node:os');
-    const { join } = require('node:path');
-    const dir = mkdtempSync(join(tmpdir(), 'nova-sweep-b-'));
-    const keep = join(dir, 'session-29d.jsonl');
-    const drop = join(dir, 'session-31d.jsonl');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-sweep-b-'));
+    const keep = path.join(dir, 'session-29d.jsonl');
+    const drop = path.join(dir, 'session-31d.jsonl');
     writeFileSync(keep, '{}\n');
     writeFileSync(drop, '{}\n');
     const d29 = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
@@ -101,10 +98,7 @@ describe('SessionStore edge cases', () => {
   });
 
   it('listSummaries falls back to "(no user messages)" when history has none', () => {
-    const { mkdtempSync, writeFileSync } = require('node:fs');
-    const { tmpdir } = require('node:os');
-    const { join } = require('node:path');
-    const dir = mkdtempSync(join(tmpdir(), 'nova-nouser-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-nouser-'));
     writeFileSync(join(dir, 'session-a.jsonl'), '{"role":"assistant","content":"only assistant talk"}\n');
     const list = SessionStore.listSummaries(dir);
     expect(list).toHaveLength(1);
@@ -113,7 +107,7 @@ describe('SessionStore edge cases', () => {
 });
 
 describe('PermissionPolicy rule details', () => {
-  const mk = (alwaysAllow: string[]) =>
+  const mkPolicyWithAllows = (alwaysAllow: string[]) =>
     new PermissionPolicy({
       autoApproveFileWrite: false,
       autoApproveBash: false,
@@ -121,7 +115,7 @@ describe('PermissionPolicy rule details', () => {
     });
 
   it('always-allow matches whole command or prefix with a space — not bare prefixes', () => {
-    const policy = mk(['ls']);
+    const policy = mkPolicyWithAllows(['ls']);
     // exact match → allow
     expect(policy.check('bash', { command: 'ls' }).decision).toBe('allow');
     // prefix with space → allow
@@ -131,14 +125,14 @@ describe('PermissionPolicy rule details', () => {
   });
 
   it('dangerous bash commands ask with the detection message', () => {
-    const policy = mk([]);
+    const policy = mkPolicyWithAllows([]);
     const d = policy.check('bash', { command: 'rm -rf /' });
     expect(d.decision).toBe('ask');
     expect(d.message).toContain('Dangerous command detected');
   });
 
   it('read-only tool set allows each member', () => {
-    const policy = mk([]);
+    const policy = mkPolicyWithAllows([]);
     for (const tool of ['read_file', 'edit_file', 'web_search', 'web_fetch']) {
       expect(policy.check(tool, {}).decision).toBe('allow');
     }
@@ -149,7 +143,7 @@ describe('PermissionPolicy rule details', () => {
   });
 
   it('non-string command params never hit bash rules', () => {
-    const policy = mk(['ls']);
+    const policy = mkPolicyWithAllows(['ls']);
     // command not a string → falls through to the bash ask rule
     expect(policy.check('bash', { command: 123 }).decision).toBe('ask');
   });
