@@ -15,7 +15,7 @@ These rules are NON-NEGOTIABLE. Violating any of them is grounds for stopping wo
 ### Code Quality
 
 - **NEVER** use `any` type in TypeScript unless there is literally no other option. Always prefer explicit types.
-- **NEVER** leave `console.log` in production code (`src/`). Use structured logging or remove it.
+- **Logging** in `src/`: the only stdout a CLI command writes is output the user asked for (`--list` listings, `--help` text). Diagnostics go to stderr (`console.error`); debug/instrumentation logging never ships.
 - **NEVER** hardcode file paths, API keys, or environment-specific values in source code.
 - **NEVER** add a dependency without checking if an existing dependency already solves the problem.
 - **NEVER** use `// @ts-ignore` or `// @ts-expect-error` without a comment explaining why.
