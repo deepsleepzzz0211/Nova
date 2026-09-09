@@ -25,7 +25,7 @@ These rules are NON-NEGOTIABLE. Violating any of them is grounds for stopping wo
 
 - **NEVER** commit `.env`, `config.toml` with real API keys, `node_modules/`, or `dist/`.
 - **NEVER** force push, rebase, or reset without explicit user instruction.
-- **NEVER** commit directly to `main`/`master`. Work on feature branches.
+- **NEVER** commit directly to `main`/`master`. Changes land via feature branches → PR → required CI checks green → merge（分支保护平台强制，管理员也不例外）.
 - **NEVER** amend an existing commit unless the user explicitly asks.
 - **NEVER** create empty commits or commits with no meaningful change.
 - **NEVER** push to remote unless the user explicitly asks.
@@ -71,9 +71,9 @@ These rules are NON-NEGOTIABLE. Violating any of them is grounds for stopping wo
 3. Review your diff — no accidental changes to unrelated files
 4. Commit message follows conventional commits: `feat:`, `fix:`, `test:`, `chore:`, `refactor:`
 
-### Phase Git 提交
+### Commit Cadence
 
-每完成一个阶段（Phase）的所有 task 后，必须执行 git commit。不允许跳过或延迟。Phase 划分见实现计划底部 Summary 表。
+每完成一个 task/工单即 commit（一个交付点一个 commit），不攒批、不延迟。
 
 ### Before Claiming Task Complete
 
@@ -133,7 +133,8 @@ nova
 
 ### 3. 配置文件
 
-用户级 `~/.nova/config.toml` 或项目级 `./config.toml`：
+用户级 `~/.nova/config.toml` 或项目级 `./config.toml`（`NOVA_HOME` 环境变量可整体迁移 `~/.nova` 树——config/sessions/memory/subagents/skills/models 都随迁）：
+
 
 ```toml
 [llm]
