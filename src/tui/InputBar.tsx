@@ -28,7 +28,6 @@ import {
   completeCommands,
   fuzzyMatchFiles,
   buildFileIndex,
-  SLASH_COMMANDS,
   type CompletionContext,
 } from './completions.js';
 
@@ -90,7 +89,7 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndex
       return;
     }
     if (ctx.kind === 'slash') {
-      const matches = completeCommands(SLASH_COMMANDS.map((c) => c.name), ctx.query);
+      const matches = completeCommands(ctx.query);
       setC(() => ({
         ctx,
         items: matches.map((m) => ({ label: `/${m.name} — ${m.description}`, insert: `/${m.name} ` })),
@@ -130,6 +129,11 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndex
   };
 
   useInput((inputChar, key) => {
+    if (key.escape && completionRef.current !== null) {
+      // Close the popup first; interrupt only when no popup is open.
+      setC(() => null);
+      return;
+    }
     if (key.escape && isStreaming) {
       onInterrupt?.();
       return;
@@ -142,6 +146,7 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndex
         return;
       }
       onExit?.();
+      return;
     }
 
     // Ctrl+W / Ctrl+U / Ctrl+K line editing

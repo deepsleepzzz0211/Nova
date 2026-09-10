@@ -50,7 +50,11 @@ export function insertPaste(s: EditorState, content: string): EditorState {
   return { ...next, pastes: [...s.pastes, content] };
 }
 
-/** Expand all paste placeholders in `text` using the stored bodies. */
+/** Expand all paste placeholders in `text` using the stored bodies.
+ * Accepted risk: a user-typed literal matching the placeholder pattern with
+ * a valid index would also be expanded. The pattern is rare in prose and
+ * the rewrite only affects the user's own submitted text.
+ */
 export function expandPastes(text: string, pastes: string[]): string {
   return text.replace(/\[paste #(\d+) \+\d+ lines\]/g, (match, index) => {
     const body = pastes[Number(index) - 1];

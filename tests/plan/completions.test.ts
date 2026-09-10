@@ -55,14 +55,12 @@ describe('completions (tui-refactor 03)', () => {
 
   describe('completeCommands', () => {
     it('prefix-matches case-insensitively', () => {
-      const r = completeCommands(['model', 'undo', 'update', 'compact'], 'U');
+      const r = completeCommands('U');
       expect(r.map((c) => c.name)).toEqual(['undo', 'update']);
     });
 
     it('empty query returns all', () => {
-      expect(completeCommands(SLASH_COMMANDS.map((c) => c.name), '').length).toBe(
-        SLASH_COMMANDS.length,
-      );
+      expect(completeCommands('').length).toBe(SLASH_COMMANDS.length);
     });
   });
 

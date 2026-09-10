@@ -10,8 +10,8 @@ describe('tool-summary (tui-refactor 05)', () => {
   describe('spinner', () => {
     it('has braille frames and cycles deterministically', () => {
       expect(SPINNER_FRAMES.length).toBeGreaterThan(3);
-      expect(spinenrCycles()).toBe(true);
-      function spinenrCycles(): boolean {
+      expect(spinnerCycles()).toBe(true);
+      function spinnerCycles(): boolean {
         const n = SPINNER_FRAMES.length;
         return SPINNER_FRAMES.every((f, i) => spinnerFrame(i) === f && spinnerFrame(i + n) === f);
       }

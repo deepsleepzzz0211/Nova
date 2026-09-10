@@ -444,8 +444,6 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     currentAssistantRef.current = null;
     setIsStreaming(true);
 
-    if (!loop) return;
-
     // Run the agent loop (fire-and-forget; state updates happen via callbacks)
     loop.processUserInput(trimmed).then(
       () => {
@@ -455,10 +453,14 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         currentAssistantRef.current = null;
         setIsStreaming(false);
       },
-      () => {
+      (err: unknown) => {
         batcher.flushNow();
         currentAssistantRef.current = null;
         setIsStreaming(false);
+        // Errors must be visible, never swallowed (AGENTS: error handling
+        // is implemented, not deferred).
+        const msg = err instanceof Error ? err.message : String(err);
+        setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${msg}` }]);
       },
     );
   }, [isStreaming]);

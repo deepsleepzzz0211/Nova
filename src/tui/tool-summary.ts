@@ -42,16 +42,9 @@ export function summarizeCall(name: string, argsJson: string): string {
       if (typeof p === 'string') return cap(p);
     }
   }
-  return cap(argsJson.length > 0 && argsJson.startsWith('{') ? compactJson(argsJson) : argsJson);
-}
-
-/** Compact a JSON string (collapse whitespace) then cap. */
-function compactJson(json: string): string {
-  try {
-    return cap(JSON.stringify(JSON.parse(json)));
-  } catch {
-    return cap(json);
-  }
+  // Fallback: compact JSON preview (parse already succeeded above).
+  if (parsed !== null) return cap(JSON.stringify(parsed));
+  return cap(argsJson);
 }
 
 function cap(s: string): string {
