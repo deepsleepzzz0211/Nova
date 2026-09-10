@@ -11,8 +11,11 @@ export class OllamaAdapter implements ApiAdapter {
   readonly api = 'ollama' as const;
   private readonly baseUrl: string;
 
+  private readonly defaultHeaders: Record<string, string>;
+
   constructor(config: ApiAdapterConfig) {
     this.baseUrl = config.baseUrl || 'http://localhost:11434';
+    this.defaultHeaders = config.defaultHeaders ?? {};
   }
 
   async *chat(messages: Message[], options: ChatOptions): AsyncGenerator<StreamChunk> {
@@ -21,6 +24,7 @@ export class OllamaAdapter implements ApiAdapter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...this.defaultHeaders,
         },
         body: JSON.stringify({
           model: options.model,

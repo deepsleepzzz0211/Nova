@@ -21,6 +21,7 @@ export class AnthropicProvider implements LLMProvider {
   constructor(config: ProviderConfig) {
     this.adapter = new AnthropicMessagesAdapter({
       apiKey: config.apiKey,
+      defaultHeaders: config.defaultHeaders,
       baseUrl: config.baseUrl,
       model: config.model ?? 'claude-3-5-sonnet-20241022',
       compat: { supportsDeveloperRole: false, streamUsage: false },

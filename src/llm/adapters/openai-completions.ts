@@ -24,6 +24,7 @@ export class OpenAICompletionsAdapter implements ApiAdapter {
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
+      defaultHeaders: config.defaultHeaders,
     });
     this.compat = config.compat;
     this.thinkingLevelMap = config.thinkingLevelMap;

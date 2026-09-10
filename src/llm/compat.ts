@@ -55,6 +55,8 @@ export interface ApiAdapterConfig {
   baseUrl?: string;
   model: string;
   compat: NormalizedCompat;
+  /** Extra HTTP headers sent on every request (session/UA identity). */
+  defaultHeaders?: Record<string, string>;
 }
 
 /** A wire-protocol adapter (pi-style api layer). Config is held at construction. */

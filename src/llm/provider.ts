@@ -49,7 +49,10 @@ export interface ProviderConfig {
   
   /** Default model. */
   model?: string;
-  
+
+  /** Extra HTTP headers sent on every request (session/UA identity). */
+  defaultHeaders?: Record<string, string>;
+
   /** Additional provider-specific config. */
   options?: Record<string, unknown>;
 
