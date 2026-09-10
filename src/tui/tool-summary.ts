@@ -18,12 +18,12 @@ export const COMMAND_TOOLS = new Set(['bash']);
 export const PATH_TOOLS = new Set(['read', 'read_file', 'write', 'write_file', 'edit']);
 
 /** Cap for the fallback summary. */
-const SUMMARY_CAP = 80;
+const SUMMARY_CAP = 200;
 
 /**
  * One-line summary for a folded tool block: typed per tool kind
  * (bash -> command, path tools -> path), falling back to a compact JSON
- * preview capped at 80 chars.
+ * preview capped at SUMMARY_CAP.
  */
 export function summarizeCall(name: string, argsJson: string): string {
   let parsed: Record<string, unknown> | null = null;
@@ -34,20 +34,26 @@ export function summarizeCall(name: string, argsJson: string): string {
   }
 
   if (parsed !== null) {
-    if (COMMAND_TOOLS.has(name) && typeof parsed.command === 'string') {
-      return cap(parsed.command);
-    }
-    if (PATH_TOOLS.has(name)) {
-      const p = parsed.path ?? parsed.file_path ?? parsed.filePath;
-      if (typeof p === 'string') return cap(p);
-    }
+    const primary = primaryArg(name, parsed);
+    if (primary !== null) return cap(primary);
+    return cap(JSON.stringify(parsed));
   }
-  // Fallback: compact JSON preview (parse already succeeded above).
-  if (parsed !== null) return cap(JSON.stringify(parsed));
   return cap(argsJson);
 }
 
-function cap(s: string): string {
+/** The typed primary argument of a call: command string, path, or null. */
+export function primaryArg(name: string, parsed: Record<string, unknown> | null): string | null {
+  if (parsed === null) return null;
+  if (COMMAND_TOOLS.has(name) && typeof parsed.command === 'string') return parsed.command;
+  if (PATH_TOOLS.has(name)) {
+    const p = parsed.path ?? parsed.file_path ?? parsed.filePath;
+    if (typeof p === 'string') return p;
+  }
+  return null;
+}
+
+/** Cap a display string (shared with permission-display). */
+export function cap(s: string): string {
   return s.length > SUMMARY_CAP ? s.slice(0, SUMMARY_CAP) + '...' : s;
 }
 

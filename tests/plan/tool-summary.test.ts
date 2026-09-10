@@ -29,17 +29,17 @@ describe('tool-summary (tui-refactor 05)', () => {
       expect(summarizeCall('edit', JSON.stringify({ file_path: 'c.txt' }))).toBe('c.txt');
     });
 
-    it('falls back to compact JSON capped at 80 chars', () => {
-      const long = 'x'.repeat(200);
+    it('falls back to compact JSON capped at 200 chars (review: approval visibility)', () => {
+      const long = 'x'.repeat(400);
       const r = summarizeCall('other', JSON.stringify({ a: long }));
-      expect(r.length).toBeLessThanOrEqual(83); // 80 + ellipsis
+      expect(r.length).toBeLessThanOrEqual(203); // 200 + ellipsis
       expect(r.startsWith('{"a":"xxx')).toBe(true);
       expect(r.endsWith('...')).toBe(true);
     });
 
     it('handles unparseable args by echoing raw (capped)', () => {
-      const r = summarizeCall('x', 'not json but quite long '.repeat(10));
-      expect(r.length).toBeLessThanOrEqual(83);
+      const r = summarizeCall('x', 'not json but quite long '.repeat(20));
+      expect(r.length).toBeLessThanOrEqual(203);
     });
   });
 
