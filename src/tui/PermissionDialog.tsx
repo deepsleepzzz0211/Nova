@@ -16,6 +16,25 @@ export interface PermissionDialogProps {
  * Three buttons: [Allow (a)] [Deny (d)] [Always Allow (A)]
  */
 export function PermissionDialog({ pending }: PermissionDialogProps): React.ReactElement | null {
+  // Rules of hooks: all hooks must run unconditionally on every render —
+  // the early return below comes AFTER all hooks. Registering useInput
+  // conditionally (only when `pending` is non-null) changed the hook order
+  // between renders and could crash or misbehave when a permission request
+  // appears/disappears.
+  useInput((inputChar) => {
+    if (!pending) return;
+    if (inputChar === 'a') {
+      pending.resolve(true);
+    } else if (inputChar === 'd') {
+      pending.resolve(false);
+    } else if (inputChar === 'A') {
+      // "Always Allow" — resolve as allowed (the permission policy
+      // would need to be updated for persistent always-allow, but
+      // for this session we allow it)
+      pending.resolve(true);
+    }
+  });
+
   if (!pending) return null;
 
   const { call, resolve } = pending;
@@ -32,19 +51,6 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
 
   // Check for danger reasons
   const dangerReason = getDangerReason(toolName, call.function.arguments);
-
-  useInput((inputChar, key) => {
-    if (inputChar === 'a') {
-      resolve(true);
-    } else if (inputChar === 'd') {
-      resolve(false);
-    } else if (inputChar === 'A') {
-      // "Always Allow" — resolve as allowed (the permission policy
-      // would need to be updated for persistent always-allow, but
-      // for this session we allow it)
-      resolve(true);
-    }
-  });
 
   return (
     <Box
