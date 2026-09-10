@@ -40,17 +40,18 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
   const { call, resolve } = pending;
   const toolName = call.function.name;
 
-  // Parse parameters for display
+  // Parse parameters once for display and danger detection
   let paramsDisplay: string;
+  let parsedArgs: Record<string, unknown> | null = null;
   try {
-    const parsed = JSON.parse(call.function.arguments) as Record<string, unknown>;
-    paramsDisplay = JSON.stringify(parsed, null, 2);
+    parsedArgs = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    paramsDisplay = JSON.stringify(parsedArgs, null, 2);
   } catch {
     paramsDisplay = call.function.arguments;
   }
 
   // Check for danger reasons
-  const dangerReason = getDangerReason(toolName, call.function.arguments);
+  const dangerReason = getDangerReason(toolName, parsedArgs);
 
   return (
     <Box
@@ -91,17 +92,10 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
  * Check if a tool call matches any dangerous patterns and return the reason.
  * Returns null if no danger is detected.
  */
-function getDangerReason(toolName: string, argsString: string): string | null {
-  if (toolName !== 'bash') return null;
+function getDangerReason(toolName: string, args: Record<string, unknown> | null): string | null {
+  if (toolName !== 'bash' || args === null) return null;
 
-  let command: string;
-  try {
-    const params = JSON.parse(argsString) as Record<string, unknown>;
-    command = typeof params.command === 'string' ? params.command : '';
-  } catch {
-    return null;
-  }
-
+  const command = typeof args.command === 'string' ? args.command : '';
   if (!command) return null;
 
   for (const { pattern, reason } of DANGEROUS_PATTERNS) {

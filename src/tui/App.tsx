@@ -135,7 +135,12 @@ export function App({
 
       <PermissionDialog pending={pendingPermission} />
 
-      <InputBar onSubmit={sendMessage} isStreaming={isStreaming} onInterrupt={interrupt} />
+      <InputBar
+        onSubmit={sendMessage}
+        isStreaming={isStreaming}
+        onInterrupt={interrupt}
+        onExit={() => process.exit(0)}
+      />
     </Box>
   );
 }

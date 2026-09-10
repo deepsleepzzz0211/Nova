@@ -50,15 +50,18 @@ describe('PermissionDialog (ink-testing-library, tui-refactor 01 regression)', (
     expect(always.resolve).toHaveBeenCalledWith(true);
   });
 
-  it('ignores keys while no request is pending', () => {
-    const { stdin, rerender } = render(<PermissionDialog pending={null} />);
-    // Must not throw with no pending request (null-guarded callback).
-    stdin.write('a');
-    rerender(<PermissionDialog pending={null} />);
-    expect(lastFrameSafe(render(<PermissionDialog pending={null} />))).not.toContain('Permission Required');
+  it('ignores keys while no request is pending (no resolution)', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
+    const instance = render(<PermissionDialog pending={null} />);
+    instance.stdin.write('a');
+    instance.stdin.write('d');
+    instance.stdin.write('A');
+    expect(pending.resolve).not.toHaveBeenCalled();
+
+    // Transitions to pending afterwards: keys typed while null must not
+    // have leaked into the request that appears later.
+    instance.rerender(<PermissionDialog pending={pending} />);
+    expect(instance.lastFrame()).toContain('Permission Required');
+    instance.unmount();
   });
 });
-
-function lastFrameSafe(instance: { lastFrame: () => string | undefined }): string {
-  return instance.lastFrame() ?? '';
-}

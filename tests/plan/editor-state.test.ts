@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { EditorState } from '../../src/tui/editor-state.js';
 import {
   createEditorState,
   insertText,
@@ -16,10 +17,14 @@ import {
   historyNext,
   submit,
   clearEditor,
-  seek,
   cursorLine,
   cursorColumn,
 } from '../../src/tui/editor-state.js';
+
+/** Local test helper: jump the cursor to an absolute index. */
+function seek(s: EditorState, index: number): EditorState {
+  return { ...s, cursor: Math.max(0, Math.min(index, s.text.length)), targetCol: null };
+}
 
 describe('EditorState (tui-refactor 02)', () => {
   it('starts empty with cursor 0', () => {

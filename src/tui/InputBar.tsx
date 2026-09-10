@@ -30,6 +30,8 @@ export interface InputBarProps {
   isStreaming: boolean;
   /** Called when the user presses Escape while a response is streaming. */
   onInterrupt?: () => void;
+  /** Called when the user presses Ctrl+C on an empty editor (app exit). */
+  onExit?: () => void;
 }
 
 /**
@@ -42,7 +44,7 @@ export interface InputBarProps {
  * - Enter submits; Esc interrupts a streaming response
  * - Ctrl+C clears the editor; Ctrl+C on an empty editor exits (pi semantics)
  */
-export function InputBar({ onSubmit, isStreaming, onInterrupt }: InputBarProps): React.ReactElement {
+export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit }: InputBarProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>(createEditorState);
   // Mirror of the editor state, updated synchronously by `update`. Handlers
   // must read `editorRef.current`, never the render closure's `editor`:
@@ -67,7 +69,7 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt }: InputBarProps):
         update(clearEditor);
         return;
       }
-      process.exit(0);
+      onExit?.();
     }
 
     // Ctrl+W / Ctrl+U / Ctrl+K line editing
