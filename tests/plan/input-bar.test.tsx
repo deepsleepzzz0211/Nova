@@ -1,0 +1,130 @@
+import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { InputBar } from '../../src/tui/InputBar.js';
+
+function typeText(stdin: { write: (s: string) => void }, text: string): void {
+  stdin.write(text);
+}
+
+async function settle(ms = 30): Promise<void> {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+describe('InputBar multi-line editor (tui-refactor 02, component)', () => {
+  it('types, edits, and submits on Enter', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'hello');
+    await settle();
+    expect(instance.lastFrame()).toContain('hello');
+
+    instance.stdin.write('\r'); // Enter submits
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('hello');
+    expect(instance.lastFrame()).toContain('Type a message');
+    instance.unmount();
+  });
+
+  it('Ctrl+Enter (LF) inserts a newline and Enter submits the whole buffer', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'line one');
+    instance.stdin.write('\n'); // LF = Ctrl+Enter on Windows Terminal
+    typeText(instance.stdin, 'line two');
+    await settle();
+    expect(instance.lastFrame()).toContain('line one');
+
+    instance.stdin.write('\r');
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('line one\nline two');
+    instance.unmount();
+  });
+
+  it('backspace deletes, arrows move the cursor mid-string', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'helo');
+    instance.stdin.write('\x1b[D'); // left
+    instance.stdin.write('\x1b[D'); // left
+    typeText(instance.stdin, 'l'); // insert inside
+    await settle();
+    instance.stdin.write('\r');
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('hello');
+    instance.unmount();
+  });
+
+  it('up arrow recalls history, down returns to draft', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'first');
+    instance.stdin.write('\r');
+    await settle();
+    typeText(instance.stdin, 'draft');
+    instance.stdin.write('\x1b[A'); // up -> recall 'first'
+    await settle();
+    expect(instance.lastFrame()).toContain('first');
+    expect(instance.lastFrame()).not.toContain('draft');
+    instance.stdin.write('\x1b[B'); // down -> back to draft
+    await settle();
+    expect(instance.lastFrame()).toContain('draft');
+    instance.unmount();
+  });
+
+  it('Ctrl+W deletes the previous word', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'hello world');
+    instance.stdin.write('\x17'); // Ctrl+W
+    await settle();
+    instance.stdin.write('\r');
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('hello ');
+    instance.unmount();
+  });
+
+  it('Ctrl+C clears a non-empty editor and does not exit', async () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+
+    typeText(instance.stdin, 'draft');
+    instance.stdin.write('\x03'); // Ctrl+C
+    await settle(100);
+    expect(instance.lastFrame()).toContain('Type a message');
+    expect(exitSpy).not.toHaveBeenCalled();
+    exitSpy.mockRestore();
+    instance.unmount();
+  });
+
+  it('Esc while streaming fires onInterrupt and does not submit', async () => {
+    const onInterrupt = vi.fn();
+    const onSubmit = vi.fn();
+    const instance = render(
+      <InputBar onSubmit={onSubmit} isStreaming={true} onInterrupt={onInterrupt} />,
+    );
+    instance.stdin.write('\x1b');
+    await settle();
+    expect(onInterrupt).toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    instance.unmount();
+  });
+
+  it('Enter while streaming does not submit', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={true} />);
+
+    typeText(instance.stdin, 'queued thought');
+    instance.stdin.write('\r');
+    await settle();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(instance.lastFrame()).toContain('queued thought'); // text kept
+    instance.unmount();
+  });
+});
