@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { PendingPermission } from './hooks/useAgent.js';
-import { DANGEROUS_PATTERNS } from '../permission/dangerous.js';
+import type { PermissionDecision } from './permission-display.js';
+import { describeCall, dangerReason } from './permission-display.js';
 
 /** Props for the PermissionDialog component. */
 export interface PermissionDialogProps {
@@ -9,100 +10,102 @@ export interface PermissionDialogProps {
   pending: PendingPermission | null;
 }
 
+/** Options shown, in display order. */
+const OPTIONS: Array<{ key: '1' | '2' | '3'; label: string; decision: PermissionDecision }> = [
+  { key: '1', label: 'No', decision: 'deny' },
+  { key: '2', label: 'Yes', decision: 'allow' },
+  { key: '3', label: "Yes, always (this session)", decision: 'always' },
+];
+
 /**
- * Modal overlay for permission requests.
+ * Inline permission options list (tui-refactor ticket 04).
  *
- * Shows: tool name, parameters, danger reason (if any).
- * Three buttons: [Allow (a)] [Deny (d)] [Always Allow (A)]
+ * - Number keys (1/2/3) pick directly; up/down + Enter navigates; Esc = No
+ * - Shows a typed description of the call (command / path / JSON), not raw
+ *   argument JSON
+ * - Dangerous calls (registry-derived patterns) stay highlighted in red
+ * - "Yes, always" records a session-scoped rule in useAgent; the dialog
+ *   itself is purely presentational over the decision callback
  */
 export function PermissionDialog({ pending }: PermissionDialogProps): React.ReactElement | null {
-  // Rules of hooks: all hooks must run unconditionally on every render —
-  // the early return below comes AFTER all hooks. Registering useInput
-  // conditionally (only when `pending` is non-null) changed the hook order
-  // between renders and could crash or misbehave when a permission request
-  // appears/disappears.
-  useInput((inputChar) => {
+  // Rules of hooks: all hooks run unconditionally; the early return below
+  // comes AFTER all hooks (tui-refactor ticket 01).
+  const [selected, setSelected] = useState(0);
+  // Ref mirror: key events can burst before React re-renders (lessons.md #9).
+  const selectedRef = useRef(0);
+  const move = (fn: (i: number) => number): void => {
+    const next = Math.max(0, Math.min(OPTIONS.length - 1, fn(selectedRef.current)));
+    selectedRef.current = next;
+    setSelected(next);
+  };
+  useInput((inputChar, key) => {
     if (!pending) return;
-    if (inputChar === 'a') {
-      pending.resolve(true);
-    } else if (inputChar === 'd') {
-      pending.resolve(false);
-    } else if (inputChar === 'A') {
-      // "Always Allow" — resolve as allowed (the permission policy
-      // would need to be updated for persistent always-allow, but
-      // for this session we allow it)
-      pending.resolve(true);
+    if (inputChar === '1' || inputChar === '2' || inputChar === '3') {
+      pending.resolve(OPTIONS[Number(inputChar) - 1].decision);
+      return;
+    }
+    if (key.upArrow) {
+      move((i) => i - 1);
+      return;
+    }
+    if (key.downArrow) {
+      move((i) => i + 1);
+      return;
+    }
+    if (key.return) {
+      pending.resolve(OPTIONS[selectedRef.current].decision);
+      return;
+    }
+    if (key.escape) {
+      pending.resolve('deny');
     }
   });
 
   if (!pending) return null;
 
-  const { call, resolve } = pending;
-  const toolName = call.function.name;
-
-  // Parse parameters once for display and danger detection
-  let paramsDisplay: string;
-  let parsedArgs: Record<string, unknown> | null = null;
+  let args: Record<string, unknown> | null = null;
   try {
-    parsedArgs = JSON.parse(call.function.arguments) as Record<string, unknown>;
-    paramsDisplay = JSON.stringify(parsedArgs, null, 2);
+    args = JSON.parse(pending.call.function.arguments) as Record<string, unknown>;
   } catch {
-    paramsDisplay = call.function.arguments;
+    args = null;
   }
-
-  // Check for danger reasons
-  const dangerReason = getDangerReason(toolName, parsedArgs);
+  const description = describeCall(pending.call.function.name, args);
+  const warning = dangerReason(pending.call.function.name, args);
 
   return (
     <Box
       flexDirection="column"
       borderStyle="double"
-      borderColor="yellow"
+      borderColor={warning !== null ? 'red' : 'yellow'}
       paddingX={1}
       marginY={1}
     >
-      <Text bold color="yellow">Permission Required</Text>
+      <Text bold color={warning !== null ? 'red' : 'yellow'}>Permission Required</Text>
 
       <Box marginTop={1}>
-        <Text color="white">Tool: </Text>
-        <Text bold color="cyan">{toolName}</Text>
+        <Text bold color="cyan">{pending.call.function.name}</Text>
+        <Text color="white"> {description}</Text>
       </Box>
 
-      {dangerReason !== null && (
+      {warning !== null && (
         <Box marginTop={0}>
-          <Text color="red">Warning: {dangerReason}</Text>
+          <Text color="red" bold>Warning: {warning}</Text>
         </Box>
       )}
 
       <Box marginTop={1} flexDirection="column">
-        <Text color="gray" dimColor>Parameters:</Text>
-        <Text color="white">{paramsDisplay}</Text>
-      </Box>
-
-      <Box marginTop={1}>
-        <Text color="green" bold>[Allow (a)] </Text>
-        <Text color="red" bold>[Deny (d)] </Text>
-        <Text color="yellow" bold>[Always Allow (A)]</Text>
+        {OPTIONS.map((opt, i) => (
+          <Box key={opt.key} paddingLeft={1}>
+            <Text
+              inverse={i === selected}
+              color={opt.decision === 'deny' ? 'red' : opt.decision === 'always' ? 'yellow' : 'green'}
+              bold={i === selected}
+            >
+              {opt.key}. {opt.label}
+            </Text>
+          </Box>
+        ))}
       </Box>
     </Box>
   );
-}
-
-/**
- * Check if a tool call matches any dangerous patterns and return the reason.
- * Returns null if no danger is detected.
- */
-function getDangerReason(toolName: string, args: Record<string, unknown> | null): string | null {
-  if (toolName !== 'bash' || args === null) return null;
-
-  const command = typeof args.command === 'string' ? args.command : '';
-  if (!command) return null;
-
-  for (const { pattern, reason } of DANGEROUS_PATTERNS) {
-    if (pattern.test(command)) {
-      return reason;
-    }
-  }
-
-  return null;
 }

@@ -14,10 +14,8 @@ function makePending(name: string, args: string): PendingPermission {
   return { call, resolve: vi.fn() };
 }
 
-describe('PermissionDialog (ink-testing-library, tui-refactor 01 regression)', () => {
+describe('PermissionDialog options list (tui-refactor 04)', () => {
   it('transitions null -> pending -> null without hook-order crashes', () => {
-    // Pre-fix this crashed on rerender: useInput was registered after the
-    // early return, so the hook order changed between renders.
     const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
     const { lastFrame, rerender } = render(<PermissionDialog pending={null} />);
     expect(lastFrame()).not.toContain('Permission Required');
@@ -30,36 +28,67 @@ describe('PermissionDialog (ink-testing-library, tui-refactor 01 regression)', (
     expect(lastFrame()).not.toContain('Permission Required');
   });
 
-  it('resolves allow/deny/always via a/d/A keys', async () => {
+  it('shows the three numbered options and a typed description (no raw JSON)', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'npm test' }));
+    const { lastFrame } = render(<PermissionDialog pending={pending} />);
+    expect(lastFrame()).toContain('1. No');
+    expect(lastFrame()).toContain('2. Yes');
+    expect(lastFrame()).toContain('3. Yes, always (this session)');
+    expect(lastFrame()).toContain('npm test'); // typed description
+    expect(lastFrame()).not.toContain('{"command"');
+  });
+
+  it('number keys pick directly: 2=allow, 1=deny, 3=always', async () => {
     const allow = makePending('bash', JSON.stringify({ command: 'ls' }));
     const { stdin, rerender } = render(<PermissionDialog pending={allow} />);
-    stdin.write('a');
+    stdin.write('2');
     await new Promise((r) => setTimeout(r, 20));
-    expect(allow.resolve).toHaveBeenCalledWith(true);
+    expect(allow.resolve).toHaveBeenCalledWith('allow');
 
     const deny = makePending('bash', JSON.stringify({ command: 'ls' }));
     rerender(<PermissionDialog pending={deny} />);
-    stdin.write('d');
+    stdin.write('1');
     await new Promise((r) => setTimeout(r, 20));
-    expect(deny.resolve).toHaveBeenCalledWith(false);
+    expect(deny.resolve).toHaveBeenCalledWith('deny');
 
     const always = makePending('bash', JSON.stringify({ command: 'ls' }));
     rerender(<PermissionDialog pending={always} />);
-    stdin.write('A');
+    stdin.write('3');
     await new Promise((r) => setTimeout(r, 20));
-    expect(always.resolve).toHaveBeenCalledWith(true);
+    expect(always.resolve).toHaveBeenCalledWith('always');
+  });
+
+  it('arrows + Enter pick the highlighted option', async () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
+    const { stdin } = render(<PermissionDialog pending={pending} />);
+    stdin.write('\x1b[B'); // down: second option (Yes)
+    stdin.write('\r');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pending.resolve).toHaveBeenCalledWith('allow');
+  });
+
+  it('Esc resolves deny', async () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
+    const { stdin } = render(<PermissionDialog pending={pending} />);
+    stdin.write('\x1b');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pending.resolve).toHaveBeenCalledWith('deny');
+  });
+
+  it('dangerous commands show the reason with a red border', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'rm -rf /tmp/x' }));
+    const { lastFrame } = render(<PermissionDialog pending={pending} />);
+    expect(lastFrame()).toContain('Recursive file deletion');
   });
 
   it('ignores keys while no request is pending (no resolution)', () => {
     const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
     const instance = render(<PermissionDialog pending={null} />);
-    instance.stdin.write('a');
-    instance.stdin.write('d');
-    instance.stdin.write('A');
+    instance.stdin.write('1');
+    instance.stdin.write('2');
+    instance.stdin.write('3');
     expect(pending.resolve).not.toHaveBeenCalled();
 
-    // Transitions to pending afterwards: keys typed while null must not
-    // have leaked into the request that appears later.
     instance.rerender(<PermissionDialog pending={pending} />);
     expect(instance.lastFrame()).toContain('Permission Required');
     instance.unmount();

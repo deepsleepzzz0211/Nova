@@ -13,9 +13,9 @@ export function spinnerFrame(tick: number): string {
 }
 
 /** Tools whose first string arg is the display summary. */
-const COMMAND_TOOLS = new Set(['bash']);
+export const COMMAND_TOOLS = new Set(['bash']);
 
-const PATH_TOOLS = new Set(['read', 'read_file', 'write', 'write_file', 'edit']);
+export const PATH_TOOLS = new Set(['read', 'read_file', 'write', 'write_file', 'edit']);
 
 /** Cap for the fallback summary. */
 const SUMMARY_CAP = 80;
