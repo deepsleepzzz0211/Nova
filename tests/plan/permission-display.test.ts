@@ -17,9 +17,16 @@ describe('permission-display (tui-refactor 04)', () => {
       expect(describeCall('edit', { file_path: 'b.txt' })).toBe('b.txt');
     });
 
-    it('falls back to compact JSON, capped', () => {
-      const r = describeCall('other', { a: 'x'.repeat(200) });
-      expect(r.length).toBeLessThanOrEqual(83);
+    it('falls back to compact JSON, capped at 200', () => {
+      const r = describeCall('other', { a: 'x'.repeat(400) });
+      expect(r.length).toBeLessThanOrEqual(203);
+    });
+    it('keeps command tails visible up to the 200-char cap', () => {
+      const head = 'echo ok && ';
+      const tail = 'y'.repeat(150);
+      const r = describeCall('bash', { command: head + tail });
+      expect(r).toContain('&&');
+      expect(r.length).toBeLessThanOrEqual(203);
     });
 
     it('unparseable args fall back to the raw string', () => {

@@ -12,7 +12,7 @@ import { StreamBatcher } from '../stream-batcher.js';
 import type { ThinkingLevel } from '../../llm/compat.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
-import { SessionAlwaysRules, type PermissionDecision } from '../permission-display.js';
+import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -273,7 +273,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       } catch {
         args = null;
       }
-      if (alwaysRules.matches(call.function.name, args)) {
+      // Dangerous calls are never session-whitelisted: always-rules must
+      // not short-circuit the dialog for them (review finding).
+      if (dangerReason(call.function.name, args) === null && alwaysRules.matches(call.function.name, args)) {
         setToolCallStatus(call.id, 'running');
         return Promise.resolve(true);
       }
@@ -281,7 +283,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setPendingPermission({
           call,
           resolve: (decision: PermissionDecision) => {
-            if (decision === 'always') alwaysRules.add(call.function.name, args);
+            if (decision === 'always' && dangerReason(call.function.name, args) === null) {
+              alwaysRules.add(call.function.name, args);
+            }
             setToolCallStatus(call.id, 'running');
             resolve(decision !== 'deny');
           },

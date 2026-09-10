@@ -94,3 +94,26 @@ describe('PermissionDialog options list (tui-refactor 04)', () => {
     instance.unmount();
   });
 });
+
+describe('PermissionDialog safety (review fixes)', () => {
+  it('dangerous calls do not offer the always option', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'rm -rf /tmp/x' }));
+    const { lastFrame } = render(<PermissionDialog pending={pending} />);
+    expect(lastFrame()).toContain('Recursive file deletion');
+    expect(lastFrame()).toContain('1. No');
+    expect(lastFrame()).toContain('2. Yes');
+    expect(lastFrame()).not.toContain('3. Yes, always');
+  });
+
+  it('selection resets when a new request arrives (no stale always)', async () => {
+    const first = makePending('bash', JSON.stringify({ command: 'ls' }));
+    const second = makePending('bash', JSON.stringify({ command: 'pwd' }));
+    const { stdin, rerender } = render(<PermissionDialog pending={first} />);
+    stdin.write('\x1b[B'); // down -> option 2
+    stdin.write('\x1b[B'); // down -> option 3 (always)
+    rerender(<PermissionDialog pending={second} />); // new request
+    stdin.write('\r'); // Enter must hit option 1 (No), NOT always
+    await new Promise((r) => setTimeout(r, 30));
+    expect(second.resolve).toHaveBeenCalledWith('deny');
+  });
+});

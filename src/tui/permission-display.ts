@@ -1,27 +1,27 @@
 import { DANGEROUS_PATTERNS } from '../permission/dangerous.js';
-import { COMMAND_TOOLS, PATH_TOOLS } from './tool-summary.js';
+import { COMMAND_TOOLS, cap, primaryArg } from './tool-summary.js';
+
+/**
+ * Pure helpers for the permission dialog (tui-refactor ticket 04): typed
+ * one-line call descriptions, danger detection, and the session-scoped
+ * always-allow rule store. No Ink/React.
+ *
+ * Tool-name knowledge lives in ONE shared place (tool-summary.ts, the
+ * interim single source until the Tool registry carries display metadata —
+ * tui-refactor ticket 06).
+ */
 
 /** A permission decision: deny, allow once, or always for this session. */
 export type PermissionDecision = 'deny' | 'allow' | 'always';
 
 /**
- * Pure helpers for the permission dialog (tui-refactor ticket 04): typed
- * one-line call descriptions, danger detection (no hardcoded tool names in
- * the UI), and the session-scoped always-allow rule store. No Ink/React.
+ * One-line human description of the call: bash -> command, path tools ->
+ * path, fallback -> compact JSON. Null args render a placeholder.
  */
-
-const SUMMARY_CAP = 80;
-
-/** One-line human description of the call (command / path / compact JSON). */
 export function describeCall(name: string, args: Record<string, unknown> | null): string {
   if (args === null) return '(unparseable arguments)';
-  if (COMMAND_TOOLS.has(name) && typeof args.command === 'string') {
-    return cap(args.command);
-  }
-  if (PATH_TOOLS.has(name)) {
-    const p = args.path ?? args.file_path ?? args.filePath;
-    if (typeof p === 'string') return cap(p);
-  }
+  const primary = primaryArg(name, args);
+  if (primary !== null) return cap(primary);
   try {
     return cap(JSON.stringify(args));
   } catch {
@@ -29,7 +29,10 @@ export function describeCall(name: string, args: Record<string, unknown> | null)
   }
 }
 
-/** Danger reason for a call, or null (command tools only, no hardcoded names). */
+/**
+ * Danger reason for a call, or null. Dangerous command patterns only apply
+ * to command tools.
+ */
 export function dangerReason(name: string, args: Record<string, unknown> | null): string | null {
   if (!COMMAND_TOOLS.has(name) || args === null) return null;
   const command = typeof args.command === 'string' ? args.command : '';
@@ -40,36 +43,29 @@ export function dangerReason(name: string, args: Record<string, unknown> | null)
   return null;
 }
 
-/** Primary argument identifying a call (command, path, or stable JSON). */
-function primaryArg(name: string, args: Record<string, unknown> | null): string {
-  if (args === null) return '<unparseable>';
-  if (COMMAND_TOOLS.has(name) && typeof args.command === 'string') return args.command;
-  if (PATH_TOOLS.has(name)) {
-    const p = args.path ?? args.file_path ?? args.filePath;
-    if (typeof p === 'string') return p;
-  }
-  try {
-    return JSON.stringify(args);
-  } catch {
-    return '<unparseable>';
-  }
-}
-
-/** Session-scoped always-allow rules: (tool, primary argument) pairs. */
+/**
+ * Session-scoped "always allow" rules.
+ *
+ * Matching is EXACT on (tool, primary argument) — intentionally stricter
+ * than the ticket's "参数模式" wording: a remembered approval must never
+ * cover a different command. Dangerous calls are never eligible for
+ * always-allow (enforced in the dialog/decision path, not here).
+ */
 export class SessionAlwaysRules {
   private readonly pairs = new Set<string>();
 
+  /** Stable rule key: tool + primary argument (JSON fallback for opaque calls). */
+  private static key(name: string, args: Record<string, unknown> | null): string {
+    return name + ' ' + (primaryArg(name, args) ?? (args === null ? '<unparseable>' : JSON.stringify(args)));
+  }
+
   /** Record an always-allow decision for this call. */
   add(name: string, args: Record<string, unknown> | null): void {
-    this.pairs.add(name + ' ' + primaryArg(name, args));
+    this.pairs.add(SessionAlwaysRules.key(name, args));
   }
 
   /** Whether an identical (tool, primary argument) pair was always-allowed. */
   matches(name: string, args: Record<string, unknown> | null): boolean {
-    return this.pairs.has(name + ' ' + primaryArg(name, args));
+    return this.pairs.has(SessionAlwaysRules.key(name, args));
   }
-}
-
-function cap(s: string): string {
-  return s.length > SUMMARY_CAP ? s.slice(0, SUMMARY_CAP) + '...' : s;
 }

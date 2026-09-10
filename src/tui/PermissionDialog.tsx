@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
@@ -10,7 +10,7 @@ export interface PermissionDialogProps {
   pending: PendingPermission | null;
 }
 
-/** Options shown, in display order. */
+/** Options shown, in display order (option 3 is excluded for dangerous calls). */
 const OPTIONS: Array<{ key: '1' | '2' | '3'; label: string; decision: PermissionDecision }> = [
   { key: '1', label: 'No', decision: 'deny' },
   { key: '2', label: 'Yes', decision: 'allow' },
@@ -33,6 +33,12 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
   const [selected, setSelected] = useState(0);
   // Ref mirror: key events can burst before React re-renders (lessons.md #9).
   const selectedRef = useRef(0);
+  // A new request must not inherit the previous selection (review: the
+  // stale "3. Yes, always" highlight could auto-approve the next call).
+  useEffect(() => {
+    selectedRef.current = 0;
+    setSelected(0);
+  }, [pending]);
   const move = (fn: (i: number) => number): void => {
     const next = Math.max(0, Math.min(OPTIONS.length - 1, fn(selectedRef.current)));
     selectedRef.current = next;
@@ -71,6 +77,10 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
   }
   const description = describeCall(pending.call.function.name, args);
   const warning = dangerReason(pending.call.function.name, args);
+  // Dangerous calls must never be session-whitelisted silently: the
+  // always option is simply not offered.
+  const options = warning !== null ? OPTIONS.filter((o) => o.decision !== 'always') : OPTIONS;
+  const effectiveSelected = Math.min(selected, options.length - 1);
 
   return (
     <Box
@@ -94,12 +104,12 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
       )}
 
       <Box marginTop={1} flexDirection="column">
-        {OPTIONS.map((opt, i) => (
+        {options.map((opt, i) => (
           <Box key={opt.key} paddingLeft={1}>
             <Text
-              inverse={i === selected}
+              inverse={i === effectiveSelected}
               color={opt.decision === 'deny' ? 'red' : opt.decision === 'always' ? 'yellow' : 'green'}
-              bold={i === selected}
+              bold={i === effectiveSelected}
             >
               {opt.key}. {opt.label}
             </Text>
