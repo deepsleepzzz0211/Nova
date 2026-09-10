@@ -12,6 +12,7 @@ import { StreamBatcher } from '../stream-batcher.js';
 import type { ThinkingLevel } from '../../llm/compat.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
+import { SessionAlwaysRules, type PermissionDecision } from '../permission-display.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -34,7 +35,7 @@ export interface DisplayMessage {
 /** Pending permission request awaiting user decision. */
 export interface PendingPermission {
   call: ToolCall;
-  resolve: (allow: boolean) => void;
+  resolve: (decision: PermissionDecision) => void;
 }
 
 /** Configuration for the useAgent hook. */
@@ -260,15 +261,29 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       );
     };
 
+    // Session-scoped always-allow rules (ticket 04): matching calls are
+    // allowed without a dialog.
+    const alwaysRules = new SessionAlwaysRules();
     const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
       // Ticket 05: show the awaiting-permission state on the tool block.
       setToolCallStatus(call.id, 'pending');
+      let args: Record<string, unknown> | null = null;
+      try {
+        args = JSON.parse(call.function.arguments) as Record<string, unknown>;
+      } catch {
+        args = null;
+      }
+      if (alwaysRules.matches(call.function.name, args)) {
+        setToolCallStatus(call.id, 'running');
+        return Promise.resolve(true);
+      }
       return new Promise<boolean>((resolve) => {
         setPendingPermission({
           call,
-          resolve: (allowed: boolean) => {
+          resolve: (decision: PermissionDecision) => {
+            if (decision === 'always') alwaysRules.add(call.function.name, args);
             setToolCallStatus(call.id, 'running');
-            resolve(allowed);
+            resolve(decision !== 'deny');
           },
         });
       });
@@ -352,7 +367,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // Resolve any pending permission as denied on unmount
       setPendingPermission((current) => {
         if (current) {
-          current.resolve(false);
+          current.resolve('deny');
         }
         return null;
       });
