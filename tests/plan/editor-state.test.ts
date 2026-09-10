@@ -16,6 +16,7 @@ import {
   historyPrev,
   historyNext,
   submit,
+  insertPaste,
   clearEditor,
   cursorLine,
   cursorColumn,
@@ -209,6 +210,55 @@ describe('EditorState (tui-refactor 02)', () => {
       s = insertText(s, 'X');
       expect(s.text).toBe('oneX');
       expect(s.historyIndex).toBe(-1);
+    });
+  });
+
+  describe('paste folding (ticket 03)', () => {
+    const LF = String.fromCharCode(10);
+    it('small paste inserts directly', () => {
+      let s = createEditorState();
+      s = insertPaste(s, ['line1', 'line2', 'line3'].join(LF));
+      expect(s.text).toBe('line1' + LF + 'line2' + LF + 'line3');
+      expect(s.pastes).toEqual([]);
+    });
+
+    it('large paste folds into a placeholder and is stored', () => {
+      let s = createEditorState();
+      const body = Array.from({ length: 15 }, (_, i) => `L${i}`).join(LF);
+      s = insertPaste(s, body);
+      expect(s.text).toBe('[paste #1 +15 lines]');
+      expect(s.pastes).toEqual([body]);
+      // A second large paste gets the next index
+      s = insertPaste(s, body);
+      expect(s.text).toBe('[paste #1 +15 lines][paste #2 +15 lines]');
+      expect(s.pastes).toHaveLength(2);
+    });
+
+    it('submit expands placeholders back to the original body', () => {
+      let s = createEditorState();
+      s = insertText(s, 'look at this: ');
+      const body = Array.from({ length: 12 }, (_, i) => `x${i}`).join(LF);
+      s = insertPaste(s, body);
+      const r = submit(s);
+      expect(r.submitted).toBe('look at this: ' + body);
+      // History stores the expanded text
+      expect(r.state.history[0]).toBe('look at this: ' + body);
+    });
+
+    it('submit rejects whitespace-only even after folding', () => {
+      let s = createEditorState();
+      s = insertPaste(s, Array.from({ length: 13 }, () => '  ').join(LF));
+      const r = submit(s);
+      expect(r.submitted).toBeNull();
+    });
+
+    it('deleting a placeholder leaves an orphan paste entry (harmless)', () => {
+      let s = createEditorState();
+      s = insertPaste(s, Array.from({ length: 12 }, () => 'x').join(LF));
+      s = clearEditor(s);
+      expect(s.text).toBe('');
+      const r = submit(insertText(s, 'hi'));
+      expect(r.submitted).toBe('hi');
     });
   });
 
