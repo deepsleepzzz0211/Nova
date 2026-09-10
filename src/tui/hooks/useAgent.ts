@@ -18,7 +18,7 @@ export interface DisplayToolCall {
   id: string;
   name: string;
   arguments: string;
-  status: 'running' | 'done' | 'error';
+  status: 'pending' | 'running' | 'done' | 'error';
   result?: string;
 }
 
@@ -246,9 +246,31 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       });
     };
 
+    /** Update one tool call's display status across messages. */
+    const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === 'assistant' && m.toolCalls !== undefined
+            ? {
+                ...m,
+                toolCalls: m.toolCalls.map((tc) => (tc.id === callId ? { ...tc, status } : tc)),
+              }
+            : m,
+        ),
+      );
+    };
+
     const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
+      // Ticket 05: show the awaiting-permission state on the tool block.
+      setToolCallStatus(call.id, 'pending');
       return new Promise<boolean>((resolve) => {
-        setPendingPermission({ call, resolve });
+        setPendingPermission({
+          call,
+          resolve: (allowed: boolean) => {
+            setToolCallStatus(call.id, 'running');
+            resolve(allowed);
+          },
+        });
       });
     };
 

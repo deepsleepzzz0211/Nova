@@ -1,65 +1,60 @@
-import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import React, { useEffect, useState } from 'react';
+import { Box, Text } from 'ink';
 import type { DisplayToolCall } from './hooks/useAgent.js';
+import { spinnerFrame, summarizeCall, foldLines } from './tool-summary.js';
 
 /** Props for the ToolCallView component. */
 export interface ToolCallViewProps {
   /** The tool call to display. */
   toolCall: DisplayToolCall;
+  /** Whether this block's details are expanded (Ctrl+O, App-controlled). */
+  expanded: boolean;
 }
 
 /**
- * Displays a tool call with name, parameters, result, and status.
+ * Presentational tool-call block (tui-refactor ticket 05): no local input
+ * handling, no local fold state — App owns the expanded id (Ctrl+O toggles
+ * the most recent block).
  *
- * Parameters are collapsed by default; press Enter to toggle.
- * Status indicators:
- * - spinner (⠋) for running
- * - ✓ for done
- * - ✗ for error
+ * Status: animated spinner (running), ⚠ (pending permission), ✓ (done),
+ * ✗ (error). Folded by default to a one-line typed summary; expanded shows
+ * the arguments and the (line-folded) result.
  */
-export function ToolCallView({ toolCall }: ToolCallViewProps): React.ReactElement {
-  const [expanded, setExpanded] = useState(false);
+export function ToolCallView({ toolCall, expanded }: ToolCallViewProps): React.ReactElement {
+  const tick = useSpinnerTick(toolCall.status === 'running');
 
-  useInput((inputChar, key) => {
-    if (key.return) {
-      setExpanded((prev) => !prev);
-    }
-  });
+  const statusIcon =
+    toolCall.status === 'running'
+      ? spinnerFrame(tick)
+      : toolCall.status === 'pending'
+        ? '⚠'
+        : toolCall.status === 'done'
+          ? '✓'
+          : '✗';
 
-  const statusIcon = toolCall.status === 'running'
-    ? '⠋'
-    : toolCall.status === 'done'
-      ? '✓'
-      : '✗';
+  const statusColor =
+    toolCall.status === 'running' || toolCall.status === 'pending'
+      ? 'yellow'
+      : toolCall.status === 'done'
+        ? 'green'
+        : 'red';
 
-  const statusColor = toolCall.status === 'running'
-    ? 'yellow'
-    : toolCall.status === 'done'
-      ? 'green'
-      : 'red';
-
-  // Parse arguments for display
+  // Pretty args for the expanded view (compact summary is typed).
   let argsDisplay = '';
   try {
-    const parsed = JSON.parse(toolCall.arguments) as Record<string, unknown>;
-    argsDisplay = JSON.stringify(parsed, null, 2);
+    argsDisplay = JSON.stringify(JSON.parse(toolCall.arguments) as unknown, null, 2);
   } catch {
     argsDisplay = toolCall.arguments;
   }
 
-  // Truncate args for collapsed view
-  const argsPreview = argsDisplay.length > 80
-    ? argsDisplay.slice(0, 80) + '...'
-    : argsDisplay;
+  const summary = summarizeCall(toolCall.name, toolCall.arguments);
 
   return (
     <Box flexDirection="column" marginY={0} paddingLeft={2}>
       <Box>
         <Text color={statusColor}>{statusIcon} </Text>
         <Text bold color="yellow">{toolCall.name}</Text>
-        {!expanded && argsPreview.length > 0 && (
-          <Text color="gray" dimColor> {argsPreview}</Text>
-        )}
+        {!expanded && <Text color="gray" dimColor> {summary}</Text>}
       </Box>
 
       {expanded && (
@@ -72,7 +67,7 @@ export function ToolCallView({ toolCall }: ToolCallViewProps): React.ReactElemen
         <Box flexDirection="column" paddingLeft={3} marginTop={0}>
           <Text color="gray">Result:</Text>
           <Text color={toolCall.status === 'error' ? 'red' : 'white'}>
-            {truncateResult(toolCall.result)}
+            {foldLines(toolCall.result, 20).text}
           </Text>
         </Box>
       )}
@@ -80,9 +75,13 @@ export function ToolCallView({ toolCall }: ToolCallViewProps): React.ReactElemen
   );
 }
 
-/** Truncate long results for display. */
-function truncateResult(result: string, maxLines = 20): string {
-  const lines = result.split('\n');
-  if (lines.length <= maxLines) return result;
-  return lines.slice(0, maxLines).join('\n') + `\n... (${lines.length - maxLines} more lines)`;
+/** Ticks 80ms while active; frozen at 0 otherwise. */
+function useSpinnerTick(active: boolean): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setTick((t) => t + 1), 80);
+    return () => clearInterval(timer);
+  }, [active]);
+  return active ? tick : 0;
 }
