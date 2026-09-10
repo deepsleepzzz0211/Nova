@@ -20,6 +20,8 @@ export interface EditorState {
   draft: string;
   /** Sticky target column for vertical movement; null = derive from cursor. */
   targetCol: number | null;
+  /** Bodies of folded large pastes, referenced by 1-based index in placeholders. */
+  pastes: string[];
 }
 
 /** Common post-edit invariant: reset sticky column and browse mode. */
@@ -28,7 +30,43 @@ function afterEdit(s: EditorState, text: string, cursor: number): EditorState {
 }
 
 export function createEditorState(): EditorState {
-  return { text: '', cursor: 0, history: [], historyIndex: -1, draft: '', targetCol: null };
+  return { text: '', cursor: 0, history: [], historyIndex: -1, draft: '', targetCol: null, pastes: [] };
+}
+
+/** Paste fold threshold: bodies above this line count become placeholders. */
+const PASTE_FOLD_LINES = 10;
+
+/**
+ * Insert pasted content. Multi-line bodies beyond the threshold are stored
+ * in `pastes` and replaced by a compact `[paste #k +N lines]` placeholder;
+ * submit() expands placeholders back to the original body.
+ */
+export function insertPaste(s: EditorState, content: string): EditorState {
+  const lineCount = content.split('\n').length;
+  if (lineCount <= PASTE_FOLD_LINES) return insertText(s, content);
+  const index = s.pastes.length + 1;
+  const placeholder = `[paste #${index} +${lineCount} lines]`;
+  const next = insertText(s, placeholder);
+  return { ...next, pastes: [...s.pastes, content] };
+}
+
+/** Expand all paste placeholders in `text` using the stored bodies. */
+export function expandPastes(text: string, pastes: string[]): string {
+  return text.replace(/\[paste #(\d+) \+\d+ lines\]/g, (match, index) => {
+    const body = pastes[Number(index) - 1];
+    return body === undefined ? match : body;
+  });
+}
+
+/** Replace a token range with new content (used by completion acceptance). */
+export function replaceToken(s: EditorState, start: number, end: number, content: string): EditorState {
+  const clampedStart = Math.max(0, Math.min(start, s.text.length));
+  const clampedEnd = Math.max(clampedStart, Math.min(end, s.text.length));
+  return afterEdit(
+    s,
+    s.text.slice(0, clampedStart) + content + s.text.slice(clampedEnd),
+    clampedStart + content.length,
+  );
 }
 
 /** Line boundaries: indexes of line starts; helper accessors. */
@@ -160,11 +198,21 @@ export interface SubmitResult {
 
 /** Submit: trim-checked, pushes to history, clears the editor. */
 export function submit(s: EditorState): SubmitResult {
-  const trimmed = s.text.trim();
+  const expanded = expandPastes(s.text, s.pastes);
+  const trimmed = expanded.trim();
   if (!trimmed) return { state: s, submitted: null };
   return {
-    state: { ...s, text: '', cursor: 0, history: [...s.history, s.text], historyIndex: -1, draft: '', targetCol: null },
-    submitted: s.text,
+    state: {
+      ...s,
+      text: '',
+      cursor: 0,
+      history: [...s.history, expanded],
+      historyIndex: -1,
+      draft: '',
+      targetCol: null,
+      pastes: [],
+    },
+    submitted: expanded,
   };
 }
 
