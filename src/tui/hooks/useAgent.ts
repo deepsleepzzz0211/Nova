@@ -134,16 +134,22 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   const batcherRef = useRef<StreamBatcher | null>(null);
   if (batcherRef.current === null) {
     batcherRef.current = new StreamBatcher(() => {
+      // Snapshot NOW, synchronously: React defers state-updater execution
+      // to the next render, by which time the turn may have ended and the
+      // ref reset to null (crash: reading 'content' of null).
+      const cur = currentAssistantRef.current;
+      if (!cur) return;
+      const snap: DisplayMessage = {
+        role: 'assistant',
+        content: cur.content,
+        toolCalls: [...cur.toolCalls],
+        thinking: cur.thinking || undefined,
+      };
       setMessages((prev) => {
         const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
           ? prev.slice(0, -1)
           : prev;
-        return [...withoutLast, {
-          role: 'assistant' as const,
-          content: currentAssistantRef.current!.content,
-          toolCalls: [...currentAssistantRef.current!.toolCalls],
-          thinking: currentAssistantRef.current!.thinking || undefined,
-        }];
+        return [...withoutLast, snap];
       });
     }, 32);
   }
@@ -185,16 +191,18 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         status: 'running',
       };
       currentAssistantRef.current.toolCalls.push(displayCall);
+      // Capture the snapshot synchronously (see batcher flush comment).
+      const snap: DisplayMessage = {
+        role: 'assistant',
+        content: currentAssistantRef.current.content,
+        thinking: currentAssistantRef.current.thinking || undefined,
+        toolCalls: [...currentAssistantRef.current.toolCalls],
+      };
       setMessages((prev) => {
         const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
           ? prev.slice(0, -1)
           : prev;
-        return [...withoutLast, {
-          role: 'assistant' as const,
-          content: currentAssistantRef.current!.content,
-          thinking: currentAssistantRef.current!.thinking || undefined,
-          toolCalls: [...currentAssistantRef.current!.toolCalls],
-        }];
+        return [...withoutLast, snap];
       });
     };
 
@@ -222,16 +230,19 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           result: result.content,
         };
       }
+      // Capture the snapshot synchronously (see batcher flush comment).
+      const cur = currentAssistantRef.current;
+      const snap: DisplayMessage = {
+        role: 'assistant',
+        content: cur.content,
+        thinking: cur.thinking || undefined,
+        toolCalls: [...cur.toolCalls],
+      };
       setMessages((prev) => {
         const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
           ? prev.slice(0, -1)
           : prev;
-        return [...withoutLast, {
-          role: 'assistant' as const,
-          content: currentAssistantRef.current!.content,
-          thinking: currentAssistantRef.current!.thinking || undefined,
-          toolCalls: [...currentAssistantRef.current!.toolCalls],
-        }];
+        return [...withoutLast, snap];
       });
     };
 
