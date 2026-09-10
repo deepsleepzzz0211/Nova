@@ -174,6 +174,19 @@ describe('AnthropicMessagesAdapter stream normalization (SDK mocked)', () => {
     expect(chunks.at(-1)).toEqual({ type: 'truncated' });
   });
 
+  it('passes defaultHeaders to the SDK client (session/UA identity)', async () => {
+    anthropicState.ctorArgs = [];
+    anthropicState.events = [{ type: 'message_stop' }];
+    const adapter = new AnthropicMessagesAdapter({
+      apiKey: 'k',
+      model: 'claude-x',
+      defaultHeaders: { 'x-opencode-session': 'sess-1', 'User-Agent': 'nova/test' },
+    });
+    await collect(adapter.chat(baseMessages, { model: 'claude-x' }));
+    const ctorArg = anthropicState.ctorArgs[0]?.[0] as Record<string, unknown> | undefined;
+    expect(ctorArg?.defaultHeaders).toEqual({ 'x-opencode-session': 'sess-1', 'User-Agent': 'nova/test' });
+  });
+
   it('maps thinking block events into thinking_delta chunks', async () => {
     anthropicState.events = [
       { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } },
@@ -278,6 +291,34 @@ describe('OllamaAdapter boundaries (mocked fetch)', () => {
     const chunks = await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
     // Current behavior: the array is yielded verbatim as content
     expect(chunks).toEqual([{ type: 'text_delta', content: [{ type: 'text', text: 'part' }] }]);
+  });
+
+  it('merges defaultHeaders into the request (session/UA identity)', async () => {
+    let capturedHeaders: Record<string, unknown> = {};
+    const body = `${JSON.stringify({ done: true })}
+`;
+    globalThis.fetch = (async (_url: unknown, init?: { headers?: Record<string, unknown> }) => {
+      capturedHeaders = init?.headers ?? {};
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode(body));
+            c.close();
+          },
+        }),
+      } as unknown as Response;
+    }) as typeof fetch;
+    const adapter = new OllamaAdapter({
+      apiKey: '',
+      baseUrl: 'http://x',
+      model: 'llama3',
+      defaultHeaders: { 'x-opencode-session': 'sess-2', 'User-Agent': 'nova/test' },
+    } as never);
+    await collect(adapter.chat([{ role: 'user', content: 'q' }], { model: 'llama3' }));
+    expect(capturedHeaders['x-opencode-session']).toBe('sess-2');
+    expect(capturedHeaders['User-Agent']).toBe('nova/test');
   });
 
   it('emits a truncated chunk when done_reason is length', async () => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -68,12 +69,20 @@ async function main(): Promise<void> {
     catalog,
   );
 
+  // Client identity sent on every provider request (e.g. OpenCode Go
+  // requires a stable x-opencode-session per conversation + own UA).
+  const defaultHeaders: Record<string, string> = {
+    'User-Agent': `nova/${__NOVA_VERSION__}`,
+    'x-opencode-session': randomUUID(),
+  };
+
   // Initialize LLM provider by wire protocol (pi-style api layer)
   const llm = providerRegistry.getForApi(resolution.api, {
     name: resolution.name,
     apiKey: resolution.apiKey,
     baseUrl: resolution.baseUrl,
     model: resolution.model.id,
+    defaultHeaders,
     // config.toml prompt_cache stays honored as a fallback
     compat: {
       supportsDeveloperRole: resolution.model.compat.supportsDeveloperRole,
@@ -148,6 +157,7 @@ async function main(): Promise<void> {
       apiKey: next.apiKey,
       baseUrl: next.baseUrl,
       model: next.model.id,
+      defaultHeaders,
       compat: {
         supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
         streamUsage: next.model.compat.streamUsage || config.llm.promptCache,

@@ -20,6 +20,7 @@ export class OllamaProvider implements LLMProvider {
   constructor(config: ProviderConfig) {
     this.adapter = new OllamaAdapter({
       apiKey: config.apiKey,
+      defaultHeaders: config.defaultHeaders,
       baseUrl: config.baseUrl,
       model: config.model ?? 'llama3',
       compat: { supportsDeveloperRole: false, streamUsage: false },

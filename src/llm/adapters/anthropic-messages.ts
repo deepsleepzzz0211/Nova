@@ -31,6 +31,7 @@ export class AnthropicMessagesAdapter implements ApiAdapter {
     this.client = new Anthropic({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
+      defaultHeaders: config.defaultHeaders,
     });
   }
 

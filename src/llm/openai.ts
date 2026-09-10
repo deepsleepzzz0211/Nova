@@ -22,6 +22,7 @@ export class OpenAIProvider implements LLMProvider {
   constructor(config: ProviderConfig & { compat?: CompatFlags }) {
     this.adapter = new OpenAICompletionsAdapter({
       apiKey: config.apiKey,
+      defaultHeaders: config.defaultHeaders,
       baseUrl: config.baseUrl,
       model: config.model ?? 'gpt-4o',
       // promptCache (top-level) is the deprecated spelling of compat.streamUsage
