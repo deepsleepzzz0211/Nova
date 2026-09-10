@@ -30,3 +30,6 @@ Thumbs.db
 *.swp
 *~
 .scratch/
+
+# Local-only documentation (engineering lessons, working notes)
+docs/

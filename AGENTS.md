@@ -90,6 +90,13 @@ These rules are NON-NEGOTIABLE. Violating any of them is grounds for stopping wo
 4. Ask the user for clarification.
 5. Never "try something and see" — investigate first.
 
+### Lessons Log
+
+- 工程经验教训记录在 `docs/lessons.md`（本地文件，`docs/` 已 gitignore）。
+- 每次失误修复后，必须把教训按“日期 + 失误 + 规则化表述”追加到该文件，
+  再继续下一个任务；不许只记在对话里。
+- 开始一个新任务前，先读该文件末尾的近期条目，避免重犯。
+
 ---
 
 ## Project Conventions
