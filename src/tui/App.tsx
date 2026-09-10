@@ -1,5 +1,5 @@
-import React from 'react';
-import { Box } from 'ink';
+import React, { useState } from 'react';
+import { Box, useInput } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -118,6 +118,22 @@ export function App({
     maxToolRounds,
   });
 
+  // Ctrl+O toggles the expanded state of the most recent tool block
+  // (tui-refactor ticket 05): one global hotkey, no per-block input
+  // handlers, no key competition with the editor.
+  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
+  useInput((inputChar, key) => {
+    if (key.ctrl && inputChar === 'o') {
+      let latestToolId: string | null = null;
+      for (const m of messages) {
+        if (m.toolCalls !== undefined && m.toolCalls.length > 0) {
+          latestToolId = m.toolCalls[m.toolCalls.length - 1].id;
+        }
+      }
+      setExpandedToolId((prev) => (prev === latestToolId ? null : latestToolId));
+    }
+  });
+
   return (
     <Box flexDirection="column" width="100%" height="100%">
       <StatusBar
@@ -131,7 +147,7 @@ export function App({
 
       {todoState && <TodoView todoState={todoState} />}
 
-      <ChatView messages={messages} />
+      <ChatView messages={messages} expandedToolId={expandedToolId} />
 
       <PermissionDialog pending={pendingPermission} />
 

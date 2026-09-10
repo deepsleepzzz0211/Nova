@@ -8,6 +8,8 @@ import { ToolCallView } from './ToolCallView.js';
 export interface MessageBubbleProps {
   /** The message to display. */
   message: DisplayMessage;
+  /** Id of the tool block whose details are expanded (Ctrl+O, App-level). */
+  expandedToolId?: string | null;
 }
 
 /**
@@ -17,7 +19,7 @@ export interface MessageBubbleProps {
  * - Assistant messages: white, rendered with MarkdownText
  * - Tool calls: embedded ToolCallView components
  */
-export function MessageBubble({ message }: MessageBubbleProps): React.ReactElement {
+export function MessageBubble({ message, expandedToolId }: MessageBubbleProps): React.ReactElement {
   if (message.role === 'user') {
     return (
       <Box flexDirection="column" marginY={0}>
@@ -57,7 +59,7 @@ export function MessageBubble({ message }: MessageBubbleProps): React.ReactEleme
       {message.toolCalls !== undefined && message.toolCalls.length > 0 && (
         <Box flexDirection="column">
           {message.toolCalls.map((tc) => (
-            <ToolCallView key={tc.id} toolCall={tc} />
+            <ToolCallView key={tc.id} toolCall={tc} expanded={tc.id === expandedToolId} />
           ))}
         </Box>
       )}
