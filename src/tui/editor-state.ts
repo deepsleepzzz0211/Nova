@@ -22,9 +22,9 @@ export interface EditorState {
   targetCol: number | null;
 }
 
-/** Test helper: jump the cursor to an absolute index. */
-export function seek(s: EditorState, index: number): EditorState {
-  return { ...s, cursor: Math.max(0, Math.min(index, s.text.length)), targetCol: null };
+/** Common post-edit invariant: reset sticky column and browse mode. */
+function afterEdit(s: EditorState, text: string, cursor: number): EditorState {
+  return { ...s, text, cursor, targetCol: null, historyIndex: -1 };
 }
 
 export function createEditorState(): EditorState {
@@ -74,14 +74,12 @@ export function newline(s: EditorState): EditorState {
 
 export function backspace(s: EditorState): EditorState {
   if (s.cursor === 0) return s;
-  const text = s.text.slice(0, s.cursor - 1) + s.text.slice(s.cursor);
-  return { ...s, text, cursor: s.cursor - 1, targetCol: null, historyIndex: -1 };
+  return afterEdit(s, s.text.slice(0, s.cursor - 1) + s.text.slice(s.cursor), s.cursor - 1);
 }
 
 export function deleteForward(s: EditorState): EditorState {
   if (s.cursor >= s.text.length) return s;
-  const text = s.text.slice(0, s.cursor) + s.text.slice(s.cursor + 1);
-  return { ...s, text, targetCol: null, historyIndex: -1 };
+  return afterEdit(s, s.text.slice(0, s.cursor) + s.text.slice(s.cursor + 1), s.cursor);
 }
 
 export function moveLeft(s: EditorState): EditorState {
@@ -122,20 +120,17 @@ export function deleteWordBack(s: EditorState): EditorState {
   // Skip whitespace back, then the word.
   while (i > start && /\s/.test(s.text[i - 1])) i--;
   while (i > start && !/\s/.test(s.text[i - 1])) i--;
-  const text = s.text.slice(0, i) + s.text.slice(s.cursor);
-  return { ...s, text, cursor: i, targetCol: null, historyIndex: -1 };
+  return afterEdit(s, s.text.slice(0, i) + s.text.slice(s.cursor), i);
 }
 
 export function deleteToLineStart(s: EditorState): EditorState {
   const { start } = lineRangeAt(s.text, s.cursor);
-  const text = s.text.slice(0, start) + s.text.slice(s.cursor);
-  return { ...s, cursor: start, text, targetCol: null, historyIndex: -1 };
+  return afterEdit(s, s.text.slice(0, start) + s.text.slice(s.cursor), start);
 }
 
 export function deleteToLineEnd(s: EditorState): EditorState {
   const { end } = lineRangeAt(s.text, s.cursor);
-  const text = s.text.slice(0, s.cursor) + s.text.slice(end);
-  return { ...s, text, targetCol: null, historyIndex: -1 };
+  return afterEdit(s, s.text.slice(0, s.cursor) + s.text.slice(end), s.cursor);
 }
 
 export function historyPrev(s: EditorState): EditorState {
