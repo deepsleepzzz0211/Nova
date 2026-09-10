@@ -121,7 +121,7 @@ export function App({
   // Ctrl+O toggles the expanded state of the most recent tool block
   // (tui-refactor ticket 05): one global hotkey, no per-block input
   // handlers, no key competition with the editor.
-  const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
+  const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(new Set());
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
       let latestToolId: string | null = null;
@@ -130,7 +130,13 @@ export function App({
           latestToolId = m.toolCalls[m.toolCalls.length - 1].id;
         }
       }
-      setExpandedToolId((prev) => (prev === latestToolId ? null : latestToolId));
+      setExpandedToolIds((prev) => {
+        if (latestToolId === null) return prev;
+        const next = new Set(prev);
+        if (next.has(latestToolId)) next.delete(latestToolId);
+        else next.add(latestToolId);
+        return next;
+      });
     }
   });
 
@@ -147,7 +153,7 @@ export function App({
 
       {todoState && <TodoView todoState={todoState} />}
 
-      <ChatView messages={messages} expandedToolId={expandedToolId} />
+      <ChatView messages={messages} expandedToolIds={expandedToolIds} />
 
       <PermissionDialog pending={pendingPermission} />
 

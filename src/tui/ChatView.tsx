@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { Box, Text } from 'ink';
 import type { DisplayMessage } from './hooks/useAgent.js';
 import { MessageBubble } from './MessageBubble.js';
@@ -7,8 +7,8 @@ import { MessageBubble } from './MessageBubble.js';
 export interface ChatViewProps {
   /** List of messages to display. */
   messages: DisplayMessage[];
-  /** Id of the tool block whose details are expanded (Ctrl+O, App-level). */
-  expandedToolId?: string | null;
+  /** Ids of tool blocks whose details are expanded (Ctrl+O, App-level). */
+  expandedToolIds?: ReadonlySet<string>;
 }
 
 /**
@@ -17,18 +17,11 @@ export interface ChatViewProps {
  * Renders all messages and auto-scrolls to the bottom
  * when new content is added.
  */
-export function ChatView({ messages, expandedToolId }: ChatViewProps): React.ReactElement {
-  const bottomRef = useRef<boolean>(true);
-
-  // Track that we should scroll to bottom when messages change
-  useEffect(() => {
-    bottomRef.current = true;
-  }, [messages.length]);
-
+export function ChatView({ messages, expandedToolIds }: ChatViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" flexGrow={1} overflowY="hidden">
       {messages.map((msg, index) => (
-        <MessageBubble key={index} message={msg} expandedToolId={expandedToolId} />
+        <MessageBubble key={index} message={msg} expandedToolIds={expandedToolIds} />
       ))}
       {messages.length === 0 && (
         <Box paddingY={1}>

@@ -53,13 +53,13 @@ export function detectCompletion(text: string, cursor: number): CompletionContex
 }
 
 /** Prefix-filter slash commands (case-insensitive). */
-export function completeCommands(
-  names: ReadonlyArray<string>,
-  query: string,
-): Array<{ name: string; description: string }> {
+export function completeCommands(query: string): Array<{ name: string; description: string }> {
   const q = query.toLowerCase();
   return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q));
 }
+// NOTE: SLASH_COMMANDS here and the string dispatch in useAgent.sendMessage
+// must stay in sync until a shared command registry lands (tracked in the
+// startup-header ticket).
 
 /**
  * Fuzzy-match file paths: query chars must appear in order
