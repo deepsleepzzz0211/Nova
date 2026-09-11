@@ -1,0 +1,28 @@
+test(e2e): TUI interaction suite in a real PTY (ticket e2e-testing 03)
+
+Six interaction cases run the built CLI in a real PTY against a real LLM
+endpoint (xtermjs backend, structural assertions only, isolated NOVA_HOME):
+
+- permission dialog approves a bash call, then Ctrl+O expands the tool
+  block and reveals its output
+- a dangerous bash call shows the pattern warning, hides the always
+  option, and Esc denies it
+- Esc interrupts a streaming answer (the [interrupted] notice appears and
+  the editor is usable again)
+- /undo reverts the last turn on screen
+- a 78-column terminal wraps the editor text instead of truncating it
+  (deterministic, no LLM: runs under the stub-key workspace)
+- /model lists the catalog (deterministic, no LLM)
+
+Product bugs found by these tests and fixed:
+- text plus Enter delivered in ONE stdin chunk was inserted without
+  submitting, so the prompt stayed in the editor (real terminals coalesce
+  input, so this also affected fast typing); a trailing CR now submits
+- Enter was swallowed by the completion popup when the typed text already
+  equalled the completion (/model needed two Enters to submit); Enter
+  now submits when accepting would not change the text
+- status footer lost its separator/spacing when the cost segment rendered
+
+Suite wiring: pnpm test:e2e (10 tests); deterministic cases need no secret,
+LLM cases skip without one. Verified 10/10 green against
+weixin/Deepseek-v4-flash; 666 unit/component tests green.
