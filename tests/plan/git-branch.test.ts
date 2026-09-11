@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { readGitBranch } from '../../src/tui/git-branch.js';
+import { readGitBranch, startBranchRefresh } from '../../src/tui/git-branch.js';
 
 describe('readGitBranch (tui-refactor 09)', () => {
   let dir: string;
@@ -50,5 +50,28 @@ describe('readGitBranch (tui-refactor 09)', () => {
     const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-git3-'));
     expect(readGitBranch(d3)).toBeNull();
     fs.rmSync(d3, { recursive: true, force: true });
+  });
+});
+
+describe('startBranchRefresh (ticket 23)', () => {
+  it('reports the branch on each tick and stops cleanly', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-refresh-'));
+    fs.mkdirSync(path.join(dir, '.git'));
+    fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/first\n');
+
+    const seen: Array<string | null> = [];
+    const stop = startBranchRefresh((branch) => seen.push(branch), 5, dir);
+    await new Promise((r) => setTimeout(r, 30));
+    // A checkout in another terminal is picked up on the next tick.
+    fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/second\n');
+    await new Promise((r) => setTimeout(r, 30));
+    stop();
+    const countAtStop = seen.length;
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(seen[0]).toBe('first');
+    expect(seen).toContain('second');
+    expect(seen.length).toBe(countAtStop); // no ticks after stop
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });

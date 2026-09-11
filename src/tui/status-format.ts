@@ -32,6 +32,11 @@ export interface UsageTotals {
  * write portions at their own rates (falling back to the input rate when
  * the catalog omits them).
  */
+/**
+ * Session cost in USD. Rates are USD per 1M tokens as declared by the model
+ * catalog (`cost` in models.json). Missing cache rates fall back to the input
+ * rate; a model without a price yields null and the footer shows '—'.
+ */
 export function estimateCostUsd(usage: UsageTotals, cost: ModelCost | undefined): number | null {
   if (cost === undefined) return null;
   const cached = usage.cachedInputTokens ?? 0;

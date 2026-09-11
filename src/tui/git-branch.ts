@@ -52,3 +52,16 @@ export function readGitBranch(dir: string): string | null {
     return null;
   }
 }
+
+/**
+ * Refresh the branch on a slow timer (ticket 23): a checkout in another
+ * terminal must eventually show up in the footer. Returns a stop function.
+ */
+export function startBranchRefresh(
+  onChange: (branch: string | null) => void,
+  intervalMs = 15_000,
+  dir: string = process.cwd(),
+): () => void {
+  const timer = setInterval(() => onChange(readGitBranch(dir)), intervalMs);
+  return () => clearInterval(timer);
+}

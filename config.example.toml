@@ -85,3 +85,8 @@ args = ["./server.js"]
 # }
 # Built-in providers (openai / anthropic / ollama) can be redirected by
 # redeclaring them (e.g. only "baseUrl"); their models are kept.
+
+# Model pricing lives in ~/.nova/models.json (optional) and drives the footer
+# cost display; rates are USD per 1M tokens. Missing cache rates fall back to
+# the input rate, and a model without pricing shows '—'.
+#   { "id": "gpt-4.1", "cost": { "input": 2.0, "output": 8.0, "cacheRead": 0.5 } }
