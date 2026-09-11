@@ -128,3 +128,33 @@ describe('InputBar multi-line editor (tui-refactor 02, component)', () => {
     instance.unmount();
   });
 });
+
+describe('InputBar working indicator (tui-refactor 09)', () => {
+  it('shows the working placeholder for streaming and thinking states', async () => {
+    const streaming = render(
+      <InputBar onSubmit={() => {}} isStreaming={true} workingState="streaming" />,
+    );
+    expect(streaming.lastFrame()).toContain('working');
+    streaming.unmount();
+
+    const thinking = render(
+      <InputBar onSubmit={() => {}} isStreaming={true} workingState="thinking" />,
+    );
+    expect(thinking.lastFrame()).toContain('working');
+    thinking.unmount();
+  });
+
+  it('shows the idle placeholder when idle', () => {
+    const instance = render(
+      <InputBar onSubmit={() => {}} isStreaming={false} workingState="idle" />,
+    );
+    expect(instance.lastFrame()).toContain('Type a message');
+    instance.unmount();
+  });
+
+  it('derives streaming state from isStreaming when workingState is omitted', () => {
+    const instance = render(<InputBar onSubmit={() => {}} isStreaming={true} />);
+    expect(instance.lastFrame()).toContain('working');
+    instance.unmount();
+  });
+});

@@ -8,6 +8,7 @@ import type { SessionStore } from '../agent/session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { ThinkingLevel } from '../llm/compat.js';
+import type { ModelCost } from '../llm/catalog.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
@@ -53,6 +54,12 @@ export interface AppProps {
   streamIdleTimeoutMs?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
+  /** Provider name for the footer (optional). */
+  providerName?: string;
+  /** Model pricing for the footer cost estimate (optional). */
+  modelCost?: ModelCost;
+  /** Git branch shown in the footer (read once at startup). */
+  gitBranch?: string | null;
   /** List models for the /model command (returns display text). */
   listModels?: () => string;
   /** Resolve a /model <spec> switch (loop application happens in useAgent). */
@@ -88,6 +95,9 @@ export function App({
   subagentLiveSink,
   streamIdleTimeoutMs,
   thinkingLevel,
+  providerName,
+  modelCost,
+  gitBranch,
   listModels,
   resolveSwitch,
   model,
@@ -95,7 +105,7 @@ export function App({
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
+  const { messages, isStreaming, isThinking, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -115,6 +125,8 @@ export function App({
     listModels,
     resolveSwitch,
     model,
+    providerName,
+    modelCost,
     maxToolRounds,
   });
 
@@ -145,6 +157,11 @@ export function App({
       <StatusBar
         model={modelInfo.model}
         workingDirectory={process.cwd()}
+        gitBranch={gitBranch}
+        providerName={modelInfo.providerName}
+        thinkingLevel={thinkingLevel}
+        contextWindow={modelInfo.contextWindow}
+        modelCost={modelInfo.cost}
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}
         updateNotice={updateNotice ?? undefined}
@@ -160,6 +177,7 @@ export function App({
       <InputBar
         onSubmit={sendMessage}
         isStreaming={isStreaming}
+        workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}
         onExit={() => process.exit(0)}
       />

@@ -38,10 +38,20 @@ const BUILTIN_CONTEXT_WINDOW: Record<string, number> = {
   ollama: 32_768,
 };
 
+/** Model pricing, USD per 1M tokens (optional; drives the footer cost). */
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 /** A model entry as declared in models.json. */
 export interface ModelCatalogEntry {
   id: string;
   name?: string;
+  /** Pricing for the session-cost estimate (absent = cost hidden). */
+  cost?: ModelCost;
   /** Override the provider's wire API for this model. */
   api?: ApiId;
   contextWindow?: number;
@@ -81,6 +91,8 @@ export interface ResolvedModelInfo {
   contextWindow: number;
   maxTokens: number;
   reasoning: boolean;
+  /** Optional pricing (USD / 1M tokens) for the footer cost segment. */
+  cost?: ModelCost;
   thinkingLevelMap?: ThinkingLevelMap;
   compat: NormalizedCompat;
 }
@@ -282,6 +294,7 @@ export function resolveModel(selection: ModelSelection, catalog: ModelCatalog): 
       contextWindow: modelEntry?.contextWindow ?? defaultContextWindow(selection.provider),
       maxTokens: modelEntry?.maxTokens ?? 16_384,
       reasoning: modelEntry?.reasoning ?? false,
+      cost: modelEntry?.cost,
       thinkingLevelMap: modelEntry?.thinkingLevelMap,
       compat: normalizeCompat(compatFlags),
     },

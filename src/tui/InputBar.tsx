@@ -44,6 +44,8 @@ export interface InputBarProps {
   onSubmit: (input: string) => void;
   /** Whether the agent is currently streaming a response. */
   isStreaming: boolean;
+  /** Working indicator state driving the editor border color. */
+  workingState?: 'idle' | 'streaming' | 'thinking';
   /** Called when the user presses Escape while a response is streaming. */
   onInterrupt?: () => void;
   /** Called when the user presses Ctrl+C on an empty editor (app exit). */
@@ -62,7 +64,14 @@ export interface InputBarProps {
  * - Enter submits; Esc interrupts a streaming response
  * - Ctrl+C clears the editor; Ctrl+C on an empty editor exits (pi semantics)
  */
-export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndexRoot }: InputBarProps): React.ReactElement {
+export function InputBar({
+  onSubmit,
+  isStreaming,
+  workingState,
+  onInterrupt,
+  onExit,
+  fileIndexRoot,
+}: InputBarProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>(createEditorState);
   // Mirror of the editor state, updated synchronously by `update`. Handlers
   // must read `editorRef.current`, never the render closure's `editor`:
@@ -248,7 +257,7 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndex
   return (
     <EditorView
       editor={editor}
-      isStreaming={isStreaming}
+      workingState={workingState ?? (isStreaming ? 'streaming' : 'idle')}
       completion={completion}
       onSelect={(i) => setCompletion((c) => (c === null ? c : { ...c, index: i }))}
     />
@@ -258,25 +267,30 @@ export function InputBar({ onSubmit, isStreaming, onInterrupt, onExit, fileIndex
 /** Renders the multi-line editor content with a fake block cursor + completion list. */
 function EditorView({
   editor,
-  isStreaming,
+  workingState,
   completion,
   onSelect,
 }: {
   editor: EditorState;
-  isStreaming: boolean;
+  workingState: 'idle' | 'streaming' | 'thinking';
   completion: ActiveCompletion | null;
   onSelect: (index: number) => void;
 }): React.ReactElement {
   const lines = editor.text.split('\n');
   const cursorRow = cursorLine(editor);
   const cursorCol = cursorColumn(editor);
-  const borderColor = isStreaming ? 'gray' : 'cyan';
+  // Working indicator: the editor border doubles as the activity light
+  // (tui-refactor ticket 09, pi-style).
+  const borderColor =
+    workingState === 'thinking' ? 'magenta' : workingState === 'streaming' ? 'yellow' : 'cyan';
 
   return (
     <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column">
       {editor.text.length === 0 ? (
         <Text color="gray" dimColor>
-          {isStreaming ? '(waiting for response... — type anyway)' : 'Type a message... (Shift+Enter for newline)'}
+          {workingState !== 'idle'
+            ? '(working… — you can still type)'
+            : 'Type a message... (Shift+Enter for newline)'}
         </Text>
       ) : (
         lines.map((line, row) => {
