@@ -11,6 +11,7 @@ import { App } from './tui/App.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import { readGitBranch } from './tui/status-format.js';
 import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
@@ -307,6 +308,9 @@ async function main(): Promise<void> {
       streamIdleTimeoutMs={config.llm.streamIdleTimeoutMs}
       contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
       thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
+      providerName={resolution.name}
+      modelCost={resolution.model.cost}
+      gitBranch={readGitBranch(process.cwd())}
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}

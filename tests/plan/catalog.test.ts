@@ -241,3 +241,28 @@ describe('ModelCatalog user file', () => {
     expect(r.api).toBe('openai-completions');
   });
 });
+
+describe('model cost metadata (tui-refactor 09)', () => {
+  it('resolves declared model cost into ResolvedModelInfo', () => {
+    const catalog: ModelCatalog = {
+      providers: {
+        p: {
+          api: 'openai-completions',
+          models: [
+            { id: 'm', cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 } },
+          ],
+        },
+      },
+    };
+    const resolved = resolveModel({ provider: 'p', model: 'm' }, catalog);
+    expect(resolved.model.cost).toEqual({ input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 });
+  });
+
+  it('leaves cost undefined when the catalog declares none', () => {
+    const catalog: ModelCatalog = {
+      providers: { p: { api: 'openai-completions', models: [{ id: 'm' }] } },
+    };
+    const resolved = resolveModel({ provider: 'p', model: 'm' }, catalog);
+    expect(resolved.model.cost).toBeUndefined();
+  });
+});

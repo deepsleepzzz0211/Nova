@@ -10,6 +10,7 @@ import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 import { StreamBatcher } from '../stream-batcher.js';
 import type { ThinkingLevel } from '../../llm/compat.js';
+import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
 import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
@@ -73,9 +74,13 @@ export interface UseAgentConfig {
   listModels?: () => string;
   /** Resolve a /model <spec> switch (loop application happens here). */
   resolveSwitch?: (spec: string) =>
-    | { ok: true; llm: import('../../llm/provider.js').LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+    | { ok: true; llm: import('../../llm/provider.js').LLMProvider; model: string; contextWindow: number; providerName: string; cost?: import('../../llm/catalog.js').ModelCost; message: string }
     | { ok: false; message: string };
   model: string;
+  /** Provider name for the footer (optional). */
+  providerName?: string;
+  /** Model pricing for the footer cost estimate (optional). */
+  modelCost?: ModelCost;
   maxToolRounds: number;
 }
 
@@ -85,12 +90,18 @@ export interface CacheStatsView {
   latestHitRate: number;
   totalCachedTokens: number;
   totalCacheWriteTokens: number;
+  /** Total prompt tokens seen this session (footer ↑). */
+  totalInputTokens: number;
+  /** Total completion tokens seen this session (footer ↓). */
+  totalOutputTokens: number;
 }
 
 /** Return type of the useAgent hook. */
 export interface UseAgentResult {
   messages: DisplayMessage[];
   isStreaming: boolean;
+  /** Whether the model is emitting reasoning (thinking) deltas. */
+  isThinking: boolean;
   sendMessage: (input: string) => void;
   /** Interrupt the in-flight LLM stream (Esc). */
   interrupt: () => void;
@@ -98,7 +109,7 @@ export interface UseAgentResult {
   /** Live prompt-cache metrics (R/W/CH). */
   cacheStats: CacheStatsView;
   /** Active model selection (updated by /model). */
-  modelInfo: { model: string; contextWindow?: number; providerName: string };
+  modelInfo: { model: string; contextWindow?: number; providerName: string; cost?: ModelCost };
   /** Live subagent activity line (or null when idle). */
   subagentActivity: string | null;
 }
@@ -118,15 +129,24 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     latestHitRate: 0,
     totalCachedTokens: 0,
     totalCacheWriteTokens: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
-  const [modelInfo, setModelInfo] = useState<{ model: string; contextWindow?: number; providerName: string }>({
+  const [modelInfo, setModelInfo] = useState<{
+    model: string;
+    contextWindow?: number;
+    providerName: string;
+    cost?: ModelCost;
+  }>({
     model: config.model,
     contextWindow: config.contextWindow,
-    providerName: '',
+    providerName: config.providerName ?? '',
+    cost: config.modelCost,
   });
 
   // Ref to track the current assistant message being built during streaming
+  const [isThinking, setIsThinking] = useState(false);
   const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
 
@@ -166,6 +186,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     });
 
     const onToken = (token: string): void => {
+      setIsThinking(false);
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
@@ -174,6 +195,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     };
 
     const onThinking = (delta: string): void => {
+      setIsThinking(true);
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
@@ -325,6 +347,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           latestHitRate: m.latestHitRate,
           totalCachedTokens: m.totalCachedTokens,
           totalCacheWriteTokens: m.totalCacheWriteTokens,
+          totalInputTokens: m.totalInputTokens,
+          totalOutputTokens: m.totalOutputTokens,
         });
       },
       onCompaction: (info) => {
@@ -409,7 +433,12 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           loop.setProvider(result.llm);
           loop.setModel(result.model);
         }
-        setModelInfo({ model: result.model, contextWindow: result.contextWindow, providerName: result.providerName });
+        setModelInfo({
+          model: result.model,
+          contextWindow: result.contextWindow,
+          providerName: result.providerName,
+          cost: result.cost,
+        });
       }
       setMessages((prev) => [...prev, { role: 'system' as const, content: result?.message ?? 'Model switching unavailable.' }]);
       return;
@@ -470,11 +499,13 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         // message for the next round (streaming ticket 06).
         batcher.flushNow();
         currentAssistantRef.current = null;
+        setIsThinking(false);
         setIsStreaming(false);
       },
       (err: unknown) => {
         batcher.flushNow();
         currentAssistantRef.current = null;
+        setIsThinking(false);
         setIsStreaming(false);
         // Errors must be visible, never swallowed (AGENTS: error handling
         // is implemented, not deferred).
@@ -487,6 +518,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   return {
     messages,
     isStreaming,
+    isThinking,
     sendMessage,
     interrupt: () => loopRef.current?.interrupt(),
     pendingPermission,
