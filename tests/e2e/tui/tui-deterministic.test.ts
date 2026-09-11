@@ -141,4 +141,42 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       cleanup(cwd);
     }
   });
+
+  it('fullscreen mode renders a scrollable viewport with a long history', async () => {
+    // Deterministic: the history is written by hand, no LLM involved.
+    const cwd = makeWorkspace({ stubKey: true });
+    const sessionsDir = path.join(cwd, '.nova', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const lines: string[] = [];
+    for (let i = 1; i <= 30; i++) {
+      lines.push(JSON.stringify({ role: 'user', content: 'HISTORY-USER-' + String(i) }));
+      lines.push(JSON.stringify({ role: 'assistant', content: 'HISTORY-ANSWER-' + String(i) }));
+    }
+    fs.writeFileSync(
+      path.join(sessionsDir, 'session-2020-01-01T00-00-00-000Z.jsonl'),
+      lines.join('\n') + '\n',
+      'utf-8',
+    );
+
+    const terminal = await launchTui(cwd, { cols: 100, rows: 24, args: ['--resume', '--tui-mode', 'fullscreen'] });
+    try {
+      // The newest message is visible (follow-end) ...
+      await terminal.getByText('HISTORY-ANSWER-30', { regex: false }).expect({ timeout: 30_000 });
+      // ... and the earlier ones are hidden behind the viewport hint.
+      expect(await terminal.text()).toContain('earlier message');
+      // PageUp scrolls back into the history.
+      await terminal.keyboard.press('PageUp');
+      await terminal.keyboard.press('PageUp');
+      await new Promise((r) => setTimeout(r, 400));
+      const scrolled = await terminal.text();
+      expect(scrolled).not.toContain('HISTORY-ANSWER-30');
+      expect(scrolled).toMatch(/HISTORY-(ANSWER|USER)-\d+/);
+      // The editor stays usable in fullscreen.
+      await terminal.getByText('Type a message', { regex: true }).expect();
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
 });

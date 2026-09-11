@@ -50,6 +50,7 @@ async function main(): Promise<void> {
       resume: { type: 'boolean', short: 'r' },
       list: { type: 'boolean' },
       'no-header': { type: 'boolean' },
+      'tui-mode': { type: 'string' },
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
@@ -391,6 +392,11 @@ async function main(): Promise<void> {
   // (the E2E harness sets it); normal runs pass undefined and keep Ink's
   // automatic detection.
   const forceInteractive = process.env.NOVA_FORCE_INTERACTIVE === '1';
+  // Fullscreen (alternate-screen) mode: fixed-viewport transcript with
+  // PageUp/PageDown scrolling (ticket 12, route proven by the ticket-25
+  // spike). Ink requires interactive mode for alternateScreen, so requesting
+  // it forces interactive regardless of CI detection.
+  const fullscreen = values['tui-mode'] === 'fullscreen';
   const { waitUntilExit } = render(
     <App
       llm={llm}
@@ -418,8 +424,13 @@ async function main(): Promise<void> {
       model={config.llm.model}
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}
+      fullscreen={fullscreen}
     />,
-    forceInteractive ? { interactive: true } : undefined,
+    fullscreen
+      ? { alternateScreen: true, interactive: true }
+      : forceInteractive
+        ? { interactive: true }
+        : undefined,
   );
 
   await waitUntilExit();
