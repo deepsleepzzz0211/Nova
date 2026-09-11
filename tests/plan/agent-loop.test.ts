@@ -978,3 +978,33 @@ class MemorySessionStore {
   }
   async close(): Promise<void> {}
 }
+
+describe('AgentLoop context reporting (ticket 22)', () => {
+  it('reports the real context size and trigger budget after a turn', async () => {
+    const seen: Array<{ tokens: number; trigger: number }> = [];
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 10, model: 'test' },
+      context: { maxTokens: 10_000, reserveTokens: 2_000, keepRecentTokens: 1_000, strategy: 'truncate' },
+      onContextSize: (tokens, trigger) => seen.push({ tokens, trigger }),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+
+    await loop.processUserInput('hello');
+    expect(seen.length).toBeGreaterThan(0);
+    const last = seen[seen.length - 1];
+    // A real count of the conversation, and the reserve-adjusted trigger.
+    expect(last.tokens).toBeGreaterThan(0);
+    expect(last.trigger).toBe(8_000);
+  });
+});

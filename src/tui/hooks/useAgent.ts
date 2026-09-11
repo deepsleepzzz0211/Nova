@@ -100,8 +100,10 @@ export interface CacheStatsView {
   totalInputTokens: number;
   /** Total completion tokens seen this session (footer ↓). */
   totalOutputTokens: number;
-  /** Prompt size of the most recent request (current context usage). */
+  /** Real context size in tokens (from the context manager). */
   contextTokens: number;
+  /** Token budget at which automatic compaction triggers. */
+  contextTriggerTokens?: number;
 }
 
 /** Return type of the useAgent hook. */
@@ -337,6 +339,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       onToolResult,
       onPermissionRequest,
       onThinking,
+      onContextSize: (tokens, triggerTokens) => {
+        setCacheStats((prev) => ({ ...prev, contextTokens: tokens, contextTriggerTokens: triggerTokens }));
+      },
       onUsage: (usage) => {
         metricsRef.current.record(usage);
         const m = metricsRef.current;

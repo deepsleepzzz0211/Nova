@@ -86,6 +86,20 @@ describe('StatusBar three-segment footer (tui-refactor 09)', () => {
     expect(lastFrame()).toContain('—');
   });
 
+  it('warns when the context is close to the compaction trigger', () => {
+    const { lastFrame } = render(
+      <StatusBar
+        model="m"
+        workingDirectory="/w"
+        mcpConnectionCount={0}
+        cacheStats={{ ...cacheStats, contextTokens: 9_000, contextTriggerTokens: 10_000, totalInputTokens: 9_000 }}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('ctx 90%');
+    expect(frame).toContain('⚠');
+  });
+
   it('renders without cache stats (nothing measured yet)', () => {
     const { lastFrame } = render(
       <StatusBar model="m" workingDirectory="/w" mcpConnectionCount={0} />,

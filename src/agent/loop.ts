@@ -59,6 +59,12 @@ export interface AgentLoopConfig {
   onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
   /** Notified once per turn with aggregated provider usage (cache metrics). */
   onUsage?: (usage: TurnUsage) => void;
+  /**
+   * Current context size in tokens (real count from the context manager, not
+   * an estimate from provider usage). Reported after each round and after a
+   * compaction, so the footer can show an accurate gauge (ticket 22).
+   */
+  onContextSize?: (tokens: number, triggerTokens: number) => void;
   /** Notified per thinking delta (reasoning stream, streaming ticket 03). */
   onThinking?: (delta: string) => void;
   /**
@@ -95,6 +101,7 @@ export class AgentLoop {
   private readonly promptOptions: BuildPromptOptions;
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onUsage: AgentLoopConfig['onUsage'];
+  private readonly onContextSize: AgentLoopConfig['onContextSize'];
   private readonly onThinking: AgentLoopConfig['onThinking'];
   private readonly onToolCallReady: AgentLoopConfig['onToolCallReady'];
   private readonly thinkingLevel?: ThinkingLevel;
@@ -141,6 +148,7 @@ export class AgentLoop {
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
+    this.onContextSize = options.onContextSize;
     this.onThinking = options.onThinking;
     this.onToolCallReady = options.onToolCallReady;
     this.thinkingLevel = options.thinkingLevel;
@@ -538,6 +546,15 @@ export class AgentLoop {
     return { text: '', rounds };
   }
 
+  /** Report the real context size to the UI (ticket 22). */
+  private emitContextSize(): void {
+    if (!this.contextManager || this.onContextSize === undefined) return;
+    this.onContextSize(
+      this.contextManager.countTokens(this.messages),
+      this.contextManager.triggerTokens,
+    );
+  }
+
   /** Report aggregated per-turn usage to the cache metrics listener. */
   private emitUsage(usage: {
     inputTokens: number;
@@ -545,6 +562,9 @@ export class AgentLoop {
     cachedInputTokens?: number;
     cacheWriteTokens?: number;
   }): void {
+    // Report the context size BEFORE the zero-usage guard: providers may not
+    // report usage at all, and a stale footer gauge would be misleading.
+    this.emitContextSize();
     if (usage.inputTokens === 0 && usage.outputTokens === 0) return;
     this.onUsage?.({
       inputTokens: usage.inputTokens,
