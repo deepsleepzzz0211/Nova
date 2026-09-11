@@ -18,25 +18,39 @@ export type { ThinkingLevel, ThinkingLevelMap } from './compat.js';
  */
 
 /** Built-in provider → default wire API. */
-export const BUILTIN_PROVIDER_API: Record<string, ApiId> = {
-  openai: 'openai-completions',
-  anthropic: 'anthropic-messages',
-  ollama: 'ollama',
+/** Built-in provider defaults — ONE table (ticket 21). */
+export const BUILTIN_PROVIDERS: Record<
+  string,
+  { api: ApiId; baseUrl?: string; contextWindow: number; models?: string[] }
+> = {
+  openai: {
+    api: 'openai-completions',
+    baseUrl: 'https://api.openai.com/v1',
+    contextWindow: 128_000,
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
+  },
+  anthropic: {
+    api: 'anthropic-messages',
+    contextWindow: 200_000,
+    models: [
+      'claude-3-5-sonnet-20241022',
+      'claude-3-opus-20240229',
+      'claude-3-sonnet-20240229',
+      'claude-3-haiku-20240307',
+    ],
+  },
+  ollama: {
+    api: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    contextWindow: 32_768,
+    models: ['llama3', 'llama2', 'codellama', 'mistral', 'mixtral'],
+  },
 };
 
-/** Built-in default base URLs (undefined = SDK default). */
-const BUILTIN_BASE_URL: Record<string, string | undefined> = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: undefined,
-  ollama: 'http://localhost:11434',
-};
-
-/** Built-in default base URLs per provider (undefined = SDK default). */
-const BUILTIN_CONTEXT_WINDOW: Record<string, number> = {
-  openai: 128_000,
-  anthropic: 200_000,
-  ollama: 32_768,
-};
+/** Built-in provider → default wire API (kept for callers/tests). */
+export const BUILTIN_PROVIDER_API: Record<string, ApiId> = Object.fromEntries(
+  Object.entries(BUILTIN_PROVIDERS).map(([name, entry]) => [name, entry.api]),
+);
 
 /** Model pricing, USD per 1M tokens (optional; drives the footer cost). */
 export interface ModelCost {
@@ -46,7 +60,6 @@ export interface ModelCost {
   cacheWrite?: number;
 }
 
-/** A model entry as declared in models.json. */
 export interface ModelCatalogEntry {
   id: string;
   name?: string;
@@ -120,34 +133,18 @@ export interface ModelSelection {
   apiKey?: string;
 }
 
-function builtinModels(provider: string): ModelCatalogEntry[] {
-  switch (provider) {
-    case 'openai':
-      return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'].map((id) => ({ id }));
-    case 'anthropic':
-      return [
-        'claude-3-5-sonnet-20241022',
-        'claude-3-opus-20240229',
-        'claude-3-sonnet-20240229',
-        'claude-3-haiku-20240307',
-      ].map((id) => ({ id }));
-    case 'ollama':
-      return ['llama3', 'llama2', 'codellama', 'mistral', 'mixtral'].map((id) => ({ id }));
-    default:
-      return [];
-  }
-}
-
 function builtinEntry(provider: string): ProviderCatalogEntry {
+  const entry = BUILTIN_PROVIDERS[provider];
+  if (entry === undefined) return { models: [] };
   return {
-    baseUrl: BUILTIN_BASE_URL[provider],
-    api: BUILTIN_PROVIDER_API[provider],
-    models: builtinModels(provider),
+    baseUrl: entry.baseUrl,
+    api: entry.api,
+    models: (entry.models ?? []).map((id) => ({ id })),
   };
 }
 
 export function defaultContextWindow(provider: string): number {
-  return BUILTIN_CONTEXT_WINDOW[provider] ?? 128_000;
+  return BUILTIN_PROVIDERS[provider]?.contextWindow ?? 128_000;
 }
 
 /**
