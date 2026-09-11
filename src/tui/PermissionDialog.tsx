@@ -4,6 +4,7 @@ import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
 import { describeCall, dangerReason } from './permission-display.js';
 import { parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
+import { theme } from './theme.js';
 
 /** Props for the PermissionDialog component. */
 export interface PermissionDialogProps {
@@ -95,20 +96,20 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
     <Box
       flexDirection="column"
       borderStyle="double"
-      borderColor={warning !== null ? 'red' : 'yellow'}
+      borderColor={warning !== null ? theme.error : theme.warning}
       paddingX={1}
       marginY={1}
     >
-      <Text bold color={warning !== null ? 'red' : 'yellow'}>Permission Required</Text>
+      <Text bold color={warning !== null ? theme.error : theme.warning}>Permission Required</Text>
 
       <Box marginTop={1}>
-        <Text bold color="cyan">{pending.call.function.name}</Text>
-        <Text color="white"> {description}</Text>
+        <Text bold color={theme.primary}>{pending.call.function.name}</Text>
+        <Text color={theme.assistantMessage}> {description}</Text>
       </Box>
 
       {warning !== null && (
         <Box marginTop={0}>
-          <Text color="red" bold>Warning: {warning}</Text>
+          <Text color={theme.error} bold>Warning: {warning}</Text>
         </Box>
       )}
 
@@ -117,7 +118,7 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
           <Box key={opt.key} paddingLeft={1}>
             <Text
               inverse={i === effectiveSelected}
-              color={opt.decision === 'deny' ? 'red' : opt.decision === 'always' ? 'yellow' : 'green'}
+              color={opt.decision === 'deny' ? theme.error : opt.decision === 'always' ? theme.warning : theme.success}
               bold={i === effectiveSelected}
             >
               {opt.key}. {opt.label}

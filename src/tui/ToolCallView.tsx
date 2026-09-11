@@ -11,6 +11,7 @@ import {
   STATUS_STYLE,
   type DisplayKindResolver,
 } from './tool-summary.js';
+import { theme } from './theme.js';
 
 /** Props for the ToolCallView component. */
 export interface ToolCallViewProps {
@@ -53,32 +54,32 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
     <Box flexDirection="column" marginY={0} paddingLeft={2}>
       <Box>
         <Text color={statusColor}>{statusIcon} </Text>
-        <Text bold color="yellow">{toolCall.name}</Text>
-        {!expanded && <Text color="gray" dimColor> {summary}</Text>}
+        <Text bold color={theme.toolTitle}>{toolCall.name}</Text>
+        {!expanded && <Text color={theme.muted} dimColor> {summary}</Text>}
       </Box>
 
       {expanded && diffView !== null && (
         <Box flexDirection="column" paddingLeft={3}>
-          <Text color="gray" dimColor>{diffView.header}</Text>
+          <Text color={theme.diffHeader} dimColor>{diffView.header}</Text>
           {folded.lines.map((line, i) => (
             <DiffLineRow key={i} line={line} />
           ))}
           {folded.hidden > 0 && (
-            <Text color="gray" dimColor>{`... (${folded.hidden} more diff lines)`}</Text>
+            <Text color={theme.muted} dimColor>{`... (${folded.hidden} more diff lines)`}</Text>
           )}
         </Box>
       )}
 
       {expanded && diffView === null && (
         <Box flexDirection="column" paddingLeft={3}>
-          <Text color="gray" dimColor>{argsDisplay}</Text>
+          <Text color={theme.toolOutput} dimColor>{argsDisplay}</Text>
         </Box>
       )}
 
       {toolCall.result !== undefined && expanded && (
         <Box flexDirection="column" paddingLeft={3} marginTop={0}>
-          <Text color="gray">Result:</Text>
-          <Text color={toolCall.status === 'error' ? 'red' : 'white'}>
+          <Text color={theme.muted}>Result:</Text>
+          <Text color={toolCall.status === 'error' ? theme.toolError : theme.toolOutput}>
             {foldLines(toolCall.result, 20).text}
           </Text>
         </Box>
@@ -92,20 +93,20 @@ function DiffLineRow({ line }: { line: DiffLine }): React.ReactElement {
   if (line.kind === 'add') {
     return (
       <Box>
-        <Text color="green">{'+ '}</Text>
-        <Text color="green">{line.text}</Text>
+        <Text color={theme.diffAdded}>{`+ `}</Text>
+        <Text color={theme.diffAdded}>{line.text}</Text>
       </Box>
     );
   }
   if (line.kind === 'del') {
     return (
       <Box>
-        <Text color="red">{'- '}</Text>
-        <Text color="red">{line.text}</Text>
+        <Text color={theme.diffRemoved}>{`- `}</Text>
+        <Text color={theme.diffRemoved}>{line.text}</Text>
       </Box>
     );
   }
-  return <Text color="gray" dimColor>{line.text}</Text>;
+  return <Text color={theme.diffContext} dimColor>{line.text}</Text>;
 }
 
 /** Ticks 80ms while active; frozen at 0 otherwise. */

@@ -8,6 +8,7 @@ import {
   type MdBlock,
   type HighlightSegment,
 } from './markdown.js';
+import { theme } from './theme.js';
 
 /** Props for the MarkdownText component. */
 export interface MarkdownTextProps {
@@ -36,7 +37,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     case 'heading':
       return (
         <Box marginY={0}>
-          <Text bold color="cyan">
+          <Text bold color={theme.mdHeading}>
             {inlineText(block.text)}
           </Text>
         </Box>
@@ -46,7 +47,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
         <Box flexDirection="column">
           {block.items.map((item, i) => (
             <Box key={i} paddingLeft={2}>
-              <Text color="gray">
+              <Text color={theme.mdListBullet}>
                 {block.ordered === true ? `${(block.start ?? 1) + i}. ` : '• '}
               </Text>
               <Text>{inlineText(item)}</Text>
@@ -57,7 +58,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     case 'quote':
       return (
         <Box paddingLeft={2}>
-          <Text color="gray" italic>
+          <Text color={theme.mdQuote} italic>
             {inlineText(block.text)}
           </Text>
         </Box>
@@ -67,7 +68,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     case 'rule':
       return (
         <Box>
-          <Text color="gray" dimColor>{'─'.repeat(24)}</Text>
+          <Text color={theme.muted} dimColor>{'─'.repeat(24)}</Text>
         </Box>
       );
     case 'table':
@@ -75,7 +76,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
         <Box flexDirection="column">
           {block.rows.map((row, i) => (
             <Box key={i}>
-              <Text bold={i === 0} color={i === 0 ? 'cyan' : undefined}>
+              <Text bold={i === 0} color={i === 0 ? theme.mdTableHeader : undefined}>
                 {row.join(' | ')}
               </Text>
             </Box>
@@ -99,7 +100,7 @@ function CodeBlock({ block }: { block: Extract<MdBlock, { kind: 'code' }> }): Re
     <Box flexDirection="column" marginY={0} paddingLeft={1}>
       {segments.map((line, i) => (
         <Box key={i}>
-          <Text color="gray" dimColor>{'│ '}</Text>
+          <Text color={theme.mdCode} dimColor>{'│ '}</Text>
           {line.length === 0 ? (
             <Text> </Text>
           ) : (

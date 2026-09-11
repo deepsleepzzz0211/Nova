@@ -5,6 +5,7 @@ import { MessageBubble } from './MessageBubble.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { partitionMessages } from './message-partition.js';
 import { viewportSlice } from './viewport.js';
+import { theme } from './theme.js';
 
 /** Props for the ChatView component. */
 export interface ChatViewProps {
@@ -65,7 +66,7 @@ export function ChatView({
     <Box flexDirection="column" flexGrow={1}>
       {windowed !== null && windowed.hiddenAbove > 0 && (
         <Box paddingLeft={2}>
-          <Text color="gray" dimColor>
+          <Text color={theme.muted} dimColor>
             {`↑ ${windowed.hiddenAbove} earlier message(s) — PageUp/PageDown to scroll`}
           </Text>
         </Box>
@@ -100,7 +101,7 @@ export function ChatView({
       {messages.length === 0 && (
         <Box paddingY={1}>
           <Box paddingLeft={2}>
-            <Text color="gray" dimColor>
+            <Text color={theme.muted} dimColor>
               Welcome to Nova. Type a message to get started.
             </Text>
           </Box>

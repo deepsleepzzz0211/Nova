@@ -4,6 +4,7 @@ import type { DisplayMessage } from './display-types.js';
 import { MarkdownText } from './MarkdownText.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { ToolCallView } from './ToolCallView.js';
+import { theme } from './theme.js';
 
 /** Props for the MessageBubble component. */
 export interface MessageBubbleProps {
@@ -27,8 +28,8 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
     return (
       <Box flexDirection="column" marginY={0}>
         <Box>
-          <Text color="blue" bold>{'> '}</Text>
-          <Text color="blue">{message.content}</Text>
+          <Text color={theme.userMessage} bold>{'> '}</Text>
+          <Text color={theme.userMessage}>{message.content}</Text>
         </Box>
       </Box>
     );
@@ -39,7 +40,7 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
   if (message.role === 'system') {
     return (
       <Box marginY={0} paddingLeft={2}>
-        <Text color="gray" dimColor italic>{message.content}</Text>
+        <Text color={theme.systemNotice} dimColor italic>{message.content}</Text>
       </Box>
     );
   }
@@ -49,7 +50,7 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
     <Box flexDirection="column" marginY={0}>
       {message.thinking && (
         <Box paddingLeft={0}>
-          <Text color="gray" dimColor italic>{message.thinking}</Text>
+          <Text color={theme.thinking} dimColor italic>{message.thinking}</Text>
         </Box>
       )}
       {message.content.length > 0 && (
