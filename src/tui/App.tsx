@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, useInput } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
@@ -61,6 +61,8 @@ export interface AppProps {
   modelCost?: ModelCost;
   /** Git branch shown in the footer (read once at startup). */
   gitBranch?: string | null;
+  /** Fullscreen (alternate-screen) mode: transcript gets a fixed viewport. */
+  fullscreen?: boolean;
   /** List models for the /model command (returns display text). */
   listModels?: () => string;
   /** Resolve a /model <spec> switch (loop application happens in useAgent). */
@@ -99,6 +101,7 @@ export function App({
   providerName,
   modelCost,
   gitBranch,
+  fullscreen,
   listModels,
   resolveSwitch,
   model,
@@ -131,10 +134,23 @@ export function App({
     maxToolRounds,
   });
 
+  // Follow-end: a new message snaps the fullscreen viewport back to the
+  // newest content (pi-style), so streaming output is always visible.
+  const lastMessageCount = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length !== lastMessageCount.current) {
+      lastMessageCount.current = messages.length;
+      setScrollOffset(0);
+    }
+  }, [messages.length]);
+
   // Ctrl+O toggles the expanded state of the most recent tool block
   // (tui-refactor ticket 05): one global hotkey, no per-block input
   // handlers, no key competition with the editor.
   const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(new Set());
+  // Fullscreen transcript scroll: messages scrolled back from the newest.
+  // Follow-end (0) is the default and stays sticky until the user scrolls up.
+  const [scrollOffset, setScrollOffset] = useState(0);
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
@@ -151,6 +167,11 @@ export function App({
         else next.add(toolId);
         return next;
       });
+    }
+    if (fullscreen && (key.pageUp || key.pageDown)) {
+      // Scroll the transcript window by a page; the editor keeps the arrows.
+      const page = Math.max(1, Math.floor((process.stdout.rows ?? 30) / 2));
+      setScrollOffset((prev) => (key.pageUp ? prev + page : Math.max(0, prev - page)));
     }
   });
 
@@ -178,6 +199,7 @@ export function App({
         expandedToolIds={expandedToolIds}
         displayKind={displayKind}
         staticEpoch={staticEpoch}
+        viewport={fullscreen ? { scrollOffset, terminalRows: process.stdout.rows ?? 30 } : undefined}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />

@@ -4,6 +4,7 @@ import type { DisplayMessage } from './display-types.js';
 import { MessageBubble } from './MessageBubble.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { partitionMessages } from './message-partition.js';
+import { viewportSlice } from './viewport.js';
 
 /** Props for the ChatView component. */
 export interface ChatViewProps {
@@ -25,6 +26,12 @@ export interface ChatViewProps {
    * region does not re-render on stream deltas).
    */
   renderProbe?: (region: 'static' | 'live', message: DisplayMessage) => void;
+  /**
+   * Fullscreen viewport (ticket 12): when present, only the messages that fit
+   * the terminal rows are rendered, anchored at the newest unless the user
+   * scrolled back. Auto-scroll stays in control of the offset.
+   */
+  viewport?: { scrollOffset: number; terminalRows: number };
 }
 
 /**
@@ -39,12 +46,34 @@ export function ChatView({
   displayKind,
   staticEpoch = 0,
   renderProbe,
+  viewport,
 }: ChatViewProps): React.ReactElement {
-  const { staticItems, liveItems } = partitionMessages(messages);
+  // Fullscreen: slice the conversation to the visible window. Auto-scroll
+  // (App) keeps the offset at the end while streaming.
+  const windowed = viewport !== undefined
+    ? viewportSlice(messages, {
+        // Conservative budget: status bar + editor + hint + estimation slack.
+        rows: Math.max(3, viewport.terminalRows - 8),
+        offset: viewport.scrollOffset,
+        expandedToolIds,
+      })
+    : null;
+  const visibleMessages = windowed?.messages ?? messages;
+  const { staticItems, liveItems } = partitionMessages(visibleMessages);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
-      <Static key={staticEpoch} items={staticItems}>
+      {windowed !== null && windowed.hiddenAbove > 0 && (
+        <Box paddingLeft={2}>
+          <Text color="gray" dimColor>
+            {`↑ ${windowed.hiddenAbove} earlier message(s) — PageUp/PageDown to scroll`}
+          </Text>
+        </Box>
+      )}
+      {/* Fullscreen windows the conversation itself, so Static (append-only)
+          is skipped there; the regular mode still writes each completed
+          message once. */}
+      <Static key={staticEpoch} items={windowed !== null ? [] : staticItems}>
         {(msg, index) => {
           renderProbe?.('static', msg);
           return (
@@ -57,7 +86,7 @@ export function ChatView({
           );
         }}
       </Static>
-      {liveItems.map((msg, index) => {
+      {(windowed !== null ? visibleMessages : liveItems).map((msg, index) => {
         renderProbe?.('live', msg);
         return (
           <MessageBubble
