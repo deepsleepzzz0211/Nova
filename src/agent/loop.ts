@@ -61,6 +61,12 @@ export interface AgentLoopConfig {
   onUsage?: (usage: TurnUsage) => void;
   /** Notified per thinking delta (reasoning stream, streaming ticket 03). */
   onThinking?: (delta: string) => void;
+  /**
+   * Notified once per tool call when its arguments are complete, just before
+   * execution. The mid-stream onToolCall fires at tool_call_start with empty
+   * arguments (ticket 04), so the UI uses this to fill in the summary.
+   */
+  onToolCallReady?: (call: ToolCall) => void;
   /** Unified thinking level forwarded to every chat call. */
   thinkingLevel?: ThinkingLevel;
   /** Cancellation signal: aborts in-flight tool execution (and future rounds). */
@@ -90,6 +96,7 @@ export class AgentLoop {
   private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onUsage: AgentLoopConfig['onUsage'];
   private readonly onThinking: AgentLoopConfig['onThinking'];
+  private readonly onToolCallReady: AgentLoopConfig['onToolCallReady'];
   private readonly thinkingLevel?: ThinkingLevel;
   /**
    * Base system prompt, frozen at construction.
@@ -135,6 +142,7 @@ export class AgentLoop {
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
     this.onThinking = options.onThinking;
+    this.onToolCallReady = options.onToolCallReady;
     this.thinkingLevel = options.thinkingLevel;
     this.abortSignal = options.abortSignal;
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? 60_000;
@@ -478,6 +486,7 @@ export class AgentLoop {
             function: { name: tc.name, arguments: tc.args },
           };
           callArray.push(call);
+          this.onToolCallReady?.(call);
         }
 
         // Append assistant message with tool_calls

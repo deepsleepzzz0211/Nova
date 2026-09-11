@@ -204,3 +204,27 @@ describe('slash command submission with the completion popup (E2E finding)', () 
     instance.unmount();
   });
 });
+
+describe('Escape while a modal owns the keyboard (E2E finding)', () => {
+  it('does not interrupt the stream when a permission dialog is open', async () => {
+    const onInterrupt = vi.fn();
+    const instance = render(
+      <InputBar onSubmit={() => {}} isStreaming={true} modalOpen={true} onInterrupt={onInterrupt} />,
+    );
+    instance.stdin.write(String.fromCharCode(27));
+    await settle();
+    expect(onInterrupt).not.toHaveBeenCalled();
+    instance.unmount();
+  });
+
+  it('still interrupts when no modal is open', async () => {
+    const onInterrupt = vi.fn();
+    const instance = render(
+      <InputBar onSubmit={() => {}} isStreaming={true} modalOpen={false} onInterrupt={onInterrupt} />,
+    );
+    instance.stdin.write(String.fromCharCode(27));
+    await settle();
+    expect(onInterrupt).toHaveBeenCalled();
+    instance.unmount();
+  });
+});

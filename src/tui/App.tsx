@@ -187,6 +187,7 @@ export function App({
         isStreaming={isStreaming}
         workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}
+        modalOpen={pendingPermission !== null}
         onExit={() => process.exit(0)}
       />
     </Box>

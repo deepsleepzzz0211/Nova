@@ -272,6 +272,20 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       });
     };
 
+    /** Update one tool call's display fields across messages. */
+    const patchToolCall = (callId: string, patch: Partial<DisplayToolCall>): void => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === 'assistant' && m.toolCalls !== undefined
+            ? {
+                ...m,
+                toolCalls: m.toolCalls.map((tc) => (tc.id === callId ? { ...tc, ...patch } : tc)),
+              }
+            : m,
+        ),
+      );
+    };
+
     /** Update one tool call's display status across messages. */
     const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
       setMessages((prev) =>
@@ -338,6 +352,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
       onToken,
       onToolCall,
+      onToolCallReady: (call) => patchToolCall(call.id, { arguments: call.function.arguments }),
       onToolResult,
       onPermissionRequest,
       onThinking,
@@ -405,6 +420,18 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     };
   }, []);
 
+  /**
+   * Resolve any permission request that is still pending when a turn ends
+   * (interrupt, error, or completion): the dialog would otherwise stay on
+   * screen forever and its promise would never settle (E2E finding).
+   */
+  const settleDanglingPermission = useCallback((): void => {
+    setPendingPermission((current) => {
+      current?.resolve('deny');
+      return null;
+    });
+  }, []);
+
   const sendMessage = useCallback((input: string): void => {
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;
@@ -457,6 +484,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         currentAssistantRef.current = null;
         setIsThinking(false);
         setIsStreaming(false);
+        settleDanglingPermission();
       },
       (err: unknown) => {
         batcher.flushNow();
@@ -467,6 +495,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         // is implemented, not deferred).
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${msg}` }]);
+        settleDanglingPermission();
       },
     );
   }, [isStreaming]);

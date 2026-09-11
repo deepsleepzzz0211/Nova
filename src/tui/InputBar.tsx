@@ -48,6 +48,12 @@ export interface InputBarProps {
   workingState?: 'idle' | 'streaming' | 'thinking';
   /** Called when the user presses Escape while a response is streaming. */
   onInterrupt?: () => void;
+  /**
+   * True while a modal (permission dialog) owns the keyboard. Escape must not
+   * interrupt the stream then: the dialog handles Escape as "No" and the
+   * interrupt path would otherwise leave the dialog dangling (E2E finding).
+   */
+  modalOpen?: boolean;
   /** Called when the user presses Ctrl+C on an empty editor (app exit). */
   onExit?: () => void;
   /** Root directory for @ file completions (defaults to cwd; test seam). */
@@ -69,6 +75,7 @@ export function InputBar({
   isStreaming,
   workingState,
   onInterrupt,
+  modalOpen,
   onExit,
   fileIndexRoot,
 }: InputBarProps): React.ReactElement {
@@ -82,7 +89,7 @@ export function InputBar({
   // completionRef mirrors the state synchronously: key events burst before
   // React re-renders, so handlers must not read the stale closure.
   const completionRef = useRef<ActiveCompletion | null>(null);
-  const setC = (fn: (c: ActiveCompletion | null) => ActiveCompletion | null): void => {
+  const setCompletionState = (fn: (c: ActiveCompletion | null) => ActiveCompletion | null): void => {
     const next = fn(completionRef.current);
     completionRef.current = next;
     setCompletion(next);
@@ -94,12 +101,12 @@ export function InputBar({
   const refreshCompletion = (): void => {
     const ctx = detectCompletion(editorRef.current.text, editorRef.current.cursor);
     if (ctx === null) {
-      setC(() => null);
+      setCompletionState(() => null);
       return;
     }
     if (ctx.kind === 'slash') {
       const matches = completeCommands(ctx.query);
-      setC(() => ({
+      setCompletionState(() => ({
         ctx,
         items: matches.map((m) => ({
           label: `/${m.name} — ${m.description}`,
@@ -121,7 +128,7 @@ export function InputBar({
     }
     if (fileIndexRef.current === 'loading') return; // index still walking
     const matches = fuzzyMatchFiles(fileIndexRef.current, ctx.query);
-    setC(() => ({
+    setCompletionState(() => ({
       ctx,
       items: matches.map((f) => ({ label: f, insert: f })),
       index: 0,
@@ -141,7 +148,7 @@ export function InputBar({
     const c = completionRef.current;
     if (c === null) return;
     update((e) => replaceToken(e, c.ctx.tokenStart, e.cursor, item.insert));
-    setC(() => null);
+    setCompletionState(() => null);
   };
   const update = (fn: (e: EditorState) => EditorState): void => {
     const next = fn(editorRef.current);
@@ -152,10 +159,10 @@ export function InputBar({
   useInput((inputChar, key) => {
     if (key.escape && completionRef.current !== null) {
       // Close the popup first; interrupt only when no popup is open.
-      setC(() => null);
+      setCompletionState(() => null);
       return;
     }
-    if (key.escape && isStreaming) {
+    if (key.escape && isStreaming && modalOpen !== true) {
       onInterrupt?.();
       return;
     }
@@ -190,12 +197,14 @@ export function InputBar({
       const wantsNewline = key.shift || key.ctrl || inputChar === '\n';
       if (wantsNewline) {
         update(newline);
-      } else if (completionRef.current !== null && !key.ctrl && completionWouldChangeText()) {
+      } else if (completionWouldChangeText()) {
         // Enter accepts a completion only when it actually completes
         // something; typing an exact command name ("/model") must submit
         // (E2E finding: Enter used to be swallowed by the popup).
-        const c = completionRef.current;
-        acceptCompletion(c.items[c.index]);
+        const completionState = completionRef.current;
+        if (completionState !== null) {
+          acceptCompletion(completionState.items[completionState.index]);
+        }
       } else if (!isStreaming) {
         const r = submit(editorRef.current);
         update(() => r.state);
@@ -206,7 +215,7 @@ export function InputBar({
 
     if (key.upArrow) {
       if (completionRef.current !== null) {
-        setC((c) => (c === null ? c : { ...c, index: Math.max(0, c.index - 1) }));
+        setCompletionState((c) => (c === null ? c : { ...c, index: Math.max(0, c.index - 1) }));
         return;
       }
       update((e) => (cursorLine(e) === 0 ? historyPrev(e) : moveUp(e)));
@@ -214,7 +223,7 @@ export function InputBar({
     }
     if (key.downArrow) {
       if (completionRef.current !== null) {
-        setC((c) =>
+        setCompletionState((c) =>
           c === null ? c : { ...c, index: Math.min(c.items.length - 1, c.index + 1) },
         );
         return;
@@ -249,7 +258,7 @@ export function InputBar({
       return;
     }
     if (key.escape && completionRef.current !== null) {
-      setC(() => null);
+      setCompletionState(() => null);
       return;
     }
 
@@ -267,7 +276,7 @@ export function InputBar({
         const r = submit(editorRef.current);
         update(() => r.state);
         if (r.submitted !== null) onSubmit(r.submitted);
-        setC(() => null);
+        setCompletionState(() => null);
         return;
       }
       // Multi-char events with newlines are terminal pastes: route through

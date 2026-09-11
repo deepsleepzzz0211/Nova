@@ -1,0 +1,37 @@
+fix(e2e): harden the TUI interaction suite; fix the Escape/modal ownership bug
+
+Two-axis review of ticket 03 found the suite was partly self-deceiving and
+one real product bug:
+
+Product fixes
+- Escape while a permission dialog is open no longer interrupts the stream:
+  the dialog owns Escape (= No). Before, the interrupt path left the dialog
+  dangling and its permission promise never settled, so the tool call hung.
+- a turn ending for any reason (interrupt, error, completion) now settles a
+  dangling permission request as deny (safety net)
+- AgentLoop.onToolCallReady fills the displayed tool arguments once the call
+  is ready (the mid-stream callback fires at tool_call_start with no args, so
+  collapsed summaries used to be empty)
+- coalesced text+Enter now only submits for single-line chunks: a multi-line
+  paste that happens to end with CR keeps its content and is not submitted
+- InputBar: dead duplicate Escape branch removed, setC renamed, redundant
+  key.ctrl guard dropped
+
+E2E suite hardening (review findings)
+- failure artifacts live outside the workspace (cleanup used to delete the
+  screenshots/recordings tui-test had just written)
+- exitTui closes the session even on success (recording finalisation, no leak)
+- throttle checks run BEFORE the first expectation a throttled provider could
+  never satisfy; LLM cases skip with an explicit reason
+- assertions are app-generated strings only: dialog options, the pipeline's
+  Permission denied, the /model listing header, Result: appearing only after
+  Ctrl+O; the previous  assertion matched model wording
+- keystrokes that must not coalesce (Escape then Ctrl+O) wait for the dialog
+  to disappear first
+- spike suite now imports the shared harness (no duplicated setup) and its
+  probes assert instead of only logging
+- e2e config doc matches the implementation; endpoint settings come from the
+  environment with defaults
+
+Verified: 670 unit tests, 10/10 E2E and 3/3 spike tests green against the
+real endpoint.
