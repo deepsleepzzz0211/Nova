@@ -6,7 +6,7 @@ describe('web_search', () => {
   it('has correct name and metadata', () => {
     const t = createWebSearchTool();
     expect(t.name).toBe('web_search');
-    expect(t.requiresPermission?.({})).toBe(false);
+    expect(t.permission).toEqual({ mode: 'auto' });
     expect((t.parameters.properties as any).query).toBeDefined();
   });
 });
@@ -15,7 +15,7 @@ describe('web_fetch', () => {
   it('has correct name and metadata', () => {
     const t = createWebFetchTool();
     expect(t.name).toBe('web_fetch');
-    expect(t.requiresPermission?.({})).toBe(false);
+    expect(t.permission).toEqual({ mode: 'auto' });
     expect((t.parameters.properties as any).url).toBeDefined();
   });
 });

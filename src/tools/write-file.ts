@@ -6,6 +6,7 @@ export function createWriteFileTool(): Tool {
   return {
     name: 'write_file',
     display: { kind: 'path' },
+    permission: { mode: 'ask', message: 'File write requires confirmation' },
     description: 'Write content to a file. Supports overwrite and append modes.',
     parameters: {
       type: 'object',
@@ -16,7 +17,6 @@ export function createWriteFileTool(): Tool {
       },
       required: ['path', 'content'],
     },
-    requiresPermission: () => true,
     async execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       const filePath = path.resolve(context.workingDirectory, params.path as string);
       const content = params.content as string;

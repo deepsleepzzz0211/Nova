@@ -29,6 +29,6 @@ describe('write_file', () => {
   });
 
   it('always requires permission', () => {
-    expect(createWriteFileTool().requiresPermission?.({})).toBe(true);
+    expect(createWriteFileTool().permission).toEqual({ mode: 'ask', message: 'File write requires confirmation' });
   });
 });

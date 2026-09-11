@@ -14,6 +14,28 @@ import { buildSystemPrompt } from '../../src/agent/prompt.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
 import type { Message } from '../../src/llm/types.js';
 
+import type { Tool } from '../../src/tools/types.js';
+
+function stub(name: string, permission: { mode: 'ask' | 'auto'; message?: string }, display?: { kind: 'command' | 'path' }): Tool {
+  return {
+    name,
+    description: name,
+    parameters: { type: 'object', properties: {} },
+    ...(display ? { display } : {}),
+    permission,
+    execute: async () => ({ content: 'ok' }),
+  };
+}
+
+const BASH = stub('bash', { mode: 'ask', message: 'Bash command requires confirmation' }, { kind: 'command' });
+const READ_FILE = stub('read_file', { mode: 'auto' });
+const EDIT_FILE = stub('edit_file', { mode: 'auto' });
+const WEB_SEARCH = stub('web_search', { mode: 'auto' });
+const WEB_FETCH = stub('web_fetch', { mode: 'auto' });
+const WRITE_FILE = stub('write_file', { mode: 'ask', message: 'File write requires confirmation' });
+const TODO_WRITE = stub('todo_write', { mode: 'auto' });
+const MCP_TOOL = stub('mcp_server_tool', { mode: 'ask', message: 'MCP tool requires confirmation' });
+
 describe('overflow error patterns (llm/errors.ts)', () => {
   const cases: Array<[string, string]> = [
     ['maximum context length', "This model's maximum context length is 128000 tokens"],
@@ -117,35 +139,41 @@ describe('PermissionPolicy rule details', () => {
   it('always-allow matches whole command or prefix with a space — not bare prefixes', () => {
     const policy = mkPolicyWithAllows(['ls']);
     // exact match → allow
-    expect(policy.check('bash', { command: 'ls' }).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'ls' }, BASH).decision).toBe('allow');
     // prefix with space → allow
-    expect(policy.check('bash', { command: 'ls -la src' }).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'ls -la src' }, BASH).decision).toBe('allow');
     // bare-prefix trap: lsof must NOT be always-allowed by the 'ls' entry
-    expect(policy.check('bash', { command: 'lsof -i' }).decision).toBe('ask');
+    expect(policy.check('bash', { command: 'lsof -i' }, BASH).decision).toBe('ask');
   });
 
   it('dangerous bash commands ask with the detection message', () => {
     const policy = mkPolicyWithAllows([]);
-    const d = policy.check('bash', { command: 'rm -rf /' });
+    const d = policy.check('bash', { command: 'rm -rf /' }, BASH);
     expect(d.decision).toBe('ask');
     expect(d.message).toContain('Dangerous command detected');
   });
 
   it('read-only tool set allows each member', () => {
     const policy = mkPolicyWithAllows([]);
+    const byName: Record<string, Tool> = {
+      read_file: READ_FILE,
+      edit_file: EDIT_FILE,
+      web_search: WEB_SEARCH,
+      web_fetch: WEB_FETCH,
+    };
     for (const tool of ['read_file', 'edit_file', 'web_search', 'web_fetch']) {
-      expect(policy.check(tool, {}).decision).toBe('allow');
+      expect(policy.check(tool, {}, byName[tool]).decision).toBe('allow');
     }
-    expect(policy.check('write_file', {}).decision).toBe('ask');
-    expect(policy.check('mcp_server_tool', {}).decision).toBe('ask');
+    expect(policy.check('write_file', {}, WRITE_FILE).decision).toBe('ask');
+    expect(policy.check('mcp_server_tool', {}, MCP_TOOL).decision).toBe('ask');
     // Non-bash, non-MCP, non-listed → allow (default)
-    expect(policy.check('todo_write', {}).decision).toBe('allow');
+    expect(policy.check('todo_write', {}, TODO_WRITE).decision).toBe('allow');
   });
 
   it('non-string command params never hit bash rules', () => {
     const policy = mkPolicyWithAllows(['ls']);
     // command not a string → falls through to the bash ask rule
-    expect(policy.check('bash', { command: 123 }).decision).toBe('ask');
+    expect(policy.check('bash', { command: 123 }, BASH).decision).toBe('ask');
   });
 });
 

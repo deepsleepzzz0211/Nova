@@ -17,6 +17,7 @@ function makeTool(overrides: Partial<Tool>, execute: (params: Record<string, unk
     name: 'test_tool',
     description: 'A test tool',
     parameters: { type: 'object', properties: {} },
+    permission: { mode: 'auto' as const },
     execute,
     ...overrides,
   } as Tool;
@@ -29,7 +30,7 @@ function makeContext(): ToolContext {
 describe('Pipeline exact denial messages and cache keys', () => {
   it('deny message includes the tool name', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
-    const tool = makeTool({ name: 'bash' }, async () => ({ content: 'ok' }));
+    const tool = makeTool({ name: 'bash', display: { kind: 'command' }, permission: { mode: 'ask', message: 'Bash command requires confirmation' } }, async () => ({ content: 'ok' }));
     // bash + no always-allow → ask; no confirm → denied
     const result = await pipeline.execute(tool, { command: 'ls' }, makeContext());
     expect(result.content).toBe('Permission denied for tool "bash".');
@@ -44,11 +45,11 @@ describe('Pipeline exact denial messages and cache keys', () => {
     expect(result.content).toBe('Tool "test_tool" blocked by pre-tool-use hook.');
   });
 
-  it('asks an ask-decision tool exactly once even when requiresPermission is also set', async () => {
+  it('asks an ask-decision tool exactly once (single permission mechanism)', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
     const confirmCalls: string[] = [];
     const tool = makeTool(
-      { name: 'write_file', requiresPermission: () => true },
+      { name: 'write_file', permission: { mode: 'ask', message: 'File write requires confirmation' } },
       async () => ({ content: 'ok' }),
     );
     const result = await pipeline.execute(tool, { path: 'a' }, makeContext(), {

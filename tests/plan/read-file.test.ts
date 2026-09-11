@@ -38,6 +38,6 @@ describe('read_file', () => {
   });
 
   it('never requires permission', () => {
-    expect(createReadFileTool().requiresPermission?.({})).toBe(false);
+    expect(createReadFileTool().permission).toEqual({ mode: 'auto' });
   });
 });

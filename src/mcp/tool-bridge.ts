@@ -45,8 +45,10 @@ export function createMCPTool(client: MCPClientLike, mcpTool: MCPToolInfo): Tool
       }
     },
 
-    requiresPermission(_params: Record<string, unknown>): boolean {
-      return !client.config.autoApprove;
-    },
+    // MCP servers decide their own prompting: when the connection is marked
+    // autoApprove the bridged tools run without confirmation (ticket 19).
+    permission: client.config.autoApprove
+      ? { mode: 'auto' as const }
+      : { mode: 'ask' as const, message: 'MCP tool requires confirmation' },
   };
 }

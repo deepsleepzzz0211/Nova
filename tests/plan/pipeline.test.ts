@@ -15,6 +15,7 @@ function makeTool(overrides: Partial<Tool> & { name?: string }, execute: (params
     name: 'test_tool',
     description: 'A test tool',
     parameters: { type: 'object', properties: {} },
+    permission: { mode: 'auto' },
     execute,
     ...overrides,
   } as Tool;
@@ -37,7 +38,10 @@ describe('ToolExecutionPipeline — single execution path', () => {
   it('returns error without executing when policy denies', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
     const execute = vi.fn(async () => ({ content: 'ok' }));
-    const tool = makeTool({ name: 'bash' }, execute);
+    const tool = makeTool(
+      { name: 'bash', display: { kind: 'command' }, permission: { mode: 'ask', message: 'Bash command requires confirmation' } },
+      execute,
+    );
 
     const result = await pipeline.execute(tool, { command: 'ls' }, makeContext());
     // 'ls' is not in alwaysAllowCommands → ask; no confirm callback → denied
@@ -48,7 +52,7 @@ describe('ToolExecutionPipeline — single execution path', () => {
   it('asks for confirmation when policy says ask, executes when user approves', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
     const execute = vi.fn(async () => ({ content: 'written' }));
-    const tool = makeTool({ name: 'write_file' }, execute);
+    const tool = makeTool({ name: 'write_file', permission: { mode: 'ask', message: 'File write requires confirmation' } }, execute);
 
     const result = await pipeline.execute(tool, { path: 'a.txt' }, makeContext(), {
       confirm: async () => true,
@@ -60,7 +64,7 @@ describe('ToolExecutionPipeline — single execution path', () => {
   it('does not execute when user denies the confirmation', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
     const execute = vi.fn(async () => ({ content: 'written' }));
-    const tool = makeTool({ name: 'write_file' }, execute);
+    const tool = makeTool({ name: 'write_file', permission: { mode: 'ask', message: 'File write requires confirmation' } }, execute);
 
     const result = await pipeline.execute(tool, { path: 'a.txt' }, makeContext(), {
       confirm: async () => false,
@@ -73,34 +77,31 @@ describe('ToolExecutionPipeline — single execution path', () => {
   it('denies ask-decision tools when no confirm callback is provided', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
     const execute = vi.fn(async () => ({ content: 'written' }));
-    const tool = makeTool({ name: 'write_file' }, execute);
+    const tool = makeTool({ name: 'write_file', permission: { mode: 'ask', message: 'File write requires confirmation' } }, execute);
 
     const result = await pipeline.execute(tool, { path: 'a.txt' }, makeContext());
     expect(result.isError).toBe(true);
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('treats tool.requiresPermission as an ask decision even when policy allows', async () => {
+  it('honours a tool-declared ask permission (ticket 19: declaration, not name list)', async () => {
     const pipeline = new ToolExecutionPipeline(new ToolResultCache(), new PermissionPolicy(noPermissionConfig));
-    const execute = vi.fn(async () => ({ content: 'mcp result' }));
+    const execute = vi.fn(async () => ({ content: 'declared result' }));
+    // A name the policy would otherwise allow, but the tool itself asks.
     const tool = makeTool(
-      { name: 'mcp_server_tool', requiresPermission: () => true },
+      {
+        name: 'read_file',
+        permission: { mode: 'ask', message: 'Custom confirmation' },
+      },
       execute,
     );
 
-    // Policy would allow mcp_* ? No — policy asks for mcp_ prefix. Use a custom tool name
-    // that policy allows but the tool itself requires permission.
-    const tool2 = makeTool(
-      { name: 'read_file', requiresPermission: () => true },
-      execute,
-    );
-
-    const denied = await pipeline.execute(tool2, {}, makeContext());
+    const denied = await pipeline.execute(tool, {}, makeContext());
     expect(denied.isError).toBe(true);
     expect(execute).not.toHaveBeenCalled();
 
-    const allowed = await pipeline.execute(tool2, {}, makeContext(), { confirm: async () => true });
-    expect(allowed.content).toBe('mcp result');
+    const allowed = await pipeline.execute(tool, {}, makeContext(), { confirm: async () => true });
+    expect(allowed.content).toBe('declared result');
   });
 
   it('caches results for cacheable tools and reuses them', async () => {

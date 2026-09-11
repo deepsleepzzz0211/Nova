@@ -13,6 +13,7 @@ import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
 import { readGitBranch } from './tui/git-branch.js';
+import { formatStartupHeader } from './tui/header.js';
 import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
@@ -48,6 +49,7 @@ async function main(): Promise<void> {
       'base-url': { type: 'string' },
       resume: { type: 'boolean', short: 'r' },
       list: { type: 'boolean' },
+      'no-header': { type: 'boolean' },
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
@@ -364,6 +366,28 @@ async function main(): Promise<void> {
       await mcpManager.stopAll();
       process.exit(1);
     }
+  }
+
+  // Startup header: printed ONCE before Ink takes over, so it lands in the
+  // terminal scrollback and never costs a re-render (ticket 10). Disabled by
+  // --no-header; print mode has no header.
+  if (values['no-header'] !== true) {
+    const skills = skillRegistry.findAll().map((skill) => skill.name);
+    const contextFiles: string[] = [];
+    if (projectInstructions !== undefined) contextFiles.push('AGENTS.md');
+    if (memory !== undefined && memory.trim() !== '') contextFiles.push('MEMORY.md');
+    process.stdout.write(
+      formatStartupHeader({
+        version: __NOVA_VERSION__,
+        model: resolution.model.id,
+        provider: resolution.name,
+        thinkingLevel: config.agent.thinkingLevel,
+        contextFiles,
+        skillNames: skills,
+        mcpServers: config.mcpServers.map((server) => server.name),
+        cwd: projectDir,
+      }) + '\n\n',
+    );
   }
 
   // Render TUI. Ink disables interactive mode when it detects CI (see

@@ -46,7 +46,7 @@ export function createTodoTool(state: TodoState): Tool {
       required: ['todos'],
     },
     metadata: { category: 'planning', cacheable: false, timeout: 5000 },
-    requiresPermission: () => false,
+    permission: { mode: 'auto' },
     async execute(params: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
       const todos = params.todos;
 

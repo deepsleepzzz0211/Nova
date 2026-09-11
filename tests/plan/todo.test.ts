@@ -56,7 +56,7 @@ describe('todo_write tool', () => {
 
   it('is permission-free and non-cacheable', () => {
     const tool = createTodoTool({ todos: [] });
-    expect(tool.requiresPermission?.({})).toBe(false);
+    expect(tool.permission).toEqual({ mode: 'auto' });
     expect(tool.metadata?.cacheable).toBe(false);
   });
 });

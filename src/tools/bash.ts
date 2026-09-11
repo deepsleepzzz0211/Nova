@@ -17,7 +17,7 @@ export function createBashTool(): Tool {
       },
       required: ['command'],
     },
-    requiresPermission: () => true,
+    permission: { mode: 'ask', message: 'Bash command requires confirmation' },
     async execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       const command = params.command as string;
       const timeout = (params.timeout as number) ?? DEFAULT_TIMEOUT_MS;
