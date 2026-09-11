@@ -35,6 +35,17 @@ export interface PendingPermission {
 }
 
 /** Configuration for the useAgent hook. */
+/**
+ * Replace the trailing assistant message with `snap` (leaving earlier
+ * messages untouched). Shared by the batcher's flush and the loop callbacks
+ * (ticket 16 — the same shape used to be written out three times).
+ */
+function withAssistantSnapshot(prev: DisplayMessage[], snap: DisplayMessage): DisplayMessage[] {
+  const withoutLast =
+    prev.length > 0 && prev[prev.length - 1].role === 'assistant' ? prev.slice(0, -1) : prev;
+  return [...withoutLast, snap];
+}
+
 export interface UseAgentConfig {
   llm: LLMProvider;
   toolRegistry: ToolRegistry;
@@ -162,31 +173,36 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // to the next render, by which time the turn may have ended and the
       // ref reset to null (crash: reading 'content' of null).
       const cur = currentAssistantRef.current;
-      if (!cur) return;
+      if (cur === null) return;
       const snap: DisplayMessage = {
         role: 'assistant',
         content: cur.content,
         toolCalls: [...cur.toolCalls],
         thinking: cur.thinking || undefined,
       };
-      setMessages((prev) => {
-        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
-          ? prev.slice(0, -1)
-          : prev;
-        return [...withoutLast, snap];
-      });
+      setMessages((prev) => withAssistantSnapshot(prev, snap));
     }, 32);
   }
   const batcher = batcherRef.current;
 
   // Create the AgentLoop once
   if (loopRef.current === null) {
+    /** Immutable snapshot of the in-flight assistant message. */
     const snapshot = (): DisplayMessage => ({
       role: 'assistant' as const,
       content: currentAssistantRef.current!.content,
       toolCalls: [...currentAssistantRef.current!.toolCalls],
       thinking: currentAssistantRef.current!.thinking || undefined,
     });
+
+    /**
+     * Replace the trailing assistant message with `snap`. The snapshot is
+     * taken synchronously by the caller: React defers updater execution, by
+     * which time the ref may already be null (see the batcher comment).
+     */
+    const commitAssistant = (snap: DisplayMessage): void => {
+      setMessages((prev) => withAssistantSnapshot(prev, snap));
+    };
 
     const onToken = (token: string): void => {
       setIsThinking(false);
@@ -217,19 +233,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         status: 'running',
       };
       currentAssistantRef.current.toolCalls.push(displayCall);
-      // Capture the snapshot synchronously (see batcher flush comment).
-      const snap: DisplayMessage = {
-        role: 'assistant',
-        content: currentAssistantRef.current.content,
-        thinking: currentAssistantRef.current.thinking || undefined,
-        toolCalls: [...currentAssistantRef.current.toolCalls],
-      };
-      setMessages((prev) => {
-        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
-          ? prev.slice(0, -1)
-          : prev;
-        return [...withoutLast, snap];
-      });
+      commitAssistant(snapshot());
     };
 
     const onToolResult = (result: ToolResult, callId?: string): void => {
@@ -256,23 +260,10 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           result: result.content,
         };
       }
-      // Capture the snapshot synchronously (see batcher flush comment).
-      const cur = currentAssistantRef.current;
-      const snap: DisplayMessage = {
-        role: 'assistant',
-        content: cur.content,
-        thinking: cur.thinking || undefined,
-        toolCalls: [...cur.toolCalls],
-      };
-      setMessages((prev) => {
-        const withoutLast = prev.length > 0 && prev[prev.length - 1].role === 'assistant'
-          ? prev.slice(0, -1)
-          : prev;
-        return [...withoutLast, snap];
-      });
+      commitAssistant(snapshot());
     };
 
-    /** Update one tool call's display fields across messages. */
+    /** Update one displayed tool call (status and/or arguments). */
     const patchToolCall = (callId: string, patch: Partial<DisplayToolCall>): void => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -286,18 +277,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       );
     };
 
-    /** Update one tool call's display status across messages. */
     const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === 'assistant' && m.toolCalls !== undefined
-            ? {
-                ...m,
-                toolCalls: m.toolCalls.map((tc) => (tc.id === callId ? { ...tc, status } : tc)),
-              }
-            : m,
-        ),
-      );
+      patchToolCall(callId, { status });
     };
 
     // Session-scoped always-allow rules (ticket 04): matching calls are
