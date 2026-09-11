@@ -8,7 +8,7 @@
 
 /** UI callbacks a command may use. Implemented by useAgent. */
 export interface SlashCommandContext {
-  /** Append a user-echo message (commands that act on the conversation). */
+  /** Append a user-echo message (the dispatcher echoes, not handlers). */
   appendUserMessage(text: string): void;
   /** Append a system/informational message. */
   appendSystemMessage(text: string): void;
@@ -17,15 +17,15 @@ export interface SlashCommandContext {
   /** Model listing text for /model with no arguments. */
   listModels(): string;
   /** Apply a model switch; returns the user-facing result. */
-  switchModel(spec: string): { ok: boolean; message: string; model?: string };
+  switchModel(spec: string): { message: string };
   /** Revert the last n conversation turns. */
   undoTurns(n: number): {
     undone: boolean;
     undoneTurns: number;
     restored: Array<{ role: 'user' | 'assistant'; content: string }>;
   };
-  /** Force a context compaction pass. */
-  compact(): Promise<{ compacted: boolean; note: string }>;
+  /** Force a context compaction pass (empty note = loop already announced). */
+  compact(): Promise<{ note: string }>;
   /** Run the global update flow. */
   update(): Promise<{ message: string }>;
 }
@@ -35,6 +35,8 @@ export interface SlashCommand {
   description: string;
   /** Whether the command accepts an argument (completion adds a space). */
   acceptsArgs?: boolean;
+  /** Echo the submitted command line as a user message (default false). */
+  echoesInput?: boolean;
   run(ctx: SlashCommandContext, args: string): void | Promise<void>;
 }
 
@@ -58,10 +60,10 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     name: 'undo',
     description: 'revert the last n conversation turns',
     acceptsArgs: true,
+    echoesInput: true,
     async run(ctx, args) {
       const n = Number.parseInt(args.trim(), 10);
       const turns = Number.isFinite(n) && n >= 1 ? n : 1;
-      ctx.appendUserMessage('/undo' + (turns > 1 ? ` ${turns}` : ''));
       const result = ctx.undoTurns(turns);
       if (result.undone) {
         ctx.replaceConversation(result.restored);
@@ -76,10 +78,12 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   {
     name: 'compact',
     description: 'force a context compaction pass',
+    echoesInput: true,
     async run(ctx) {
-      ctx.appendUserMessage('/compact');
       const result = await ctx.compact();
-      ctx.appendSystemMessage(result.note);
+      // The loop announces successful compactions itself (onCompaction);
+      // only a no-op needs a message from here (review fix: no duplicate).
+      if (result.note !== '') ctx.appendSystemMessage(result.note);
     },
   },
   {
@@ -113,7 +117,4 @@ export function findCommand(text: string): FoundCommand | null {
   return command === undefined ? null : { command, args };
 }
 
-/** Completion items (name + description) for the editor popup. */
-export function commandCompletions(): Array<{ name: string; description: string }> {
-  return SLASH_COMMANDS.map((c) => ({ name: c.name, description: c.description }));
-}
+
