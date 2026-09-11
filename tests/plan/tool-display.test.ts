@@ -33,8 +33,8 @@ describe('tool display metadata in the registry (tui-refactor 14)', () => {
   });
 
   describe('summarizeCall with a registry resolver', () => {
-    const kindOf = (name: string): 'command' | 'path' | undefined =>
-      name === 'bash' ? 'command' : name === 'read_file' ? 'path' : undefined;
+    const kindOf = (name: string): { kind: 'command' | 'path' } | undefined =>
+      name === 'bash' ? { kind: 'command' } : name === 'read_file' ? { kind: 'path' } : undefined;
 
     it('shows the command for command tools', () => {
       expect(summarizeCall('bash', JSON.stringify({ command: 'ls -la' }), kindOf)).toBe('ls -la');
@@ -54,8 +54,8 @@ describe('tool display metadata in the registry (tui-refactor 14)', () => {
   });
 
   describe('permission display with a registry resolver', () => {
-    const kindOf = (name: string): 'command' | 'path' | undefined =>
-      name === 'bash' ? 'command' : name === 'read_file' ? 'path' : undefined;
+    const kindOf = (name: string): { kind: 'command' | 'path' } | undefined =>
+      name === 'bash' ? { kind: 'command' } : name === 'read_file' ? { kind: 'path' } : undefined;
 
     it('describes path tools by path and command tools by command', () => {
       expect(describeCall('read_file', { path: 'a.ts' }, kindOf)).toBe('a.ts');

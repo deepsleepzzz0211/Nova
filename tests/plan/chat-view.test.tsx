@@ -6,7 +6,7 @@ import { MessageBubble } from '../../src/tui/MessageBubble.js';
 import { ToolCallView } from '../../src/tui/ToolCallView.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
 
-const staticKind = (): 'command' | 'path' | undefined => undefined;
+const staticKind = (): { kind: 'command' | 'path' } | undefined => undefined;
 const user = (content: string): DisplayMessage => ({ role: 'user', content });
 const assistant = (content: string): DisplayMessage => ({ role: 'assistant', content });
 

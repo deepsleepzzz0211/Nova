@@ -5,9 +5,9 @@ import {
   SessionAlwaysRules,
 } from '../../src/tui/permission-display.js';
 
-function kindOf(name: string): 'command' | 'path' | undefined {
-  if (name === 'bash') return 'command';
-  if (name === 'read_file' || name === 'write_file' || name === 'edit_file') return 'path';
+function kindOf(name: string): { kind: 'command' | 'path' } | undefined {
+  if (name === 'bash') return { kind: 'command' };
+  if (name === 'read_file' || name === 'write_file' || name === 'edit_file') return { kind: 'path' };
   return undefined;
 }
 

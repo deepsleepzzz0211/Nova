@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { DisplayToolCall } from './display-types.js';
+import { buildDiffView, foldDiff, type DiffLine } from './diff-view.js';
 import {
   spinnerFrame,
   summarizeCall,
@@ -38,7 +39,13 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
   const statusColor = statusStyle.color;
 
   // Pretty args for the expanded view (compact summary is typed).
-  const argsDisplay = formatArgs(toolCall.arguments, parseToolArgs(toolCall.arguments));
+  const parsedArgs = parseToolArgs(toolCall.arguments);
+  const argsDisplay = formatArgs(toolCall.arguments, parsedArgs);
+  // edit/write calls render a line-level diff instead of raw JSON (ticket 06);
+  // the mode comes from the tool's registry declaration, not from its name.
+  const diffMode = displayKind?.(toolCall.name)?.diff;
+  const diffView = diffMode !== undefined ? buildDiffView(parsedArgs, diffMode) : null;
+  const folded = diffView !== null ? foldDiff(diffView) : { lines: [], hidden: 0 };
 
   const summary = summarizeCall(toolCall.name, toolCall.arguments, displayKind);
 
@@ -50,7 +57,19 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
         {!expanded && <Text color="gray" dimColor> {summary}</Text>}
       </Box>
 
-      {expanded && (
+      {expanded && diffView !== null && (
+        <Box flexDirection="column" paddingLeft={3}>
+          <Text color="gray" dimColor>{diffView.header}</Text>
+          {folded.lines.map((line, i) => (
+            <DiffLineRow key={i} line={line} />
+          ))}
+          {folded.hidden > 0 && (
+            <Text color="gray" dimColor>{`... (${folded.hidden} more diff lines)`}</Text>
+          )}
+        </Box>
+      )}
+
+      {expanded && diffView === null && (
         <Box flexDirection="column" paddingLeft={3}>
           <Text color="gray" dimColor>{argsDisplay}</Text>
         </Box>
@@ -66,6 +85,27 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
       )}
     </Box>
   );
+}
+
+/** One diff row: additions green, removals red, wrapped but never truncated. */
+function DiffLineRow({ line }: { line: DiffLine }): React.ReactElement {
+  if (line.kind === 'add') {
+    return (
+      <Box>
+        <Text color="green">{'+ '}</Text>
+        <Text color="green">{line.text}</Text>
+      </Box>
+    );
+  }
+  if (line.kind === 'del') {
+    return (
+      <Box>
+        <Text color="red">{'- '}</Text>
+        <Text color="red">{line.text}</Text>
+      </Box>
+    );
+  }
+  return <Text color="gray" dimColor>{line.text}</Text>;
 }
 
 /** Ticks 80ms while active; frozen at 0 otherwise. */
