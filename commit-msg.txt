@@ -1,0 +1,29 @@
+fix(tui): markdown review fixes (ticket 07)
+
+Spec review findings (all reproduced by new regression tests):
+- html entity decoding now covers the apostrophe entity hljs actually
+  emits (&#x27;) plus numeric/hex entities — apostrophes no longer render
+  literally
+- highlight.js output is parsed with a stack instead of a flat regex:
+  multi-line spans keep their color across display lines and nested
+  spans no longer leak stray closing tags
+- highlighting is memoised per (language, code) block (LRU, cap 300), so
+  stream ticks re-render code without re-highlighting
+- block content fidelity: nested list items are kept (children come from
+  item.items, not tokens), ordered lists honour their start number,
+  table columns are padded to align, horizontal rules render
+- block cache becomes LRU with a total-character budget (512KB) so
+  streaming deltas cannot retain hundreds of large message copies
+- inline text handling now strips _emphasis_/__strong__ too
+
+Standards review findings:
+- inline stripping and the hljs class -> color mapping moved into the
+  pure markdown module; MarkdownText is presentational again
+- highlight.js is imported from lib/core with 12 languages registered,
+  so unknown fences no longer scan the full ~190-language build
+- the now-unused ink-markdown dependency (a second, dead markdown stack)
+  is removed
+
+Decisions recorded on the ticket: unclosed fences render as a code block
+to the end (deliberate, matches mainstream) and auto-wrap relies on Ink's
+Text default, to be verified at real widths during the fullscreen ticket.
