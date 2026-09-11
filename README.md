@@ -39,6 +39,20 @@ nova --list             # list previous sessions (scriptable)
 nova --resume           # interactive session picker (Enter = most recent)
 ```
 
+### Print mode (non-interactive)
+
+Run a single turn without the TUI — useful in scripts and for the E2E suite:
+
+```bash
+nova -p "summarise README.md"                  # stream the answer to stdout
+nova -p "create notes.md" --yes                # auto-approve tool permissions
+nova -p "hi" --model weixin/Deepseek-v4-flash  # provider/model routing
+```
+
+The answer streams to stdout, tool calls run through the normal pipeline
+(anything needing permission is denied unless `--yes` is passed), and the
+process exits non-zero when the provider reports an error.
+
 ## Configuration
 
 User-level `~/.nova/config.toml` (see `config.example.toml`):

@@ -16,7 +16,8 @@
     "test:live": "vitest run --config tests/live/vitest.live.config.ts",
     "test:smoke": "vitest run --config tests/smoke/vitest.smoke.config.ts",
     "prepublishOnly": "node scripts/scan-secrets.mjs && pnpm typecheck && pnpm test && pnpm build",
-    "scan:secrets": "node scripts/scan-secrets.mjs"
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "test:e2e": "vitest run --config tests/e2e/vitest.e2e.config.ts"
   },
   "keywords": [
     "ai",
