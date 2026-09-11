@@ -23,118 +23,24 @@ import { TodoView } from './TodoView.js';
 
 /** Props for the App component. */
 export interface AppProps {
-  /** LLM provider instance. */
-  llm: LLMProvider;
-  /** Tool registry with all available tools. */
-  toolRegistry: ToolRegistry;
-  /** Tool execution pipeline with caching. */
-  toolExecutionPipeline: ToolExecutionPipeline;
-  /** Optional JSONL session persistence. */
-  sessionStore?: SessionStore;
-  /** Conversation history to restore (--resume). */
-  initialHistory?: Message[];
-  /** Skill registry for progressive disclosure. */
-  skills?: SkillRegistry;
-  /** Extra system prompt parts (environment facts, project instructions). */
-  promptOptions?: BuildPromptOptions;
-  /** Extra prompt section from config. */
-  customPrompt?: string;
-  /** Shared todo state maintained by the todo_write tool. */
-  todoState?: TodoState;
-  /** Resolved model context window (drives context management). */
-  contextWindow?: number;
-  /** Context management strategy ('truncate' | 'compact'). */
-  contextStrategy?: 'truncate' | 'compact';
-  /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
-  contextReserveTokens?: number;
-  /** Recent tokens kept verbatim during compaction. Default 20000 (context-compaction ticket 02). */
-  contextKeepRecentTokens?: number;
-  /** Subagent progress sink (useAgent assigns notify once mounted). */
-  subagentSink?: { notify?: (message: string) => void };
-  /** Live subagent activity sink (useAgent assigns set once mounted). */
-  subagentLiveSink?: { set?: (line: string | null) => void };
-  /** LLM stream idle timeout (ms). */
-  streamIdleTimeoutMs?: number;
-  /** Unified thinking level for reasoning-capable models. */
-  thinkingLevel?: ThinkingLevel;
-  /** Provider name for the footer (optional). */
-  providerName?: string;
-  /** Model pricing for the footer cost estimate (optional). */
-  modelCost?: ModelCost;
-  /** Git branch shown in the footer (read once at startup). */
+  /**
+   * Everything the agent loop needs, passed straight through to useAgent
+   * (ticket 18): one object instead of ~20 field-for-field copies that had to
+   * be kept in sync with UseAgentConfig.
+   */
+  agent: UseAgentConfig;
+  /** Number of active MCP server connections (footer). */
+  mcpConnectionCount: number;
+  /** Git branch shown in the footer (refreshed periodically). */
   gitBranch?: string | null;
   /** Fullscreen (alternate-screen) mode: transcript gets a fixed viewport. */
   fullscreen?: boolean;
-  /** List models for the /model command (returns display text). */
-  listModels?: () => string;
-  /** Resolve a /model <spec> switch (loop application happens in useAgent). */
-  resolveSwitch?: UseAgentConfig['resolveSwitch'];
-  /** Model name to display and use. */
-  model: string;
-  /** Maximum tool execution rounds per request. */
-  maxToolRounds: number;
-  /** Number of active MCP server connections. */
-  mcpConnectionCount: number;
+  /** Shared todo state maintained by the todo_write tool (UI view). */
+  todoState?: TodoState;
 }
-
-/**
- * Root TUI component composing StatusBar, ChatView, InputBar, and PermissionDialog.
- *
- * Manages global application state through the useAgent hook.
- */
-export function App({
-  llm,
-  toolRegistry,
-  toolExecutionPipeline,
-  sessionStore,
-  initialHistory,
-  skills,
-  promptOptions,
-  customPrompt,
-  todoState,
-  contextWindow,
-  contextStrategy,
-  contextReserveTokens,
-  contextKeepRecentTokens,
-  subagentSink,
-  subagentLiveSink,
-  streamIdleTimeoutMs,
-  thinkingLevel,
-  providerName,
-  modelCost,
-  gitBranch,
-  fullscreen,
-  listModels,
-  resolveSwitch,
-  model,
-  maxToolRounds,
-  mcpConnectionCount,
-}: AppProps): React.ReactElement {
+export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoState }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
-    llm,
-    toolRegistry,
-    toolExecutionPipeline,
-    sessionStore,
-    initialHistory,
-    skills,
-    promptOptions,
-    customPrompt,
-    contextWindow,
-    contextStrategy,
-    contextReserveTokens,
-    contextKeepRecentTokens,
-    subagentSink,
-    subagentLiveSink,
-    streamIdleTimeoutMs,
-    thinkingLevel,
-    listModels,
-    resolveSwitch,
-    model,
-    providerName,
-    modelCost,
-    maxToolRounds,
-  });
+  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
 
   // Follow-end: a new message snaps the fullscreen viewport back to the
   // newest content (pi-style), so streaming output is always visible.
@@ -160,8 +66,8 @@ export function App({
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
-    (n: string): ToolDisplay | undefined => toolRegistry.displayFor(n),
-    [toolRegistry],
+    (n: string): ToolDisplay | undefined => agent.toolRegistry.displayFor(n),
+    [agent.toolRegistry],
   );
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
@@ -188,9 +94,9 @@ export function App({
         workingDirectory={process.cwd()}
         gitBranch={branch}
         providerName={modelInfo.providerName}
-        thinkingLevel={thinkingLevel}
+        thinkingLevel={agent.thinkingLevel}
         contextWindow={modelInfo.contextWindow}
-        contextStrategy={contextStrategy}
+        contextStrategy={agent.contextStrategy}
         modelCost={modelInfo.cost}
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}

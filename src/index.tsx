@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
+import type { UseAgentConfig } from './tui/hooks/useAgent.js';
 import { AgentLoop } from './agent/loop.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
@@ -397,33 +398,40 @@ async function main(): Promise<void> {
   // spike). Ink requires interactive mode for alternateScreen, so requesting
   // it forces interactive regardless of CI detection.
   const fullscreen = values['tui-mode'] === 'fullscreen';
+  // One agent config object (ticket 18): App passes it straight to useAgent,
+  // so a new option is declared in one place instead of being copied through
+  // a props interface.
+  const agentConfig: UseAgentConfig = {
+    llm,
+    toolRegistry,
+    toolExecutionPipeline,
+    sessionStore,
+    initialHistory,
+    skills: skillRegistry,
+    promptOptions: { environment, projectInstructions, memory },
+    customPrompt: config.agent.systemPrompt || undefined,
+    listModels,
+    resolveSwitch,
+    contextWindow: resolution.model.contextWindow,
+    contextStrategy: config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate',
+    contextReserveTokens: config.agent.contextReserveTokens,
+    contextKeepRecentTokens: config.agent.contextKeepRecentTokens,
+    subagentSink,
+    subagentLiveSink,
+    streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
+    thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+    providerName: resolution.name,
+    modelCost: resolution.model.cost,
+    model: config.llm.model,
+    maxToolRounds: config.agent.maxToolRounds,
+  };
+
   const { waitUntilExit } = render(
     <App
-      llm={llm}
-      toolRegistry={toolRegistry}
-      toolExecutionPipeline={toolExecutionPipeline}
-      sessionStore={sessionStore}
-      initialHistory={initialHistory}
-      skills={skillRegistry}
-      promptOptions={{ environment, projectInstructions, memory }}
-      customPrompt={config.agent.systemPrompt || undefined}
+      agent={agentConfig}
       todoState={todoState}
-      listModels={listModels}
-      resolveSwitch={resolveSwitch}
-      contextWindow={resolution.model.contextWindow}
-      contextStrategy={config.agent.contextStrategy === 'compact' ? 'compact' : 'truncate'}
-      contextReserveTokens={config.agent.contextReserveTokens}
-      subagentSink={subagentSink}
-      subagentLiveSink={subagentLiveSink}
-      streamIdleTimeoutMs={config.llm.streamIdleTimeoutMs}
-      contextKeepRecentTokens={config.agent.contextKeepRecentTokens}
-      thinkingLevel={config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel}
-      providerName={resolution.name}
-      modelCost={resolution.model.cost}
-      gitBranch={readGitBranch(process.cwd())}
-      model={config.llm.model}
-      maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}
+      gitBranch={readGitBranch(process.cwd())}
       fullscreen={fullscreen}
     />,
     fullscreen
