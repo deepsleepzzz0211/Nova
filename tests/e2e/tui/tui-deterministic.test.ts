@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   makeWorkspace,
   launchTui,
   exitTui,
+  announceArtifacts,
   cleanup,
 } from './harness.js';
 
@@ -35,6 +38,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       }
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
@@ -49,6 +53,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       await terminal.getByText('Provider: e2e', { regex: false }).expect({ timeout: 30_000 });
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
@@ -67,6 +72,54 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       await terminal.getByText('nothing to compact', { regex: true }).expect({ timeout: 30_000 });
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
+
+  it('--resume loads a previous session from disk and shows it', async () => {
+    // Deterministic: the session file is written by hand, so no LLM is needed.
+    // NOVA_HOME/sessions is where the store appends one JSON object per line.
+    const cwd = makeWorkspace({ stubKey: true });
+    const sessionsDir = path.join(cwd, '.nova', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'session-2020-01-01T00-00-00-000Z.jsonl'),
+      [
+        JSON.stringify({ role: 'user', content: 'RESUMED-USER-MARKER' }),
+        JSON.stringify({ role: 'assistant', content: 'RESUMED-ASSIST-MARKER' }),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const terminal = await launchTui(cwd, { args: ['--resume'] });
+    try {
+      // Both restored turns must be rendered from the persisted history.
+      await terminal.getByText('RESUMED-USER-MARKER', { regex: false }).expect({ timeout: 30_000 });
+      await terminal.getByText('RESUMED-ASSIST-MARKER', { regex: false }).expect({ timeout: 30_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
+
+  it('/compact reports the no-op exactly once per invocation', async () => {
+    // Regression guard for the duplicated-notice bug: the loop announces a
+    // successful compaction itself, so the command must not add a second line.
+    const cwd = makeWorkspace({ stubKey: true });
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.submit('/compact');
+      await terminal.getByText('nothing to compact', { regex: true }).expect({ timeout: 30_000 });
+      await terminal.waitIdle({ timeout: 10_000 }).catch(() => undefined);
+      const frame = await terminal.text();
+      const occurrences = frame.split('nothing to compact').length - 1;
+      expect(occurrences).toBe(1);
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });

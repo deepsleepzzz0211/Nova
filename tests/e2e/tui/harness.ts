@@ -33,7 +33,24 @@ export const MISSING_KEY_NOTE = `${KEY_ENV} is not set`;
  * workspace, which previously deleted the screenshots/recordings tui-test
  * had just written (review finding).
  */
-export const ARTIFACTS_DIR = path.join(os.tmpdir(), 'nova-e2e-artifacts');
+export const ARTIFACTS_ROOT = path.join(os.tmpdir(), 'nova-e2e-artifacts');
+
+/**
+ * Per-run artifact directory (timestamp + pid): runs stay separable when
+ * something is reproduced repeatedly with scripts/deflake.mjs.
+ */
+function newArtifactsDir(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return path.join(ARTIFACTS_ROOT, `${stamp}-${process.pid}`);
+}
+
+/** Artifact directory of the most recent launch (screenshots/recordings). */
+export let currentArtifactsDir: string | null = null;
+
+/** Print where failure evidence for this run lives (visible in test output). */
+export function announceArtifacts(): void {
+  if (currentArtifactsDir !== null) console.log(`[e2e] artifacts: ${currentArtifactsDir}`);
+}
 
 const TIMEOUTS = { text: 60_000, idle: 20_000, command: 60_000, exit: 60_000, ready: 60_000 };
 
@@ -83,15 +100,17 @@ export function makeWorkspace(options: WorkspaceOptions = {}): string {
 /** Launch the built TUI in a PTY inside `cwd`. */
 export async function launchTui(
   cwd: string,
-  options: { cols?: number; rows?: number } = {},
+  options: { cols?: number; rows?: number; args?: string[] } = {},
 ): Promise<TuiTest> {
+  const artifactsDir = newArtifactsDir();
+  currentArtifactsDir = artifactsDir;
   const terminal = new TuiTest(uniqueSession('nova-tui'), {
     backend: 'xtermjs',
     timeouts: TIMEOUTS,
-    artifacts: { dir: ARTIFACTS_DIR, onFailure: 'svg' },
-    recording: { mode: 'on-failure', directory: ARTIFACTS_DIR },
+    artifacts: { dir: artifactsDir, onFailure: 'svg' },
+    recording: { mode: 'on-failure', directory: artifactsDir },
   });
-  await terminal.run(process.execPath, [BINARY, '--model', MODEL_SPEC], {
+  await terminal.run(process.execPath, [BINARY, '--model', MODEL_SPEC, ...(options.args ?? [])], {
     cwd,
     env: {
       ...process.env,

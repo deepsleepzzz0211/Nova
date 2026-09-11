@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { TuiTest, uniqueSession } from '@microsoft/tui-test';
 import {
-  ARTIFACTS_DIR,
+  ARTIFACTS_ROOT,
   BINARY,
   KEY_ENV,
   MISSING_KEY_NOTE,
@@ -45,8 +45,8 @@ describe('tui-test capability evidence', () => {
       await terminal.getByText('PONG', { regex: true }).expect({ timeout: 60_000 });
       await terminal.keyboard.press('Ctrl+O');
 
-      fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
-      const shot = path.join(ARTIFACTS_DIR, 'spike-shot.svg');
+      fs.mkdirSync(ARTIFACTS_ROOT, { recursive: true });
+      const shot = path.join(ARTIFACTS_ROOT, 'spike-shot.svg');
       await terminal.screenshot(shot);
       expect(fs.existsSync(shot)).toBe(true);
     } finally {
@@ -61,7 +61,7 @@ describe('tui-test capability evidence', () => {
       return;
     }
     const cwd = makeWorkspace();
-    fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
+    fs.mkdirSync(ARTIFACTS_ROOT, { recursive: true });
     const terminal = new TuiTest(uniqueSession('nova-spike-rec'), {
       backend: 'xtermjs',
       timeouts: { text: 30_000, idle: 15_000, command: 30_000, exit: 30_000, ready: 30_000 },
@@ -76,7 +76,7 @@ describe('tui-test capability evidence', () => {
       });
       await terminal.getByText('Type a message', { regex: true }).expect();
 
-      const castPath = path.join(ARTIFACTS_DIR, 'spike-recording.cast');
+      const castPath = path.join(ARTIFACTS_ROOT, 'spike-recording.cast');
       await terminal.startRecording(castPath, { format: 'cast' });
       await terminal.submit('Reply with exactly: OK');
       await terminal.getByText('OK', { regex: true }).expect({ timeout: 45_000 });
