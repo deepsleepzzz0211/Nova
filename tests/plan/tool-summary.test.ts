@@ -6,6 +6,12 @@ import {
   foldLines,
 } from '../../src/tui/tool-summary.js';
 
+function kindOf(name: string): 'command' | 'path' | undefined {
+  if (name === 'bash') return 'command';
+  if (name === 'read_file' || name === 'write_file' || name === 'edit_file') return 'path';
+  return undefined;
+}
+
 describe('tool-summary (tui-refactor 05)', () => {
   describe('spinner', () => {
     it('has braille frames and cycles deterministically', () => {
@@ -20,25 +26,25 @@ describe('tool-summary (tui-refactor 05)', () => {
 
   describe('summarizeCall', () => {
     it('bash shows the command string', () => {
-      expect(summarizeCall('bash', JSON.stringify({ command: 'ls -la' }))).toBe('ls -la');
+      expect(summarizeCall('bash', JSON.stringify({ command: 'ls -la' }), kindOf)).toBe('ls -la');
     });
 
     it('path-like tools show the path', () => {
-      expect(summarizeCall('read', JSON.stringify({ path: 'a/b.txt' }))).toBe('a/b.txt');
-      expect(summarizeCall('write', JSON.stringify({ path: 'a/b.txt' }))).toBe('a/b.txt');
-      expect(summarizeCall('edit', JSON.stringify({ file_path: 'c.txt' }))).toBe('c.txt');
+      expect(summarizeCall('read_file', JSON.stringify({ path: 'a/b.txt' }), kindOf)).toBe('a/b.txt');
+      expect(summarizeCall('write_file', JSON.stringify({ path: 'a/b.txt' }), kindOf)).toBe('a/b.txt');
+      expect(summarizeCall('read_file', JSON.stringify({ path: 'c.txt' }), kindOf)).toBe('c.txt');
     });
 
     it('falls back to compact JSON capped at 200 chars (review: approval visibility)', () => {
       const long = 'x'.repeat(400);
-      const r = summarizeCall('other', JSON.stringify({ a: long }));
+      const r = summarizeCall('other', JSON.stringify({ a: long }), kindOf);
       expect(r.length).toBeLessThanOrEqual(203); // 200 + ellipsis
       expect(r.startsWith('{"a":"xxx')).toBe(true);
       expect(r.endsWith('...')).toBe(true);
     });
 
     it('handles unparseable args by echoing raw (capped)', () => {
-      const r = summarizeCall('x', 'not json but quite long '.repeat(20));
+      const r = summarizeCall('x', 'not json but quite long '.repeat(20), kindOf);
       expect(r.length).toBeLessThanOrEqual(203);
     });
   });

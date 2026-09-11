@@ -7,6 +7,7 @@ const MAX_LINES = 1000;
 export function createReadFileTool(): Tool {
   return {
     name: 'read_file',
+    display: { kind: 'path' },
     description: 'Read a file and return its contents with line numbers.',
     parameters: {
       type: 'object',

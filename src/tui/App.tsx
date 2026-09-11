@@ -134,6 +134,9 @@ export function App({
   // (tui-refactor ticket 05): one global hotkey, no per-block input
   // handlers, no key competition with the editor.
   const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(new Set());
+  // Tool display kinds come from the registry (ticket 14).
+  const displayKind = (n: string): 'command' | 'path' | undefined =>
+    toolRegistry.displayKindFor(n);
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
       let latestToolId: string | null = null;
@@ -170,9 +173,9 @@ export function App({
 
       {todoState && <TodoView todoState={todoState} />}
 
-      <ChatView messages={messages} expandedToolIds={expandedToolIds} />
+      <ChatView messages={messages} expandedToolIds={expandedToolIds} displayKind={displayKind} />
 
-      <PermissionDialog pending={pendingPermission} />
+      <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
 
       <InputBar
         onSubmit={sendMessage}

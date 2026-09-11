@@ -285,6 +285,10 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
 
     // Session-scoped always-allow rules (ticket 04): matching calls are
     // allowed without a dialog.
+    // Tool display kinds come from the registry (ticket 14) — no hardcoded
+    // tool names in the TUI layer.
+    const kindOf = (n: string): 'command' | 'path' | undefined =>
+      config.toolRegistry.displayKindFor(n);
     const alwaysRules = new SessionAlwaysRules();
     const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
       // Ticket 05: show the awaiting-permission state on the tool block.
@@ -297,7 +301,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       }
       // Dangerous calls are never session-whitelisted: always-rules must
       // not short-circuit the dialog for them (review finding).
-      if (dangerReason(call.function.name, args) === null && alwaysRules.matches(call.function.name, args)) {
+      if (dangerReason(call.function.name, args, kindOf) === null && alwaysRules.matches(call.function.name, args, kindOf)) {
         setToolCallStatus(call.id, 'running');
         return Promise.resolve(true);
       }
@@ -305,8 +309,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setPendingPermission({
           call,
           resolve: (decision: PermissionDecision) => {
-            if (decision === 'always' && dangerReason(call.function.name, args) === null) {
-              alwaysRules.add(call.function.name, args);
+            if (decision === 'always' && dangerReason(call.function.name, args, kindOf) === null) {
+              alwaysRules.add(call.function.name, args, kindOf);
             }
             setToolCallStatus(call.id, 'running');
             resolve(decision !== 'deny');

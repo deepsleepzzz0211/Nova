@@ -3,11 +3,14 @@ import { Box, Text, useInput } from 'ink';
 import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
 import { describeCall, dangerReason } from './permission-display.js';
+import type { DisplayKindResolver } from './tool-summary.js';
 
 /** Props for the PermissionDialog component. */
 export interface PermissionDialogProps {
   /** The pending permission request, or null if none. */
   pending: PendingPermission | null;
+  /** Registry-backed tool display kind resolver (command/path). */
+  displayKind?: DisplayKindResolver;
 }
 
 /** Options shown, in display order (option 3 is excluded for dangerous calls). */
@@ -27,7 +30,7 @@ const OPTIONS: Array<{ key: '1' | '2' | '3'; label: string; decision: Permission
  * - "Yes, always" records a session-scoped rule in useAgent; the dialog
  *   itself is purely presentational over the decision callback
  */
-export function PermissionDialog({ pending }: PermissionDialogProps): React.ReactElement | null {
+export function PermissionDialog({ pending, displayKind }: PermissionDialogProps): React.ReactElement | null {
   // Rules of hooks: all hooks run unconditionally; the early return below
   // comes AFTER all hooks (tui-refactor ticket 01).
   const [selected, setSelected] = useState(0);
@@ -75,8 +78,8 @@ export function PermissionDialog({ pending }: PermissionDialogProps): React.Reac
   } catch {
     args = null;
   }
-  const description = describeCall(pending.call.function.name, args);
-  const warning = dangerReason(pending.call.function.name, args);
+  const description = describeCall(pending.call.function.name, args, displayKind);
+  const warning = dangerReason(pending.call.function.name, args, displayKind);
   // Dangerous calls must never be session-whitelisted silently: the
   // always option is simply not offered.
   const options = warning !== null ? OPTIONS.filter((o) => o.decision !== 'always') : OPTIONS;
