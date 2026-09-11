@@ -45,7 +45,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     case 'list':
       return (
         <Box flexDirection="column">
-          {block.items?.map((item, i) => (
+          {block.items.map((item, i) => (
             <Box key={i} paddingLeft={2}>
               <Text color={theme.mdListBullet}>
                 {block.ordered === true ? `${(block.start ?? 1) + i}. ` : '• '}
@@ -74,7 +74,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     case 'table':
       return (
         <Box flexDirection="column">
-          {block.rows?.map((row, i) => (
+          {block.rows.map((row, i) => (
             <Box key={i}>
               <Text bold={i === 0} color={i === 0 ? theme.mdTableHeader : undefined}>
                 {row.join(' | ')}
@@ -94,8 +94,8 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
 }
 
 /** Code block: syntax highlighted per line (language from the fence). */
-function CodeBlock({ block }: { block: MdBlock }): React.ReactElement {
-  const segments = highlightedLines(block.text, block.language ?? null);
+function CodeBlock({ block }: { block: Extract<MdBlock, { kind: 'code' }> }): React.ReactElement {
+  const segments = highlightedLines(block.text, block.language);
   return (
     <Box flexDirection="column" marginY={0} paddingLeft={1}>
       {segments.map((line, i) => (
