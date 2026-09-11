@@ -118,42 +118,4 @@ describe('TUI interactions (real LLM, real PTY)', () => {
     }
   });
 
-  it('narrow terminal (78 columns) wraps the editor instead of truncating', async () => {
-    // Deterministic, no LLM: covers the editor's width handling.
-    const cwd = makeWorkspace({ stubKey: true });
-    const terminal = await launchTui(cwd, { cols: 100, rows: 30 });
-    try {
-      await terminal.resize(78, 24);
-      await terminal.getByText('Type a message', { regex: true }).expect();
-
-      const head = 'HEAD-marker-';
-      const tail = '-TAIL-marker';
-      const filler = 'x'.repeat(120 - head.length - tail.length);
-      await terminal.type(head + filler + tail);
-      await terminal.waitIdle({ timeout: 15_000 }).catch(() => undefined);
-
-      const frame = await terminal.text();
-      expect(frame).toContain(head);
-      expect(frame).toContain(tail);
-      for (const line of frame.split('\n')) {
-        expect(line.length).toBeLessThanOrEqual(78);
-      }
-    } finally {
-      await exitTui(terminal).catch(() => terminal.closeQuiet());
-      cleanup(cwd);
-    }
-  });
-
-  it('lists models from the catalog (/model, no LLM request)', async () => {
-    // Deterministic, no LLM: only the listing prints "Provider: ...".
-    const cwd = makeWorkspace({ stubKey: true });
-    const terminal = await launchTui(cwd);
-    try {
-      await terminal.submit('/model');
-      await terminal.getByText('Provider: e2e', { regex: false }).expect({ timeout: 30_000 });
-    } finally {
-      await exitTui(terminal).catch(() => terminal.closeQuiet());
-      cleanup(cwd);
-    }
-  });
 });

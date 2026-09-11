@@ -29,3 +29,9 @@ runs:
       shell: bash
     - run: pnpm build
       shell: bash
+    # Deterministic TUI E2E: real PTY, no LLM calls, no secrets. Runs after
+    # the build because it drives dist/index.js. The real-LLM suite is
+    # local-only by policy (see docs/e2e.md).
+    - name: TUI E2E (deterministic, no LLM)
+      run: pnpm test:e2e:deterministic
+      shell: bash

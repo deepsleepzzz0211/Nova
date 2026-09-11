@@ -366,7 +366,13 @@ async function main(): Promise<void> {
     }
   }
 
-  // Render TUI
+  // Render TUI. Ink disables interactive mode when it detects CI (see
+  // is-in-ci) or a non-TTY stdout, which is right for real users but makes
+  // the PTY-based E2E suite impossible: the frame is written once and no key
+  // event is processed. NOVA_FORCE_INTERACTIVE=1 is the explicit test seam
+  // (the E2E harness sets it); normal runs pass undefined and keep Ink's
+  // automatic detection.
+  const forceInteractive = process.env.NOVA_FORCE_INTERACTIVE === '1';
   const { waitUntilExit } = render(
     <App
       llm={llm}
@@ -395,6 +401,7 @@ async function main(): Promise<void> {
       maxToolRounds={config.agent.maxToolRounds}
       mcpConnectionCount={mcpConnectionCount}
     />,
+    forceInteractive ? { interactive: true } : undefined,
   );
 
   await waitUntilExit();

@@ -18,7 +18,9 @@
     "prepublishOnly": "node scripts/scan-secrets.mjs && pnpm typecheck && pnpm test && pnpm build",
     "scan:secrets": "node scripts/scan-secrets.mjs",
     "test:e2e": "vitest run --config tests/e2e/vitest.e2e.config.ts",
-    "test:spike": "vitest run --config tests/spike/vitest.spike.config.ts"
+    "test:spike": "vitest run --config tests/spike/vitest.spike.config.ts",
+    "test:e2e:deterministic": "vitest run --config tests/e2e/vitest.deterministic.config.ts",
+    "test:e2e:llm": "vitest run --config tests/e2e/vitest.llm.config.ts"
   },
   "keywords": [
     "ai",

@@ -93,7 +93,14 @@ export async function launchTui(
   });
   await terminal.run(process.execPath, [BINARY, '--model', MODEL_SPEC], {
     cwd,
-    env: { ...process.env, NOVA_HOME: cwd, [KEY_ENV]: apiKey ?? '' },
+    env: {
+      ...process.env,
+      NOVA_HOME: cwd,
+      [KEY_ENV]: apiKey ?? '',
+      // Ink switches to non-interactive mode when it detects CI, which would
+      // freeze the frame and drop keystrokes in the PTY suite.
+      NOVA_FORCE_INTERACTIVE: '1',
+    },
     cols: options.cols ?? 100,
     rows: options.rows ?? 32,
   });
