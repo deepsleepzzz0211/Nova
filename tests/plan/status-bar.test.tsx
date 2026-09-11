@@ -11,26 +11,30 @@ const cacheStats = {
   totalCacheWriteTokens: 300,
   totalInputTokens: 1_200,
   totalOutputTokens: 340,
+  // Current context size = last request's prompt tokens (review fix: the
+  // session total would saturate the gauge).
+  contextTokens: 1_200,
 };
 
 describe('StatusBar three-segment footer (tui-refactor 09)', () => {
   it('renders cwd + branch, token/cache/context/cost, and provider + model', () => {
     const { lastFrame } = render(
       <StatusBar
-        model="gpt5"
-        providerName="oa"
-        workingDirectory="/proj"
+        model="g"
+        providerName="o"
+        workingDirectory="/p"
         gitBranch="main"
-        thinkingLevel="medium"
+        thinkingLevel="med"
         contextWindow={100_000}
         mcpConnectionCount={2}
         cacheStats={cacheStats}
+        contextStrategy="compact"
         modelCost={{ input: 3, output: 15, cacheRead: 0.3 }}
       />,
     );
     const frame = lastFrame() ?? '';
     // Left segment
-    expect(frame).toContain('/proj');
+    expect(frame).toContain('/p');
     expect(frame).toContain('main');
     expect(frame).toContain('2 MCP');
     // Middle segment
@@ -38,12 +42,35 @@ describe('StatusBar three-segment footer (tui-refactor 09)', () => {
     expect(frame).toContain('↓340');
     expect(frame).toContain('R1.2k');
     expect(frame).toContain('CH50%');
-    expect(frame).toContain('ctx 1%'); // 1.2k / 100k
+    expect(frame).toContain('ctx 1%/100.0k'); // last request 1.2k / window 1k
     expect(frame).toContain('$');
+    expect(frame).toContain('(compact)');
     // Right segment
-    expect(frame).toContain('oa/');
-    expect(frame).toContain('gpt5');
-    expect(frame).toContain('medium');
+    expect(frame).toContain('o/');
+    expect(frame).toContain('g');
+    expect(frame).toContain('med');
+  });
+
+  it('shows — for cost before any usage is recorded', () => {
+    const { lastFrame } = render(
+      <StatusBar
+        model="m"
+        workingDirectory="/w"
+        mcpConnectionCount={0}
+        contextWindow={1000}
+        cacheStats={{
+          hitRate: 0,
+          latestHitRate: 0,
+          totalCachedTokens: 0,
+          totalCacheWriteTokens: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          contextTokens: 0,
+        }}
+        modelCost={{ input: 3, output: 15 }}
+      />,
+    );
+    expect(lastFrame()).toContain('—');
   });
 
   it('shows — when the model has no price', () => {
@@ -52,7 +79,7 @@ describe('StatusBar three-segment footer (tui-refactor 09)', () => {
         model="local"
         workingDirectory="/tmp"
         mcpConnectionCount={0}
-        contextWindow={1_000}
+        contextWindow={100_000}
         cacheStats={cacheStats}
       />,
     );

@@ -164,6 +164,7 @@ export function App({
         providerName={modelInfo.providerName}
         thinkingLevel={thinkingLevel}
         contextWindow={modelInfo.contextWindow}
+        contextStrategy={contextStrategy}
         modelCost={modelInfo.cost}
         mcpConnectionCount={mcpConnectionCount}
         cacheStats={cacheStats}

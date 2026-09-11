@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { DisplayToolCall } from './hooks/useAgent.js';
-import { spinnerFrame, summarizeCall, foldLines, type DisplayKindResolver } from './tool-summary.js';
+import { spinnerFrame, summarizeCall, foldLines, parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
 
 /** Props for the ToolCallView component. */
 export interface ToolCallViewProps {
@@ -42,12 +42,8 @@ export function ToolCallView({ toolCall, expanded, displayKind }: ToolCallViewPr
         : 'red';
 
   // Pretty args for the expanded view (compact summary is typed).
-  let argsDisplay = '';
-  try {
-    argsDisplay = JSON.stringify(JSON.parse(toolCall.arguments) as unknown, null, 2);
-  } catch {
-    argsDisplay = toolCall.arguments;
-  }
+  const parsedArgs = parseToolArgs(toolCall.arguments);
+  const argsDisplay = parsedArgs === null ? toolCall.arguments : JSON.stringify(parsedArgs, null, 2);
 
   const summary = summarizeCall(toolCall.name, toolCall.arguments, displayKind);
 

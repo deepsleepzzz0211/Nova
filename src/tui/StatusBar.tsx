@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import type { CacheStatsView } from './hooks/useAgent.js';
 import {
   fmtTokens,
   estimateCostUsd,
@@ -26,18 +27,13 @@ export interface StatusBarProps {
   /** Live subagent activity line (or null when idle). */
   subagentActivity?: string | null;
   /** Prompt-cache metrics and session token totals (pi-style R/W/CH). */
-  cacheStats?: {
-    hitRate: number;
-    latestHitRate: number;
-    totalCachedTokens: number;
-    totalCacheWriteTokens: number;
-    totalInputTokens: number;
-    totalOutputTokens: number;
-  };
+  cacheStats?: CacheStatsView;
   /** Model pricing for the cost estimate (absent = shown as —). */
   modelCost?: ModelCost;
   /** Context window size for the usage percentage. */
   contextWindow?: number;
+  /** Context management strategy shown next to the usage. */
+  contextStrategy?: 'truncate' | 'compact';
 }
 
 /**
@@ -56,6 +52,7 @@ export function StatusBar({
   cacheStats,
   modelCost,
   contextWindow,
+  contextStrategy,
   updateNotice,
   subagentActivity,
 }: StatusBarProps): React.ReactElement {
@@ -71,7 +68,10 @@ export function StatusBar({
       )
     : null;
 
-  const context = contextUsage(cacheStats?.totalInputTokens ?? 0, contextWindow ?? 0);
+  const hasUsage = (cacheStats?.totalInputTokens ?? 0) > 0 || (cacheStats?.totalOutputTokens ?? 0) > 0;
+  // Current context size = prompt size of the most recent request (the
+  // session total grows monotonically and would saturate the gauge).
+  const context = contextUsage(cacheStats?.contextTokens ?? 0, contextWindow ?? 0);
 
   return (
     <Box flexDirection="column">
@@ -95,8 +95,11 @@ export function StatusBar({
                   {` R${fmtTokens(cacheStats.totalCachedTokens)} W${fmtTokens(cacheStats.totalCacheWriteTokens)} CH${Math.round(cacheStats.latestHitRate * 100)}%`}
                 </Text>
               )}
-              <Text color={context.color}>{` · ctx ${context.percent}%`}</Text>
-              <Text color="gray">{` · ${cost === null ? '—' : `$${cost.toFixed(4)}`}`}</Text>
+              <Text color={context.color}>
+                {` · ctx ${context.percent}%${contextWindow ? `/${fmtTokens(contextWindow)}` : ''}`}
+              </Text>
+              {contextStrategy && <Text color="gray" dimColor>{` (${contextStrategy})`}</Text>}
+              <Text color="gray">{` · ${cost === null || !hasUsage ? '—' : `$${cost.toFixed(4)}`}`}</Text>
             </>
           )}
         </Box>

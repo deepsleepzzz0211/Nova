@@ -15,10 +15,8 @@ export interface ChatViewProps {
 }
 
 /**
- * Scrollable list of chat messages.
- *
- * Renders all messages and auto-scrolls to the bottom
- * when new content is added.
+ * List of chat messages. Ink keeps the newest content visible; completed
+ * messages join the static region in ticket 08 (no internal scrolling yet).
  */
 export function ChatView({ messages, expandedToolIds, displayKind }: ChatViewProps): React.ReactElement {
   return (

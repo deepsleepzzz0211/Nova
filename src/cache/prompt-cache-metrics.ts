@@ -21,6 +21,7 @@ export class PromptCacheMetrics {
   private totalWrite = 0;
   private totalOutput = 0;
   private lastRate = 0;
+  private lastInput = 0;
 
   /** Record one turn's usage (sums are the caller's responsibility). */
   record(usage: TurnUsage): void {
@@ -31,6 +32,9 @@ export class PromptCacheMetrics {
     this.totalWrite += write;
     this.totalOutput += usage.outputTokens;
     this.lastRate = usage.inputTokens > 0 ? cached / usage.inputTokens : 0;
+    // Prompt size of the most recent request ~= current context usage
+    // (the session total grows monotonically and is useless as a gauge).
+    this.lastInput = usage.inputTokens;
   }
 
   /** Total input tokens seen (including cached and cache-write). */
@@ -41,6 +45,11 @@ export class PromptCacheMetrics {
   /** Cache read (R): prompt tokens served from cache. */
   get totalCachedTokens(): number {
     return this.totalCached;
+  }
+
+  /** Prompt tokens of the most recent request (current context size). */
+  get lastInputTokens(): number {
+    return this.lastInput;
   }
 
   /** Cache write (W): prompt tokens written to the cache. */

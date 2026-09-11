@@ -1,25 +1,19 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import type { ModelCost } from '../llm/catalog.js';
 
 /**
  * Pure formatting helpers for the status footer (tui-refactor ticket 09):
  * compact token counts, session cost estimation from catalog prices,
- * context-window usage with warning colors, and git branch detection.
+ * context-window usage with warning colors, and the working-indicator
+ * border color. Filesystem work (git branch) lives in `git-branch.ts`.
  */
+
+export type { ModelCost };
 
 /** Format tokens as a compact human-readable number (e.g. 12.3k). */
 export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
-}
-
-/** Model pricing, USD per 1M tokens (as declared in models.json). */
-export interface ModelCost {
-  input: number;
-  output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
 }
 
 /** Usage totals used for the cost/context segments. */
@@ -65,18 +59,9 @@ export function contextUsage(
   return { percent, color };
 }
 
-/**
- * Current git branch for `dir`, a short sha for a detached HEAD, or null
- * when `dir` is not a repository. Reads .git/HEAD only (no subprocess).
- */
-export function readGitBranch(dir: string): string | null {
-  try {
-    const head = fs.readFileSync(path.join(dir, '.git', 'HEAD'), 'utf-8').trim();
-    const match = /^ref:\s*refs\/heads\/(.+)$/.exec(head);
-    if (match) return match[1];
-    if (/^[0-9a-f]{40}$/.test(head)) return head.slice(0, 8);
-    return null;
-  } catch {
-    return null;
-  }
+/** Editor border color as the working indicator (idle/streaming/thinking). */
+export function workingBorderColor(state: 'idle' | 'streaming' | 'thinking'): string {
+  if (state === 'thinking') return 'magenta';
+  if (state === 'streaming') return 'yellow';
+  return 'cyan';
 }

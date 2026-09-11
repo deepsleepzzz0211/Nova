@@ -35,7 +35,7 @@ export function MessageBubble({ message, expandedToolIds, displayKind }: Message
   }
 
   // Reasoning stream (dim, italic, above the visible content)
-  const thinking = 'thinking' in message ? message.thinking : undefined;
+  const thinking = message.thinking;
 
   // System notices (compaction, etc.)
   if (message.role === 'system') {

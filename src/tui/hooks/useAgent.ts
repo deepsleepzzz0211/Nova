@@ -14,6 +14,7 @@ import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
 import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
+import { parseToolArgs } from '../tool-summary.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -94,6 +95,8 @@ export interface CacheStatsView {
   totalInputTokens: number;
   /** Total completion tokens seen this session (footer ↓). */
   totalOutputTokens: number;
+  /** Prompt size of the most recent request (current context usage). */
+  contextTokens: number;
 }
 
 /** Return type of the useAgent hook. */
@@ -131,6 +134,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     totalCacheWriteTokens: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    contextTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
   const [modelInfo, setModelInfo] = useState<{
@@ -293,12 +297,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
       // Ticket 05: show the awaiting-permission state on the tool block.
       setToolCallStatus(call.id, 'pending');
-      let args: Record<string, unknown> | null = null;
-      try {
-        args = JSON.parse(call.function.arguments) as Record<string, unknown>;
-      } catch {
-        args = null;
-      }
+      const args = parseToolArgs(call.function.arguments);
       // Dangerous calls are never session-whitelisted: always-rules must
       // not short-circuit the dialog for them (review finding).
       if (dangerReason(call.function.name, args, kindOf) === null && alwaysRules.matches(call.function.name, args, kindOf)) {
@@ -353,6 +352,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           totalCacheWriteTokens: m.totalCacheWriteTokens,
           totalInputTokens: m.totalInputTokens,
           totalOutputTokens: m.totalOutputTokens,
+          contextTokens: m.lastInputTokens,
         });
       },
       onCompaction: (info) => {

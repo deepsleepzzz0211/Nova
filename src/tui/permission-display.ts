@@ -6,9 +6,9 @@ import { cap, primaryArg, type DisplayKindResolver } from './tool-summary.js';
  * one-line call descriptions, danger detection, and the session-scoped
  * always-allow rule store. No Ink/React.
  *
- * Tool-name knowledge lives in ONE shared place (tool-summary.ts, the
- * interim single source until the Tool registry carries display metadata —
- * tui-refactor ticket 06).
+ * Tool-display knowledge comes from the Tool registry (Tool.display /
+ * registry.displayKindFor, tui-refactor ticket 14) — this module holds no
+ * tool names of its own.
  */
 
 /** A permission decision: deny, allow once, or always for this session. */
