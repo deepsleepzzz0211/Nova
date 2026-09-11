@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Box, useInput } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
@@ -134,9 +134,12 @@ export function App({
   // (tui-refactor ticket 05): one global hotkey, no per-block input
   // handlers, no key competition with the editor.
   const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(new Set());
-  // Tool display kinds come from the registry (ticket 14).
-  const displayKind = (n: string): 'command' | 'path' | undefined =>
-    toolRegistry.displayKindFor(n);
+  // Tool display kinds come from the registry (ticket 14); stable identity
+  // so memoised message bubbles are not invalidated every render (ticket 08).
+  const displayKind = useCallback(
+    (n: string): 'command' | 'path' | undefined => toolRegistry.displayKindFor(n),
+    [toolRegistry],
+  );
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
       let latestToolId: string | null = null;
@@ -174,7 +177,12 @@ export function App({
 
       {todoState && <TodoView todoState={todoState} />}
 
-      <ChatView messages={messages} expandedToolIds={expandedToolIds} displayKind={displayKind} />
+      <ChatView
+        messages={messages}
+        expandedToolIds={expandedToolIds}
+        displayKind={displayKind}
+        isStreaming={isStreaming}
+      />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
 
