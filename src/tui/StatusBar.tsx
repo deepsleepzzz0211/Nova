@@ -100,13 +100,16 @@ export function StatusBar({
               </Text>
               {contextStrategy && <Text color="gray" dimColor>{` (${contextStrategy})`}</Text>}
               <Text color="gray">{` · ${cost === null || !hasUsage ? '—' : `$${cost.toFixed(4)}`}`}</Text>
+              <Text color="gray" dimColor>{'  '}</Text>
             </>
           )}
         </Box>
 
         {/* Right: provider + model + thinking */}
         <Box>
-          <Text color="gray" dimColor>{providerName ? `${providerName}/` : ''}</Text>
+          {providerName && (
+            <Text color="gray" dimColor>{`${providerName}/`}</Text>
+          )}
           <Text bold color="cyan">{model}</Text>
           {thinkingLevel && <Text color="gray" dimColor>{` · ${thinkingLevel}`}</Text>}
         </Box>

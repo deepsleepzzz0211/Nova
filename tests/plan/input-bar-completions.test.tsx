@@ -123,3 +123,33 @@ describe('InputBar completions (tui-refactor 03, component)', () => {
     instance.unmount();
   });
 });
+
+describe('Enter semantics with an open completion (E2E finding)', () => {
+  it('submits when the typed text already equals the completion', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(
+      <InputBar onSubmit={onSubmit} isStreaming={false} fileIndexRoot={root} />,
+    );
+    instance.stdin.write('/model');
+    await settle();
+    expect(instance.lastFrame()).toContain('/model — list or switch models');
+    instance.stdin.write('\r'); // Enter must submit, not accept
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('/model');
+    instance.unmount();
+  });
+
+  it('accepts the completion when it adds something (partial match)', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(
+      <InputBar onSubmit={onSubmit} isStreaming={false} fileIndexRoot={root} />,
+    );
+    instance.stdin.write('/mod');
+    await settle();
+    instance.stdin.write('\r');
+    await settle();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(instance.lastFrame()).toContain('/model ');
+    instance.unmount();
+  });
+});

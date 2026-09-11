@@ -128,6 +128,15 @@ export function InputBar({
     }));
   };
 
+  /** True when accepting the highlighted item changes the editor text. */
+  const completionWouldChangeText = (): boolean => {
+    const c = completionRef.current;
+    if (c === null) return false;
+    const item = c.items[c.index];
+    if (item === undefined) return false;
+    return item.insert.trimEnd() !== editorRef.current.text.trimEnd();
+  };
+
   const acceptCompletion = (item: { insert: string }): void => {
     const c = completionRef.current;
     if (c === null) return;
@@ -181,7 +190,10 @@ export function InputBar({
       const wantsNewline = key.shift || key.ctrl || inputChar === '\n';
       if (wantsNewline) {
         update(newline);
-      } else if (completionRef.current !== null && !key.ctrl) {
+      } else if (completionRef.current !== null && !key.ctrl && completionWouldChangeText()) {
+        // Enter accepts a completion only when it actually completes
+        // something; typing an exact command name ("/model") must submit
+        // (E2E finding: Enter used to be swallowed by the popup).
         const c = completionRef.current;
         acceptCompletion(c.items[c.index]);
       } else if (!isStreaming) {
@@ -245,6 +257,19 @@ export function InputBar({
     if (key.ctrl || key.meta) return;
 
     if (inputChar) {
+      // A chunk that ENDS with CR is text plus Enter delivered in one piece
+      // (fast typing, coalescing terminals, automation tools): insert the
+      // text, then submit. Without this the trailing Enter is swallowed and
+      // the prompt never leaves the editor (E2E finding).
+      if (inputChar.length > 1 && inputChar.endsWith('\r') && !isStreaming) {
+        const body = inputChar.slice(0, -1);
+        if (body !== '') update((e) => insertText(e, body));
+        const r = submit(editorRef.current);
+        update(() => r.state);
+        if (r.submitted !== null) onSubmit(r.submitted);
+        setC(() => null);
+        return;
+      }
       // Multi-char events with newlines are terminal pastes: route through
       // insertPaste (folds large bodies into placeholders). Single-char
       // events are normal typing.

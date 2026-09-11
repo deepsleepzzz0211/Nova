@@ -158,3 +158,49 @@ describe('InputBar working indicator (tui-refactor 09)', () => {
     instance.unmount();
   });
 });
+
+describe('coalesced input chunks (E2E finding)', () => {
+  it('submits when text and Enter arrive in one stdin chunk', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+    const CR = String.fromCharCode(13);
+    instance.stdin.write('prompt delivered with the enter key' + CR);
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('prompt delivered with the enter key');
+    expect(instance.lastFrame()).toContain('Type a message');
+    instance.unmount();
+  });
+
+  it('keeps a trailing newline inside a pasted block instead of submitting it', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+    const LF = String.fromCharCode(10);
+    instance.stdin.write('line one' + LF + 'line two' + LF);
+    await settle();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(instance.lastFrame()).toContain('line one');
+    instance.unmount();
+  });
+});
+
+describe('slash command submission with the completion popup (E2E finding)', () => {
+  it('submits /undo when typed and Enter arrive separately', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+    instance.stdin.write('/undo');
+    await settle();
+    instance.stdin.write(String.fromCharCode(13));
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('/undo');
+    instance.unmount();
+  });
+
+  it('submits /undo when text and Enter are coalesced', async () => {
+    const onSubmit = vi.fn();
+    const instance = render(<InputBar onSubmit={onSubmit} isStreaming={false} />);
+    instance.stdin.write('/undo' + String.fromCharCode(13));
+    await settle();
+    expect(onSubmit).toHaveBeenCalledWith('/undo');
+    instance.unmount();
+  });
+});
