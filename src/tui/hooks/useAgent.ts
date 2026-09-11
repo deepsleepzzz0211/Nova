@@ -15,6 +15,7 @@ import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
 import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
 import { parseToolArgs } from '../tool-summary.js';
+import { findCommand, type SlashCommandContext } from '../commands.js';
 
 /** A tool call as displayed in the UI. */
 export interface DisplayToolCall {
@@ -413,79 +414,65 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const loop = loopRef.current;
     if (!loop) return;
 
-    // Slash command: /update — npm i -g and report (takes effect on restart)
-    if (trimmed === '/update') {
-      setMessages((prev) => [...prev, { role: 'system' as const, content: 'checking for updates…' }]);
-      void runNpmUpdate().then((r) => {
-        setMessages((prev) => [...prev, { role: 'system' as const, content: r.message }]);
-      });
-      return;
-    }
-
-    // Slash command: /model [spec] — list or switch models
-    if (trimmed === '/model' || trimmed.startsWith('/model ')) {
-      const spec = trimmed === '/model' ? '' : trimmed.slice('/model '.length).trim();
-      if (spec === '') {
-        const listing = config.listModels?.() ?? 'No model catalog available.';
-        setMessages((prev) => [...prev, { role: 'system' as const, content: listing }]);
-        return;
-      }
-      const result = config.resolveSwitch?.(spec);
-      if (result?.ok) {
-        const loop = loopRef.current;
-        if (loop) {
-          loop.setProvider(result.llm);
-          loop.setModel(result.model);
-        }
-        setModelInfo({
-          model: result.model,
-          contextWindow: result.contextWindow,
-          providerName: result.providerName,
-          cost: result.cost,
-        });
-      }
-      setMessages((prev) => [...prev, { role: 'system' as const, content: result?.message ?? 'Model switching unavailable.' }]);
-      return;
-    }
-
-    // Slash command: /undo [n] — revert the last n conversation turns
-    // (conversation only; code changes are NOT reverted — check git).
-    if (trimmed === '/undo' || trimmed.startsWith('/undo ')) {
-      const arg = trimmed.slice('/undo'.length).trim();
-      const n = Number.parseInt(arg, 10);
-      const turns = Number.isFinite(n) && n >= 1 ? n : 1;
-      setMessages((prev) => [...prev, { role: 'user' as const, content: trimmed }]);
-      const result = loop.undoTurns(turns);
-      if (result.undone) {
-        // Rebuild the display from the reverted conversation
-        const restored = loop
+    // Slash commands: single registry (ticket 15) — completion and dispatch
+    // share one declaration; handlers receive UI callbacks here.
+    const found = findCommand(trimmed);
+    if (found !== null) {
+      const restored = (): Array<{ role: 'user' | 'assistant'; content: string }> =>
+        loop
           .getMessages()
           .filter((msg): msg is { role: 'user' | 'assistant'; content: string } =>
             (msg.role === 'user' || msg.role === 'assistant') &&
             typeof msg.content === 'string' && msg.content.length > 0)
           .map((msg) => ({ role: msg.role, content: msg.content }));
-        setMessages(restored);
-        setMessages((prev) => [...prev, {
-          role: 'system' as const,
-          content: `[undone ${result.undoneTurns} turn(s) — conversation reverted; code changes are NOT reverted, check git status]`,
-        }]);
-      } else {
-        setMessages((prev) => [...prev, { role: 'system' as const, content: '[nothing to undo]' }]);
-      }
-      return;
-    }
-
-    // Slash command: /compact — force a context compaction pass
-    if (trimmed === '/compact') {
-      setMessages((prev) => [...prev, { role: 'user' as const, content: '/compact' }]);
-      void loop.compactNow().then((result) => {
-        setMessages((prev) => [...prev, {
-          role: 'system' as const,
-          content: result.compacted
-            ? `[context compacted: ${result.beforeTokens} → ${result.afterTokens} tokens]`
-            : '[nothing to compact — context is small]',
-        }]);
-      });
+      const ctx: SlashCommandContext = {
+        appendUserMessage: (text) =>
+          setMessages((prev) => [...prev, { role: 'user' as const, content: text }]),
+        appendSystemMessage: (text) =>
+          setMessages((prev) => [...prev, { role: 'system' as const, content: text }]),
+        replaceConversation: (messages) =>
+          setMessages(messages.map((m) => ({ role: m.role, content: m.content }))),
+        listModels: () => config.listModels?.() ?? 'No model catalog available.',
+        switchModel: (spec) => {
+          const result = config.resolveSwitch?.(spec);
+          if (result?.ok) {
+            const loopNow = loopRef.current;
+            if (loopNow) {
+              loopNow.setProvider(result.llm);
+              loopNow.setModel(result.model);
+            }
+            setModelInfo({
+              model: result.model,
+              contextWindow: result.contextWindow,
+              providerName: result.providerName,
+              cost: result.cost,
+            });
+          }
+          return { ok: result?.ok ?? false, message: result?.message ?? 'Model switching unavailable.', model: result?.ok ? result.model : undefined };
+        },
+        undoTurns: (n) => {
+          const result = loop.undoTurns(n);
+          return {
+            undone: result.undone,
+            undoneTurns: result.undoneTurns,
+            restored: result.undone ? restored() : [],
+          };
+        },
+        compact: async () => {
+          const result = await loop.compactNow();
+          return {
+            compacted: result.compacted,
+            note: result.compacted
+              ? `[context compacted: ${result.beforeTokens} → ${result.afterTokens} tokens]`
+              : '[nothing to compact — context is small]',
+          };
+        },
+        update: async () => {
+          const r = await runNpmUpdate();
+          return { message: r.message };
+        },
+      };
+      void Promise.resolve(found.command.run(ctx, found.args));
       return;
     }
 

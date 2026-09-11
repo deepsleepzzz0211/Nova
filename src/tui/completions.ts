@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { commandCompletions } from './commands.js';
 import * as path from 'node:path';
 
 /**
@@ -7,13 +8,8 @@ import * as path from 'node:path';
  * component maps key events onto this.
  */
 
-/** Built-in slash commands (single source for the completion list). */
-export const SLASH_COMMANDS: ReadonlyArray<{ name: string; description: string }> = [
-  { name: 'model', description: 'list or switch models' },
-  { name: 'undo', description: 'revert the last n conversation turns' },
-  { name: 'compact', description: 'force a context compaction pass' },
-  { name: 'update', description: 'update nova globally (takes effect on restart)' },
-];
+/** Built-in slash commands come from the command registry (ticket 15). */
+export { SLASH_COMMANDS } from './commands.js';
 
 export type CompletionKind = 'slash' | 'file';
 
@@ -55,11 +51,8 @@ export function detectCompletion(text: string, cursor: number): CompletionContex
 /** Prefix-filter slash commands (case-insensitive). */
 export function completeCommands(query: string): Array<{ name: string; description: string }> {
   const q = query.toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q));
+  return commandCompletions().filter((c) => c.name.toLowerCase().startsWith(q));
 }
-// NOTE: SLASH_COMMANDS here and the string dispatch in useAgent.sendMessage
-// must stay in sync until a shared command registry lands (tracked in the
-// startup-header ticket).
 
 /**
  * Fuzzy-match file paths: query chars must appear in order
