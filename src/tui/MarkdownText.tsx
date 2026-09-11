@@ -1,154 +1,147 @@
 import React from 'react';
-import { Text } from 'ink';
+import { Box, Text } from 'ink';
+import hljs from 'highlight.js';
+import {
+  getCachedBlocks,
+  highlightToSegments,
+  type MdBlock,
+} from './markdown.js';
 
 /** Props for the MarkdownText component. */
 export interface MarkdownTextProps {
-  /** Markdown-formatted text to render. */
+  /** Markdown source (may be a partially streamed document). */
   children: string;
 }
 
+/** hljs class name → terminal color (theme tokens arrive with ticket 11). */
+const HLJS_COLORS: Array<{ match: RegExp; color: string }> = [
+  { match: /keyword|built_in|literal|type|class/, color: 'magenta' },
+  { match: /string|regexp|char/, color: 'green' },
+  { match: /comment|quote/, color: 'gray' },
+  { match: /number|attr|variable/, color: 'yellow' },
+  { match: /title|function|name/, color: 'cyan' },
+];
+
+function colorFor(className: string | null): string | undefined {
+  if (className === null) return undefined;
+  return HLJS_COLORS.find((entry) => entry.match.test(className))?.color;
+}
+
+/** Inline markdown stripped to plain text (bold/code markers removed). */
+function inlineText(raw: string): string {
+  return raw
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, '');
+}
+
 /**
- * Renders markdown text in the terminal.
- *
- * Uses chalk-based inline formatting for:
- * - **bold** text
- * - `inline code`
- * - ```code blocks```
- * - # headers
- * - - list items
+ * Renders markdown for the chat view (tui-refactor ticket 07): marked
+ * parsing with per-message caching, code blocks syntax-highlighted via
+ * highlight.js, and graceful degradation while a message streams.
  */
 export function MarkdownText({ children }: MarkdownTextProps): React.ReactElement {
-  const lines = children.split('\n');
-  const elements: React.ReactElement[] = [];
-
-  let inCodeBlock = false;
-  let codeBlockContent: string[] = [];
-  let codeBlockKey = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const key = `line-${i}`;
-
-    // Handle code block boundaries
-    if (line.trimStart().startsWith('```')) {
-      if (inCodeBlock) {
-        // End of code block
-        elements.push(
-          <Text key={`codeblock-${codeBlockKey}`} backgroundColor="gray" color="white">
-            {'  ' + codeBlockContent.join('\n  ')}
-          </Text>,
-        );
-        codeBlockContent = [];
-        inCodeBlock = false;
-        codeBlockKey++;
-      } else {
-        inCodeBlock = true;
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeBlockContent.push(line);
-      continue;
-    }
-
-    // Headers
-    if (line.startsWith('### ')) {
-      elements.push(<Text key={key} bold color="white">{line.slice(4)}</Text>);
-      continue;
-    }
-    if (line.startsWith('## ')) {
-      elements.push(<Text key={key} bold color="cyan">{line.slice(3)}</Text>);
-      continue;
-    }
-    if (line.startsWith('# ')) {
-      elements.push(<Text key={key} bold color="white">{line.slice(2)}</Text>);
-      continue;
-    }
-
-    // List items
-    if (line.match(/^\s*[-*]\s/)) {
-      elements.push(
-        <Text key={key}>
-          <Text color="cyan">  • </Text>
-          <Text>{renderInline(line.replace(/^\s*[-*]\s/, ''))}</Text>
-        </Text>,
-      );
-      continue;
-    }
-
-    // Regular text with inline formatting
-    elements.push(<Text key={key}>{renderInline(line)}</Text>);
-  }
-
-  // Handle unclosed code block
-  if (inCodeBlock && codeBlockContent.length > 0) {
-    elements.push(
-      <Text key={`codeblock-${codeBlockKey}`} backgroundColor="gray" color="white">
-        {'  ' + codeBlockContent.join('\n  ')}
-      </Text>,
-    );
-  }
-
-  return <>{elements}</>;
+  const blocks = getCachedBlocks(children);
+  return (
+    <Box flexDirection="column">
+      {blocks.map((block, i) => (
+        <Block key={i} block={block} />
+      ))}
+    </Box>
+  );
 }
 
-/**
- * Render inline markdown formatting: bold and inline code.
- * Returns an array of string and JSX elements.
- */
-function renderInline(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let remaining = text;
-  let partKey = 0;
-
-  while (remaining.length > 0) {
-    // Inline code: `...`
-    const codeMatch = remaining.match(/^(.*?)`([^`]+)`(.*)$/s);
-    if (codeMatch) {
-      if (codeMatch[1]) {
-        parts.push(...renderBold(codeMatch[1], partKey));
-        partKey += 100;
-      }
-      parts.push(
-        <Text key={`code-${partKey}`} backgroundColor="gray" color="yellow">
-          {codeMatch[2]}
-        </Text>,
+function Block({ block }: { block: MdBlock }): React.ReactElement {
+  switch (block.kind) {
+    case 'heading':
+      return (
+        <Box marginY={0}>
+          <Text bold color="cyan">
+            {inlineText(block.text)}
+          </Text>
+        </Box>
       );
-      partKey++;
-      remaining = codeMatch[3];
-      continue;
-    }
-
-    // No more inline patterns; render bold only
-    parts.push(...renderBold(remaining, partKey));
-    break;
+    case 'list':
+      return (
+        <Box flexDirection="column">
+          {block.items?.map((item, i) => (
+            <Box key={i} paddingLeft={2}>
+              <Text color="gray">{block.ordered === true ? `${i + 1}. ` : '• '}</Text>
+              <Text>{inlineText(item)}</Text>
+            </Box>
+          ))}
+        </Box>
+      );
+    case 'quote':
+      return (
+        <Box paddingLeft={2}>
+          <Text color="gray" italic>
+            {inlineText(block.text)}
+          </Text>
+        </Box>
+      );
+    case 'code':
+      return <CodeBlock block={block} />;
+    case 'table':
+      return (
+        <Box flexDirection="column">
+          {block.rows?.map((row, i) => (
+            <Box key={i}>
+              <Text bold={i === 0} color={i === 0 ? 'cyan' : undefined}>
+                {row.join(' | ')}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      );
+    case 'paragraph':
+    default:
+      return (
+        <Box>
+          <Text>{inlineText(block.text)}</Text>
+        </Box>
+      );
   }
-
-  if (parts.length === 1 && typeof parts[0] === 'string') {
-    return parts[0];
-  }
-  return <>{parts}</>;
 }
 
-/** Render **bold** segments within text. */
-function renderBold(text: string, keyOffset: number): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  let remaining = text;
-  let k = keyOffset;
+/** Code block: syntax highlighted per line (language from the fence). */
+function CodeBlock({ block }: { block: MdBlock }): React.ReactElement {
+  const segments = highlightedSegments(block);
+  return (
+    <Box flexDirection="column" marginY={0} paddingLeft={1}>
+      {segments.map((line, i) => (
+        <Box key={i}>
+          <Text color="gray" dimColor>{'│ '}</Text>
+          {line.length === 0 ? (
+            <Text> </Text>
+          ) : (
+            line.map((seg, j) => (
+              <Text key={j} color={colorFor(seg.className)}>
+                {seg.text}
+              </Text>
+            ))
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
 
-  while (remaining.length > 0) {
-    const boldMatch = remaining.match(/^(.*?)\*\*([^*]+)\*\*(.*)$/s);
-    if (boldMatch) {
-      if (boldMatch[1]) parts.push(boldMatch[1]);
-      parts.push(<Text key={`bold-${k}`} bold>{boldMatch[2]}</Text>);
-      k++;
-      remaining = boldMatch[3];
-      continue;
+/** Highlight one code block into per-line segments. */
+function highlightedSegments(block: MdBlock): Array<Array<{ text: string; className: string | null }>> {
+  let html: string;
+  try {
+    if (block.language !== null && block.language !== undefined && hljs.getLanguage(block.language)) {
+      html = hljs.highlight(block.text, { language: block.language, ignoreIllegals: true }).value;
+    } else {
+      html = hljs.highlightAuto(block.text).value;
     }
-    parts.push(remaining);
-    break;
+  } catch {
+    html = block.text;
   }
-
-  return parts;
+  // hljs output is per-line already; split on newlines before segmenting so
+  // each rendered row keeps its own colors.
+  return html.split('\n').map((line) => highlightToSegments(line));
 }
