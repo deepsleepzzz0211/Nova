@@ -35,3 +35,13 @@ runs:
     - name: TUI E2E (deterministic, no LLM)
       run: pnpm test:e2e:deterministic
       shell: bash
+    # Failure evidence from the PTY suite (screenshots/recordings live in the
+    # runner temp dir so they survive the test workspace cleanup).
+    - name: Upload E2E artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-artifacts-${{ runner.os }}-${{ github.run_id }}
+        path: ${{ runner.temp }}/nova-e2e-artifacts
+        if-no-files-found: ignore
+        retention-days: 7
