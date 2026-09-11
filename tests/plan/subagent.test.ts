@@ -639,6 +639,6 @@ describe('spawn_subagent tool', () => {
       model: 'test',
     });
     const tool = createSpawnSubagentTool(spawner);
-    expect(tool.requiresPermission?.({ task: 'x' })).toBe(true);
+    expect(tool.permission).toEqual({ mode: 'ask', message: 'Subagent delegation requires confirmation' });
   });
 });

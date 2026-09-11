@@ -1,0 +1,28 @@
+feat(tui): startup header + single-source tool permissions (tickets 10, 19)
+
+Startup header (ticket 10)
+- the CLI prints a one-shot header before Ink takes over: version,
+  provider/model, thinking level, the actual key bindings, cwd, and the
+  context files / skills / MCP servers that were loaded. It lands in the
+  terminal scrollback and is never re-rendered; --no-header disables it.
+- formatStartupHeader is pure and unit-tested (sections are omitted when
+  nothing was loaded); a PTY case asserts the identity line really appears.
+
+Single-source tool permissions (ticket 19)
+- Tool gains `permission: { mode: 'ask' | 'auto', message? }`, declared by
+  each tool (bash/write_file/spawn_subagent ask; read_file/edit_file/
+  web_search/web_fetch/todo_write auto; the MCP bridge derives it from the
+  connection's autoApprove flag). The old `requiresPermission` flag and its
+  second decision path in the pipeline are gone.
+- PermissionPolicy no longer hardcodes tool names: command tools are
+  recognised by their declared display kind, always-allow/dangerous-pattern
+  rules apply to those, and everything else follows the declaration. The
+  policy FAILS CLOSED: an unregistered tool, or one that declares nothing,
+  asks instead of silently running.
+- the duplicated SyncPermissionPolicy implementation is deleted (its tests
+  now cover PermissionPolicy only).
+- test fixtures updated to the new contract (an intentional design change:
+  tools must declare their requirement, so every test tool now does).
+
+Verified: 668 unit tests, 6 deterministic PTY cases under CI=true, and 6
+real-LLM PTY cases green.

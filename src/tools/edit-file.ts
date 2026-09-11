@@ -6,6 +6,7 @@ export function createEditFileTool(): Tool {
   return {
     name: 'edit_file',
     display: { kind: 'path' },
+    permission: { mode: 'auto' },
     description: 'Replace an exact string in a file. Errors if the string is not found or is ambiguous.',
     parameters: {
       type: 'object',
@@ -16,7 +17,6 @@ export function createEditFileTool(): Tool {
       },
       required: ['path', 'old_string', 'new_string'],
     },
-    requiresPermission: () => false,
     async execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       const filePath = path.resolve(context.workingDirectory, params.path as string);
       const oldStr = params.old_string as string;

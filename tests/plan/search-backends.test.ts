@@ -78,6 +78,6 @@ describe('web_search (Tavily backend)', () => {
   it('metadata stays cacheable and permission-free', () => {
     const tool = createWebSearchTool({ tavilyApiKey: 'k' });
     expect(tool.metadata?.cacheable).toBe(true);
-    expect(tool.requiresPermission?.({})).toBe(false);
+    expect(tool.permission).toEqual({ mode: 'auto' });
   });
 });

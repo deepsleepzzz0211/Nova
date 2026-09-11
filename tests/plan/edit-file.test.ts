@@ -32,6 +32,6 @@ describe('edit_file', () => {
   });
 
   it('never requires permission', () => {
-    expect(createEditFileTool().requiresPermission?.({})).toBe(false);
+    expect(createEditFileTool().permission).toEqual({ mode: 'auto' });
   });
 });

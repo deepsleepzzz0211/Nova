@@ -8,6 +8,7 @@ export function createReadFileTool(): Tool {
   return {
     name: 'read_file',
     display: { kind: 'path' },
+    permission: { mode: 'auto' },
     description: 'Read a file and return its contents with line numbers.',
     parameters: {
       type: 'object',
@@ -18,7 +19,6 @@ export function createReadFileTool(): Tool {
       },
       required: ['path'],
     },
-    requiresPermission: () => false,
     async execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       const filePath = path.resolve(context.workingDirectory, params.path as string);
 

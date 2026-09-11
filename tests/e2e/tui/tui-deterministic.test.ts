@@ -123,4 +123,22 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       cleanup(cwd);
     }
   });
+
+  it('prints the startup header once, before the TUI takes over', async () => {
+    const cwd = makeWorkspace({ stubKey: true });
+    const terminal = await launchTui(cwd);
+    try {
+      // The identity line lands in scrollback before Ink owns the frame (on a
+      // 30-row terminal Ink's first paint scrolls the remaining header lines
+      // out of the buffer; their formatting is unit-tested separately).
+      const full = await terminal.text({ full: true });
+      expect(full).toContain('nova ');
+      expect(full).toContain('e2e/');
+      expect(full.match(/nova \d+\.\d+\.\d+/)).not.toBeNull();
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
 });

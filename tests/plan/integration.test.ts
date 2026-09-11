@@ -30,20 +30,29 @@ describe('Integration: all tools register and policy works', () => {
   });
 
   it('policy correctly gates all tool types', () => {
+    const registry = new ToolRegistry();
+    registry.register(createReadFileTool());
+    registry.register(createWriteFileTool());
+    registry.register(createEditFileTool());
+    registry.register(createBashTool());
+    registry.register(createWebSearchTool());
+    registry.register(createWebFetchTool());
     const policy = new PermissionPolicy({
       autoApproveFileWrite: false,
       autoApproveBash: false,
       alwaysAllowCommands: ['git status'],
     });
 
-    expect(policy.check('read_file', {}).decision).toBe('allow');
-    expect(policy.check('edit_file', {}).decision).toBe('allow');
-    expect(policy.check('web_search', {}).decision).toBe('allow');
-    expect(policy.check('web_fetch', {}).decision).toBe('allow');
-    expect(policy.check('write_file', {}).decision).toBe('ask');
-    expect(policy.check('bash', { command: 'npm test' }).decision).toBe('ask');
-    expect(policy.check('bash', { command: 'git status' }).decision).toBe('allow');
-    expect(policy.check('bash', { command: 'rm -rf /' }).decision).toBe('ask');
+    // The policy reads each tool's own declaration (ticket 19), so the
+    // registered tool objects are passed explicitly.
+    expect(policy.check('read_file', {}, registry.get('read_file')).decision).toBe('allow');
+    expect(policy.check('edit_file', {}, registry.get('edit_file')).decision).toBe('allow');
+    expect(policy.check('web_search', {}, registry.get('web_search')).decision).toBe('allow');
+    expect(policy.check('web_fetch', {}, registry.get('web_fetch')).decision).toBe('allow');
+    expect(policy.check('write_file', {}, registry.get('write_file')).decision).toBe('ask');
+    expect(policy.check('bash', { command: 'npm test' }, registry.get('bash')).decision).toBe('ask');
+    expect(policy.check('bash', { command: 'git status' }, registry.get('bash')).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'rm -rf /' }, registry.get('bash')).decision).toBe('ask');
   });
 
   it('tool definitions contain correct name, description, and parameters', () => {
@@ -133,15 +142,19 @@ describe('Integration: config loads from TOML with defaults', () => {
     expect(c.permission.autoApproveBash).toBe(true);
     expect(c.permission.alwaysAllowCommands).toEqual(['git status', 'git diff']);
 
-    // Policy uses alwaysAllowCommands from config
+    // Policy uses alwaysAllowCommands from config (the tool object carries
+    // its own declaration — ticket 19).
+    const registry = new ToolRegistry();
+    registry.register(createBashTool());
+    registry.register(createReadFileTool());
     const policy = new PermissionPolicy(c.permission);
-    expect(policy.check('bash', { command: 'git status' }).decision).toBe('allow');
-    expect(policy.check('bash', { command: 'git diff' }).decision).toBe('allow');
-    expect(policy.check('bash', { command: 'git diff --stat' }).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'git status' }, registry.get('bash')).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'git diff' }, registry.get('bash')).decision).toBe('allow');
+    expect(policy.check('bash', { command: 'git diff --stat' }, registry.get('bash')).decision).toBe('allow');
     // Read-only tools always allow
-    expect(policy.check('read_file', {}).decision).toBe('allow');
+    expect(policy.check('read_file', {}, registry.get('read_file')).decision).toBe('allow');
     // Dangerous commands still ask
-    expect(policy.check('bash', { command: 'rm -rf /' }).decision).toBe('ask');
+    expect(policy.check('bash', { command: 'rm -rf /' }, registry.get('bash')).decision).toBe('ask');
   });
 });
 

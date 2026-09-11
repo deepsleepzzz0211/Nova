@@ -29,7 +29,7 @@ export function createSpawnSubagentTool(spawner: SubagentSpawner): Tool {
       required: ['task'],
     },
     metadata: { category: 'agent', cacheable: false, timeout: 600_000 },
-    requiresPermission: () => true,
+    permission: { mode: 'ask', message: 'Subagent delegation requires confirmation' },
     async execute(
       params: Record<string, unknown>,
       context: ToolContext,

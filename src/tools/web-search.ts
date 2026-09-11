@@ -107,7 +107,7 @@ export function createWebSearchTool(options?: SearchBackendOptions): Tool {
       required: ['query'],
     },
     metadata: { category: 'web', cacheable: true, timeout: TIMEOUT_MS },
-    requiresPermission: () => false,
+    permission: { mode: 'auto' },
     async execute(params: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
       const query = params.query as string;
 

@@ -15,6 +15,7 @@ function makeTool(execute: (params: Record<string, unknown>) => Promise<ToolResu
   return {
     name: 'test_tool',
     description: 'A test tool',
+    permission: { mode: 'auto' as const },
     parameters: { type: 'object', properties: {} },
     execute,
   };

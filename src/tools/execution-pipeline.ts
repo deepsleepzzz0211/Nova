@@ -37,7 +37,7 @@ export interface PipelineOptions {
  * Order of checks (permission always precedes cache):
  *  1. PermissionPolicy decision → deny → error result
  *  2. decision ask → user confirmation (or deny when no callback)
- *  3. tool.requiresPermission → treated as ask
+ *  3. tool.permission declaration → auto or ask (ticket 19)
  *  4. pre-tool-use hooks (may deny)
  *  5. cache lookup for cacheable tools
  *  6. execute with timeout
@@ -64,7 +64,7 @@ export class ToolExecutionPipeline {
     options?: ExecuteOptions,
   ): Promise<ToolResult> {
     // 1. Policy decision
-    const permission = this.permissionChecker.check(tool.name, params);
+    const permission = this.permissionChecker.check(tool.name, params, tool);
 
     if (permission.decision === 'deny') {
       return {
@@ -79,11 +79,6 @@ export class ToolExecutionPipeline {
       allowed = options?.confirm
         ? await options.confirm(tool.name, params, permission.message)
         : false;
-    }
-
-    // 3. tool-level requirement overrides an allow decision
-    if (allowed && permission.decision !== 'ask' && tool.requiresPermission?.(params)) {
-      allowed = options?.confirm ? await options.confirm(tool.name, params) : false;
     }
 
     if (!allowed) {

@@ -38,6 +38,7 @@ function echoTool(): Tool {
   return {
     name: 'echo',
     description: 'Echo input',
+    permission: { mode: 'auto' as const },
     parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
     execute: async (params) => ({ content: `echo: ${params.text}` }),
   };
@@ -531,7 +532,8 @@ describe('AgentLoop pending tool visibility (streaming ticket 04)', () => {
     const trackingTool: Tool = {
       name: 'bash',
       description: 'Tool bash',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      permission: { mode: 'auto' as const },
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: async () => {
         executed = true;
         return { content: 'ran bash' };

@@ -27,6 +27,6 @@ describe('bash tool', () => {
   });
 
   it('always requires permission', () => {
-    expect(createBashTool().requiresPermission?.({})).toBe(true);
+    expect(createBashTool().permission).toEqual({ mode: 'ask', message: 'Bash command requires confirmation' });
   });
 });

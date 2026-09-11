@@ -44,7 +44,7 @@ export function createWebFetchTool(): Tool {
       },
       required: ['url'],
     },
-    requiresPermission: () => false,
+    permission: { mode: 'auto' },
     async execute(params: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
       const url = params.url as string;
 
