@@ -5,6 +5,7 @@ import { MessageBubble } from './MessageBubble.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { partitionMessages } from './message-partition.js';
 import { viewportSlice } from './viewport.js';
+import { findMatches } from './fullscreen-input.js';
 import { theme } from './theme.js';
 
 /** Props for the ChatView component. */
@@ -33,6 +34,11 @@ export interface ChatViewProps {
    * scrolled back. Auto-scroll stays in control of the offset.
    */
   viewport?: { scrollOffset: number; terminalRows: number };
+  /**
+   * Inline search (ticket 13): when present, only matching messages are shown
+   * and a header reports the current hit.
+   */
+  search?: { query: string; index: number };
 }
 
 /**
@@ -48,22 +54,41 @@ export function ChatView({
   staticEpoch = 0,
   renderProbe,
   viewport,
+  search,
 }: ChatViewProps): React.ReactElement {
-  // Fullscreen: slice the conversation to the visible window. Auto-scroll
-  // (App) keeps the offset at the end while streaming.
-  const windowed = viewport !== undefined
-    ? viewportSlice(messages, {
-        // Conservative budget: status bar + editor + hint + estimation slack.
-        rows: Math.max(3, viewport.terminalRows - 8),
-        offset: viewport.scrollOffset,
-        expandedToolIds,
-      })
-    : null;
-  const visibleMessages = windowed?.messages ?? messages;
+  // Search narrows the transcript to matching messages (ticket 13).
+  const searchMatches = search !== undefined ? findMatches(messages, search.query) : [];
+  const searchResult =
+    search !== undefined && searchMatches.length > 0
+      ? messages[searchMatches[Math.min(search.index, searchMatches.length - 1)].messageIndex]
+      : undefined;
+  // While searching, the transcript narrows to the current hit; otherwise
+  // fullscreen slices the conversation to the visible window (auto-scroll is
+  // owned by App, which keeps the offset at the end while streaming).
+  const baseMessages = searchResult !== undefined ? [searchResult] : messages;
+  const windowed =
+    viewport !== undefined && search === undefined
+      ? viewportSlice(baseMessages, {
+          // Conservative budget: status bar + editor + hint + slack.
+          rows: Math.max(3, viewport.terminalRows - 8),
+          offset: viewport.scrollOffset,
+          expandedToolIds,
+        })
+      : null;
+  const visibleMessages = windowed?.messages ?? baseMessages;
   const { staticItems, liveItems } = partitionMessages(visibleMessages);
 
   return (
     <Box flexDirection="column" flexGrow={1}>
+      {search !== undefined && (
+        <Box paddingLeft={2}>
+          <Text color={theme.primary}>
+            {searchMatches.length === 0
+              ? `/ search: ${search.query} (no matches)`
+              : `/ search: ${search.query} (${Math.min(search.index, searchMatches.length - 1) + 1}/${searchMatches.length}) — n/N step, Esc close`}
+          </Text>
+        </Box>
+      )}
       {windowed !== null && windowed.hiddenAbove > 0 && (
         <Box paddingLeft={2}>
           <Text color={theme.muted} dimColor>

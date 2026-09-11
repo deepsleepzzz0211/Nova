@@ -47,6 +47,8 @@ export interface InputBarProps {
    * interrupt path would otherwise leave the dialog dangling (E2E finding).
    */
   modalOpen?: boolean;
+  /** True while another view (fullscreen search) owns the keyboard. */
+  disabled?: boolean;
   /** Called when the user presses Ctrl+C on an empty editor (app exit). */
   onExit?: () => void;
   /** Root directory for @ file completions (defaults to cwd; test seam). */
@@ -69,6 +71,7 @@ export function InputBar({
   workingState,
   onInterrupt,
   modalOpen,
+  disabled,
   onExit,
   fileIndexRoot,
 }: InputBarProps): React.ReactElement {
@@ -110,6 +113,8 @@ export function InputBar({
   };
 
   useInput((inputChar, key) => {
+    // Another view owns the keyboard (e.g. the fullscreen search box).
+    if (disabled === true) return;
     if (key.escape && completionController.current !== undefined) {
       // Close the popup first; interrupt only when no popup is open.
       completionController.close();
