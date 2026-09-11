@@ -9,6 +9,7 @@ import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { ThinkingLevel } from '../llm/compat.js';
 import type { ModelCost } from '../llm/catalog.js';
+import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { latestToolId } from './message-partition.js';
@@ -159,7 +160,7 @@ export function App({
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
-    (n: string): 'command' | 'path' | undefined => toolRegistry.displayKindFor(n),
+    (n: string): ToolDisplay | undefined => toolRegistry.displayFor(n),
     [toolRegistry],
   );
   useInput((inputChar, key) => {

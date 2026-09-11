@@ -4,8 +4,8 @@ import { render } from 'ink-testing-library';
 import { ToolCallView } from '../../src/tui/ToolCallView.js';
 import type { DisplayToolCall } from '../../src/tui/hooks/useAgent.js';
 
-const displayKind = (name: string): 'command' | 'path' | undefined =>
-  name === 'bash' ? 'command' : name === 'read_file' ? 'path' : undefined;
+const displayKind = (name: string): { kind: 'command' | 'path' } | undefined =>
+  name === 'bash' ? { kind: 'command' } : name === 'read_file' ? { kind: 'path' } : undefined;
 
 function makeCall(overrides: Partial<DisplayToolCall>): DisplayToolCall {
   return {

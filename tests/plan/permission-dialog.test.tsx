@@ -5,8 +5,8 @@ import { PermissionDialog } from '../../src/tui/PermissionDialog.js';
 import type { PendingPermission } from '../../src/tui/hooks/useAgent.js';
 import type { ToolCall } from '../../src/llm/types.js';
 
-const displayKind = (name: string): 'command' | 'path' | undefined =>
-  name === 'bash' ? 'command' : name === 'read_file' ? 'path' : undefined;
+const displayKind = (name: string): { kind: 'command' | 'path' } | undefined =>
+  name === 'bash' ? { kind: 'command' } : name === 'read_file' ? { kind: 'path' } : undefined;
 
 function makePending(name: string, args: string): PendingPermission {
   const call: ToolCall = {

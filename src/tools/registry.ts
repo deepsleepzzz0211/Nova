@@ -1,4 +1,4 @@
-import type { Tool } from './types.js';
+import type { Tool, ToolDisplay } from './types.js';
 import { toToolDefinition } from './types.js';
 import type { ToolDefinition } from '../llm/types.js';
 
@@ -23,6 +23,11 @@ export class ToolRegistry {
    */
   displayKindFor(name: string): 'command' | 'path' | undefined {
     return this.tools.get(name)?.display?.kind;
+  }
+
+  /** Full display metadata for a tool (kind, diff mode), or undefined. */
+  displayFor(name: string): ToolDisplay | undefined {
+    return this.tools.get(name)?.display;
   }
 
   /** Return all registered tools. */

@@ -5,7 +5,7 @@ import type { Tool, ToolContext, ToolResult } from './types.js';
 export function createWriteFileTool(): Tool {
   return {
     name: 'write_file',
-    display: { kind: 'path' },
+    display: { kind: 'path', diff: 'write' },
     permission: { mode: 'ask', message: 'File write requires confirmation' },
     description: 'Write content to a file. Supports overwrite and append modes.',
     parameters: {

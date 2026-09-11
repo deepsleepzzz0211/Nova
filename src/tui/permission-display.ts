@@ -42,7 +42,7 @@ export function dangerReason(
   args: Record<string, unknown> | null,
   kindOf?: DisplayKindResolver,
 ): string | null {
-  if (kindOf?.(name) !== 'command' || args === null) return null;
+  if (kindOf?.(name)?.kind !== 'command' || args === null) return null;
   const command = typeof args.command === 'string' ? args.command : '';
   if (!command) return null;
   for (const { pattern, reason } of DANGEROUS_PATTERNS) {

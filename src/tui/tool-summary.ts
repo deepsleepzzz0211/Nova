@@ -1,3 +1,4 @@
+import type { ToolDisplay } from '../tools/types.js';
 /**
  * Pure helpers for tool-call display (tui-refactor ticket 05): spinner
  * frames, typed one-line summaries, and output folding. No Ink/React.
@@ -12,8 +13,8 @@ export function spinnerFrame(tick: number): string {
   return SPINNER_FRAMES[((tick % n) + n) % n];
 }
 
-/** Resolver for a tool's declared display kind (usually registry.displayKindFor). */
-export type DisplayKindResolver = (name: string) => 'command' | 'path' | undefined;
+/** Resolver for a tool's declared display metadata (registry.displayFor). */
+export type DisplayKindResolver = (name: string) => ToolDisplay | undefined;
 
 /** Cap for the fallback summary. */
 const SUMMARY_CAP = 200;
@@ -45,7 +46,7 @@ export function primaryArg(
   kindOf?: DisplayKindResolver,
 ): string | null {
   if (parsed === null) return null;
-  const kind = kindOf?.(name);
+  const kind = kindOf?.(name)?.kind;
   if (kind === 'command' && typeof parsed.command === 'string') return parsed.command;
   if (kind === 'path' && typeof parsed.path === 'string') return parsed.path;
   return null;

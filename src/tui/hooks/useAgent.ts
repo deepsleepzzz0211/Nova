@@ -287,8 +287,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     // allowed without a dialog.
     // Tool display kinds come from the registry (ticket 14) — no hardcoded
     // tool names in the TUI layer.
-    const kindOf = (n: string): 'command' | 'path' | undefined =>
-      config.toolRegistry.displayKindFor(n);
+    const kindOf = (n: string): import('../../tools/types.js').ToolDisplay | undefined =>
+      config.toolRegistry.displayFor(n);
     const alwaysRules = new SessionAlwaysRules();
     const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
       // Ticket 05: show the awaiting-permission state on the tool block.
