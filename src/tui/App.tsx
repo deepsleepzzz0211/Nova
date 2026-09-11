@@ -12,6 +12,7 @@ import type { ModelCost } from '../llm/catalog.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { latestToolId } from './message-partition.js';
+import { startBranchRefresh } from './git-branch.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -151,6 +152,10 @@ export function App({
   // Fullscreen transcript scroll: messages scrolled back from the newest.
   // Follow-end (0) is the default and stays sticky until the user scrolls up.
   const [scrollOffset, setScrollOffset] = useState(0);
+  // The branch can change during a session (checkout in another terminal), so
+  // refresh it on a slow timer instead of reading once at startup (#23).
+  const [branch, setBranch] = useState<string | null>(gitBranch ?? null);
+  useEffect(() => startBranchRefresh(setBranch), []);
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
@@ -180,7 +185,7 @@ export function App({
       <StatusBar
         model={modelInfo.model}
         workingDirectory={process.cwd()}
-        gitBranch={gitBranch}
+        gitBranch={branch}
         providerName={modelInfo.providerName}
         thinkingLevel={thinkingLevel}
         contextWindow={modelInfo.contextWindow}
