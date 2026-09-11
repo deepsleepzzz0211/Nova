@@ -28,6 +28,8 @@ export interface CommandContextDeps {
   updateMessages: (updater: (prev: DisplayMessage[]) => DisplayMessage[]) => void;
   /** React state setter for the model info shown in the footer. */
   setModelInfo: (info: DisplayModelInfo) => void;
+  /** Called when the conversation is replaced wholesale (static remount). */
+  onConversationReplaced?: () => void;
   /** Run the global update flow. */
   runUpdate: () => Promise<{ message: string }>;
 }
@@ -58,8 +60,10 @@ export function createCommandContext(deps: CommandContextDeps): SlashCommandCont
       deps.updateMessages((prev) => [...prev, { role: 'user', content: text }]),
     appendSystemMessage: (text) =>
       deps.updateMessages((prev) => [...prev, { role: 'system', content: text }]),
-    replaceConversation: (messages) =>
-      deps.updateMessages(() => messages.map((m) => ({ role: m.role, content: m.content }))),
+    replaceConversation: (messages) => {
+      deps.updateMessages(() => messages.map((m) => ({ role: m.role, content: m.content })));
+      deps.onConversationReplaced?.();
+    },
     listModels: () => deps.listModels?.() ?? 'No model catalog available.',
     switchModel: (spec) => {
       const result = deps.resolveSwitch?.(spec);

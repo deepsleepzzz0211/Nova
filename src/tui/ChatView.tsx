@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Static, Text } from 'ink';
-import type { DisplayMessage } from './hooks/useAgent.js';
+import type { DisplayMessage } from './display-types.js';
 import { MessageBubble } from './MessageBubble.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { partitionMessages } from './message-partition.js';
@@ -13,42 +13,61 @@ export interface ChatViewProps {
   expandedToolIds?: ReadonlySet<string>;
   /** Registry-backed tool display kind resolver. */
   displayKind?: DisplayKindResolver;
-  /** Whether a response is currently streaming (keeps it in the live area). */
-  isStreaming?: boolean;
+  /**
+   * Conversation epoch. Bump it when the message list is REPLACED wholesale
+   * (/undo): Ink's static region is append-only, so it must be remounted
+   * (new key) for the restored conversation to print at all.
+   */
+  staticEpoch?: number;
+  /**
+   * Diagnostics/test seam: called with each rendered message and whether it
+   * came from the static or the live region (used to prove the static
+   * region does not re-render on stream deltas).
+   */
+  renderProbe?: (region: 'static' | 'live', message: DisplayMessage) => void;
 }
 
 /**
- * List of chat messages. Ink keeps the newest content visible; completed
- * messages join the static region in ticket 08 (no internal scrolling yet).
+ * List of chat messages (tui-refactor tickets 08/07): finalised turns go
+ * through Ink's <Static> (written once, outside reconciliation), while the
+ * current turn — streaming answer, mid-turn notices, expandable tool
+ * blocks — stays in the live region.
  */
 export function ChatView({
   messages,
   expandedToolIds,
   displayKind,
-  isStreaming = false,
+  staticEpoch = 0,
+  renderProbe,
 }: ChatViewProps): React.ReactElement {
-  const { staticItems, liveMessage } = partitionMessages(messages, isStreaming);
+  const { staticItems, liveItems } = partitionMessages(messages);
+
   return (
-    <Box flexDirection="column" flexGrow={1} overflowY="hidden">
-      {/* Completed messages render once via <Static>; only the in-flight
-          message (plus the regions below) re-renders while streaming. */}
-      <Static items={staticItems}>
-        {(msg, index) => (
+    <Box flexDirection="column" flexGrow={1}>
+      <Static key={staticEpoch} items={staticItems}>
+        {(msg, index) => {
+          renderProbe?.('static', msg);
+          return (
+            <MessageBubble
+              key={index}
+              message={msg}
+              expandedToolIds={expandedToolIds}
+              displayKind={displayKind}
+            />
+          );
+        }}
+      </Static>
+      {liveItems.map((msg, index) => {
+        renderProbe?.('live', msg);
+        return (
           <MessageBubble
-            key={index}
+            key={`live-${index}`}
             message={msg}
             expandedToolIds={expandedToolIds}
             displayKind={displayKind}
           />
-        )}
-      </Static>
-      {liveMessage !== null && (
-        <MessageBubble
-          message={liveMessage}
-          expandedToolIds={expandedToolIds}
-          displayKind={displayKind}
-        />
-      )}
+        );
+      })}
       {messages.length === 0 && (
         <Box paddingY={1}>
           <Box paddingLeft={2}>

@@ -1,22 +1,31 @@
-feat(tui): static/dynamic render partition (ticket tui-refactor 08)
+fix(tui): static partition review fixes (ticket 08)
 
-Long conversations no longer re-render their whole history every 32ms
-stream commit:
+Spec review found three integration defects caused by Ink's <Static>
+being append-only (written once, never reprinted):
 
-- message-partition module (pure, 5 tests): idle conversations are fully
-  static; while streaming the in-flight message is held out of the static
-  region (its deltas update in place), and it joins the static region when
-  the stream ends — partitioning keeps completed message identity stable
-  across deltas
-- ChatView renders completed messages through Ink's <Static>, so they are
-  written once and leave React reconciliation; the live message, todo view
-  and input/status regions are the only dynamic area
-- MessageBubble and ToolCallView are React.memo components; App's
-  displayKind resolver is useCallback-stable so memoisation is not
-  invalidated every render
-- 10 new tests: partition unit tests, ChatView static/live behaviour
-  (exactly-once per rendered frame, finish transition, empty state) and a
-  memo-type assertion
+- the live region is now the WHOLE CURRENT TURN (from the last user
+  message on), not just the last message. A mid-turn notice (subagent
+  activity, compaction) used to push the in-flight answer into Static
+  half-written, duplicating the text; notices now stay live, and the
+  latest turn's tool blocks stay expandable with Ctrl+O (a static
+  message could never re-render on expansion)
+- wholesale conversation replacement (/undo) remounts the static region
+  via a conversation epoch key, so the restored conversation actually
+  prints (Static's internal index is monotone and cannot shrink)
+- static-region cost is now observable: ChatView gained a renderProbe
+  diagnostics seam and a test proves the static region does not
+  re-render across streaming deltas; a 500-message render test covers
+  the long-conversation path (real frame-time/memory checks remain in
+  the manual acceptance pass)
+- removed the no-op overflowY="hidden" (Ink applies no overflow style)
 
-Note: max-render-cost verification on a real terminal remains part of the
-manual TUI acceptance pass.
+Standards review findings:
+- latestToolId() helper beside the partition (App no longer reaches into
+  the display model for Ctrl+O)
+- STATUS_STYLE single icon/color table and formatArgs() in tool-summary
+  replace ToolCallView's parallel status switches and inline JSON
+  formatting
+- MessageBubble's `thinking` alias removed; DisplayMessage imports
+  unified on display-types
+
+Ticket 08 records the Static append-only decisions. 661 tests.

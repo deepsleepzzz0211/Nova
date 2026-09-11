@@ -61,6 +61,22 @@ export function parseToolArgs(argsJson: string): Record<string, unknown> | null 
   }
 }
 
+/** Status → icon/color in ONE place (ToolCallView renders it directly). */
+export const STATUS_STYLE: Record<
+  'pending' | 'running' | 'done' | 'error',
+  { icon: string; color: string }
+> = {
+  pending: { icon: '⚠', color: 'yellow' },
+  running: { icon: '⠋', color: 'yellow' }, // running uses the animated spinner
+  done: { icon: '✓', color: 'green' },
+  error: { icon: '✗', color: 'red' },
+};
+
+/** Pretty-print tool arguments for the expanded view (fallback: raw). */
+export function formatArgs(argsJson: string, parsed: Record<string, unknown> | null): string {
+  return parsed === null ? argsJson : JSON.stringify(parsed, null, 2);
+}
+
 /** Cap a display string (shared with permission-display). */
 export function cap(s: string): string {
   return s.length > SUMMARY_CAP ? s.slice(0, SUMMARY_CAP) + '...' : s;
