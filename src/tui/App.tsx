@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as fs from 'node:fs';
 import { Box, useInput } from 'ink';
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
@@ -14,6 +15,14 @@ import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { latestToolId } from './message-partition.js';
 import { startBranchRefresh } from './git-branch.js';
+import {
+  MOUSE_DISABLE,
+  MOUSE_ENABLE,
+  findMatches,
+  osc52Copy,
+  parseMouseSequence,
+  stepMatch,
+} from './fullscreen-input.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -42,6 +51,16 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
   const updateNotice = useUpdateNotice();
   const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
 
+  // Wheel/click reporting is only enabled in fullscreen, and always turned
+  // off again so a crash cannot leave the terminal in mouse mode.
+  useEffect(() => {
+    if (fullscreen !== true) return undefined;
+    process.stdout.write(MOUSE_ENABLE);
+    return () => {
+      process.stdout.write(MOUSE_DISABLE);
+    };
+  }, [fullscreen]);
+
   // Follow-end: a new message snaps the fullscreen viewport back to the
   // newest content (pi-style), so streaming output is always visible.
   const lastMessageCount = useRef(messages.length);
@@ -59,6 +78,9 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
   // Fullscreen transcript scroll: messages scrolled back from the newest.
   // Follow-end (0) is the default and stays sticky until the user scrolls up.
   const [scrollOffset, setScrollOffset] = useState(0);
+  // Fullscreen search (ticket 13): Ctrl+F opens an inline query, n/N step
+  // through matches, Esc closes.
+  const [search, setSearch] = useState<{ query: string; index: number } | null>(null);
   // The branch can change during a session (checkout in another terminal), so
   // refresh it on a slow timer instead of reading once at startup (#23).
   const [branch, setBranch] = useState<string | null>(gitBranch ?? null);
@@ -80,6 +102,58 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         return next;
       });
     }
+    // Search mode owns the keyboard while it is open.
+    if (search !== null) {
+      if (key.escape || (key.ctrl && inputChar === 'f')) {
+        setSearch(null);
+        return;
+      }
+      if (key.return) {
+        setSearch((current) => (current === null ? current : { ...current, index: 0 }));
+        return;
+      }
+      if (inputChar === 'n' || inputChar === 'N') {
+        const count = findMatches(messages, search.query).length;
+        setSearch((current) =>
+          current === null ? current : { ...current, index: stepMatch(count, current.index, inputChar === 'n' ? 1 : -1) },
+        );
+        return;
+      }
+      if (key.backspace) {
+        setSearch((current) => (current === null ? current : { query: current.query.slice(0, -1), index: 0 }));
+        return;
+      }
+      if (key.ctrl || key.meta) return;
+      if (inputChar !== '') {
+        setSearch((current) => (current === null ? current : { query: current.query + inputChar, index: 0 }));
+      }
+      return;
+    }
+
+    if (key.ctrl && inputChar === 'f' && fullscreen === true) {
+      setSearch({ query: '', index: 0 });
+      return;
+    }
+
+    // Ctrl+Y copies the last assistant message via OSC 52 (ticket 13).
+    if (key.ctrl && inputChar === 'y' && fullscreen === true) {
+      const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant');
+      if (lastAssistant !== undefined && lastAssistant.content !== '') {
+        process.stdout.write(osc52Copy(lastAssistant.content));
+      }
+      return;
+    }
+
+    // Mouse wheel scrolling (SGR sequences arrive as input strings).
+    const mouse = parseMouseSequence(inputChar);
+    if (fullscreen === true && mouse !== null) {
+      if (mouse.kind === 'wheel') {
+        const page = 3;
+        setScrollOffset((prev) => (mouse.direction === 'up' ? prev + page : Math.max(0, prev - page)));
+      }
+      return;
+    }
+
     if (fullscreen && (key.pageUp || key.pageDown)) {
       // Scroll the transcript window by a page; the editor keeps the arrows.
       const page = Math.max(1, Math.floor((process.stdout.rows ?? 30) / 2));
@@ -112,6 +186,7 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         displayKind={displayKind}
         staticEpoch={staticEpoch}
         viewport={fullscreen ? { scrollOffset, terminalRows: process.stdout.rows ?? 30 } : undefined}
+        search={search === null ? undefined : { query: search.query, index: search.index }}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
@@ -122,6 +197,7 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}
         modalOpen={pendingPermission !== null}
+        disabled={search !== null}
         onExit={() => process.exit(0)}
       />
     </Box>

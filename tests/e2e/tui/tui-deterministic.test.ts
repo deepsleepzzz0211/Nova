@@ -179,4 +179,43 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       cleanup(cwd);
     }
   });
+  it('fullscreen extras: inline transcript search', async () => {
+    const cwd = makeWorkspace({ stubKey: true });
+    const sessionsDir = path.join(cwd, '.nova', 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const lines: string[] = [];
+    for (let i = 1; i <= 30; i++) {
+      lines.push(JSON.stringify({ role: 'user', content: 'SCROLL-USER-' + String(i) }));
+      lines.push(JSON.stringify({ role: 'assistant', content: 'NEEDLE-' + String(i) + ' answer' }));
+    }
+    fs.writeFileSync(
+      path.join(sessionsDir, 'session-2020-01-01T00-00-00-000Z.jsonl'),
+      lines.join('\n') + '\n',
+      'utf-8',
+    );
+
+    const terminal = await launchTui(cwd, { cols: 100, rows: 24, args: ['--resume', '--tui-mode', 'fullscreen'] });
+    try {
+      await terminal.getByText('NEEDLE-30', { regex: false }).expect({ timeout: 30_000 });
+
+      // Ctrl+F opens the inline search (retrying expectations, no sleeps).
+      await terminal.keyboard.press('Ctrl+F');
+      await terminal.getByText('/ search:', { regex: false }).expect({ timeout: 15_000 });
+      await terminal.type('NEEDLE-7');
+      await terminal.getByText('/ search: NEEDLE-7 (1/1)', { regex: false }).expect({ timeout: 15_000 });
+      // The transcript narrows to the matching message only.
+      const searched = await terminal.text();
+      expect(searched).toContain('NEEDLE-7');
+      expect(searched).not.toContain('NEEDLE-30');
+      // n/N step through matches (wrapping) and Esc returns to the transcript.
+      await terminal.keyboard.press('n');
+      await terminal.getByText('/ search: NEEDLE-7 (1/1)', { regex: false }).expect({ timeout: 10_000 });
+      await terminal.keyboard.press('Escape');
+      await terminal.getByText('NEEDLE-30', { regex: false }).expect({ timeout: 15_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
 });
