@@ -1,29 +1,22 @@
-fix(tui): markdown review fixes (ticket 07)
+feat(tui): static/dynamic render partition (ticket tui-refactor 08)
 
-Spec review findings (all reproduced by new regression tests):
-- html entity decoding now covers the apostrophe entity hljs actually
-  emits (&#x27;) plus numeric/hex entities — apostrophes no longer render
-  literally
-- highlight.js output is parsed with a stack instead of a flat regex:
-  multi-line spans keep their color across display lines and nested
-  spans no longer leak stray closing tags
-- highlighting is memoised per (language, code) block (LRU, cap 300), so
-  stream ticks re-render code without re-highlighting
-- block content fidelity: nested list items are kept (children come from
-  item.items, not tokens), ordered lists honour their start number,
-  table columns are padded to align, horizontal rules render
-- block cache becomes LRU with a total-character budget (512KB) so
-  streaming deltas cannot retain hundreds of large message copies
-- inline text handling now strips _emphasis_/__strong__ too
+Long conversations no longer re-render their whole history every 32ms
+stream commit:
 
-Standards review findings:
-- inline stripping and the hljs class -> color mapping moved into the
-  pure markdown module; MarkdownText is presentational again
-- highlight.js is imported from lib/core with 12 languages registered,
-  so unknown fences no longer scan the full ~190-language build
-- the now-unused ink-markdown dependency (a second, dead markdown stack)
-  is removed
+- message-partition module (pure, 5 tests): idle conversations are fully
+  static; while streaming the in-flight message is held out of the static
+  region (its deltas update in place), and it joins the static region when
+  the stream ends — partitioning keeps completed message identity stable
+  across deltas
+- ChatView renders completed messages through Ink's <Static>, so they are
+  written once and leave React reconciliation; the live message, todo view
+  and input/status regions are the only dynamic area
+- MessageBubble and ToolCallView are React.memo components; App's
+  displayKind resolver is useCallback-stable so memoisation is not
+  invalidated every render
+- 10 new tests: partition unit tests, ChatView static/live behaviour
+  (exactly-once per rendered frame, finish transition, empty state) and a
+  memo-type assertion
 
-Decisions recorded on the ticket: unclosed fences render as a code block
-to the end (deliberate, matches mainstream) and auto-wrap relies on Ink's
-Text default, to be verified at real widths during the fullscreen ticket.
+Note: max-render-cost verification on a real terminal remains part of the
+manual TUI acceptance pass.

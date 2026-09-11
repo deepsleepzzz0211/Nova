@@ -22,7 +22,7 @@ export interface MessageBubbleProps {
  * - Assistant messages: white, rendered with MarkdownText
  * - Tool calls: embedded ToolCallView components
  */
-export function MessageBubble({ message, expandedToolIds, displayKind }: MessageBubbleProps): React.ReactElement {
+function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBubbleProps): React.ReactElement {
   if (message.role === 'user') {
     return (
       <Box flexDirection="column" marginY={0}>
@@ -74,3 +74,10 @@ export function MessageBubble({ message, expandedToolIds, displayKind }: Message
     </Box>
   );
 }
+
+/**
+ * Memoised: submitted messages are immutable, so a parent re-render must
+ * not re-render them (tui-refactor ticket 08). expandedToolIds/displayKind
+ * change identity only on real interactions (App memoises displayKind).
+ */
+export const MessageBubble = React.memo(MessageBubbleImpl);

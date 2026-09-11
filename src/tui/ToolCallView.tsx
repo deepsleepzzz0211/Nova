@@ -22,7 +22,7 @@ export interface ToolCallViewProps {
  * ✗ (error). Folded by default to a one-line typed summary; expanded shows
  * the arguments and the (line-folded) result.
  */
-export function ToolCallView({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
+function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
   const tick = useSpinnerTick(toolCall.status === 'running');
 
   const statusIcon =
@@ -83,3 +83,6 @@ function useSpinnerTick(active: boolean): number {
   }, [active]);
   return active ? tick : 0;
 }
+
+/** Memoised tool block (tui-refactor ticket 08): only status/expansion changes. */
+export const ToolCallView = React.memo(ToolCallViewImpl);

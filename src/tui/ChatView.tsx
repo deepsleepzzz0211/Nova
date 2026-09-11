@@ -1,8 +1,9 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Static, Text } from 'ink';
 import type { DisplayMessage } from './hooks/useAgent.js';
 import { MessageBubble } from './MessageBubble.js';
 import type { DisplayKindResolver } from './tool-summary.js';
+import { partitionMessages } from './message-partition.js';
 
 /** Props for the ChatView component. */
 export interface ChatViewProps {
@@ -12,23 +13,42 @@ export interface ChatViewProps {
   expandedToolIds?: ReadonlySet<string>;
   /** Registry-backed tool display kind resolver. */
   displayKind?: DisplayKindResolver;
+  /** Whether a response is currently streaming (keeps it in the live area). */
+  isStreaming?: boolean;
 }
 
 /**
  * List of chat messages. Ink keeps the newest content visible; completed
  * messages join the static region in ticket 08 (no internal scrolling yet).
  */
-export function ChatView({ messages, expandedToolIds, displayKind }: ChatViewProps): React.ReactElement {
+export function ChatView({
+  messages,
+  expandedToolIds,
+  displayKind,
+  isStreaming = false,
+}: ChatViewProps): React.ReactElement {
+  const { staticItems, liveMessage } = partitionMessages(messages, isStreaming);
   return (
     <Box flexDirection="column" flexGrow={1} overflowY="hidden">
-      {messages.map((msg, index) => (
+      {/* Completed messages render once via <Static>; only the in-flight
+          message (plus the regions below) re-renders while streaming. */}
+      <Static items={staticItems}>
+        {(msg, index) => (
+          <MessageBubble
+            key={index}
+            message={msg}
+            expandedToolIds={expandedToolIds}
+            displayKind={displayKind}
+          />
+        )}
+      </Static>
+      {liveMessage !== null && (
         <MessageBubble
-          key={index}
-          message={msg}
+          message={liveMessage}
           expandedToolIds={expandedToolIds}
           displayKind={displayKind}
         />
-      ))}
+      )}
       {messages.length === 0 && (
         <Box paddingY={1}>
           <Box paddingLeft={2}>
