@@ -7,10 +7,8 @@ import { ToolCallView } from '../../src/tui/ToolCallView.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
 
 const staticKind = (): 'command' | 'path' | undefined => undefined;
-
-function assistant(content: string): DisplayMessage {
-  return { role: 'assistant', content };
-}
+const user = (content: string): DisplayMessage => ({ role: 'user', content });
+const assistant = (content: string): DisplayMessage => ({ role: 'assistant', content });
 
 function occurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
@@ -19,51 +17,90 @@ function occurrences(haystack: string, needle: string): number {
 describe('ChatView static partition (tui-refactor 08)', () => {
   it('renders every message once when idle', () => {
     const instance = render(
-      <ChatView
-        messages={[assistant('MSG-A'), assistant('MSG-B')]}
-        displayKind={staticKind}
-      />,
+      <ChatView messages={[user('U-1'), assistant('MSG-A')]} displayKind={staticKind} />,
     );
-    const output = instance.frames.join('');
-    expect(output).toContain('MSG-A');
-    expect(output).toContain('MSG-B');
+    const frame = instance.lastFrame() ?? '';
+    expect(frame).toContain('U-1');
+    expect(frame).toContain('MSG-A');
     instance.unmount();
   });
 
-  it('keeps the streaming message in the live area and does not duplicate history', async () => {
-    const history = [assistant('MSG-A'), assistant('MSG-B')];
+  it('does not re-render the static region across stream deltas', async () => {
+    const finalised = [user('U-1'), assistant('A-1')];
+    const staticRenders: string[] = [];
+    const liveRenders: string[] = [];
+    const probe = (region: 'static' | 'live', message: DisplayMessage): void => {
+      (region === 'static' ? staticRenders : liveRenders).push(message.content);
+    };
     const instance = render(
       <ChatView
-        messages={[...history, assistant('STREAM-1')]}
+        messages={[...finalised, user('U-2'), assistant('partial')]}
         displayKind={staticKind}
-        isStreaming={true}
+        renderProbe={probe}
       />,
     );
+    const staticAfterFirst = staticRenders.length;
+    expect(staticAfterFirst).toBe(2);
+    expect(liveRenders).toContain('partial');
+
     instance.rerender(
       <ChatView
-        messages={[...history, assistant('STREAM-1 STREAM-2')]}
+        messages={[...finalised, user('U-2'), assistant('partial longer')]}
         displayKind={staticKind}
-        isStreaming={true}
+        renderProbe={probe}
       />,
     );
     await new Promise((r) => setTimeout(r, 30));
+    // Static region untouched; only the live region re-rendered.
+    expect(staticRenders.length).toBe(staticAfterFirst);
     const frame = instance.lastFrame() ?? '';
-    expect(frame).toContain('STREAM-1 STREAM-2');
-    // Each rendered screen shows completed messages exactly once: the static
-    // region holds them while only the live message re-renders.
-    expect(occurrences(frame, 'MSG-A')).toBe(1);
-    expect(occurrences(frame, 'MSG-B')).toBe(1);
+    expect(frame).toContain('partial longer');
+    expect(occurrences(frame, 'A-1')).toBe(1);
     instance.unmount();
   });
 
-  it('moves a finished message into the static region without duplication', async () => {
-    const messages = [assistant('MSG-A'), assistant('MSG-B FINAL')];
+  it('keeps a streaming answer live even when a mid-turn notice is appended', () => {
+    const messages = [
+      user('U-1'),
+      assistant('A-1'),
+      user('U-2'),
+      assistant('partial answer'),
+      { role: 'system', content: '[subagent started]' } as DisplayMessage,
+    ];
+    const instance = render(<ChatView messages={messages} displayKind={staticKind} />);
+    const frame = instance.lastFrame() ?? '';
+    // The in-flight answer is still printed once, in the live region, and
+    // was not duplicated by the mid-turn notice.
+    expect(occurrences(frame, 'partial answer')).toBe(1);
+    expect(frame).toContain('[subagent started]');
+    instance.unmount();
+  });
+
+  it('reprints the conversation when the static epoch changes (/undo remount)', () => {
+    const restored = [user('U-1'), assistant('A-1')];
     const instance = render(
-      <ChatView messages={messages} displayKind={staticKind} isStreaming={true} />,
+      <ChatView messages={restored} displayKind={staticKind} staticEpoch={0} />,
     );
-    instance.rerender(<ChatView messages={messages} displayKind={staticKind} isStreaming={false} />);
-    await new Promise((r) => setTimeout(r, 30));
-    expect(instance.frames.join('')).toContain('MSG-B FINAL');
+    instance.rerender(
+      <ChatView messages={restored} displayKind={staticKind} staticEpoch={1} />,
+    );
+    const frame = instance.lastFrame() ?? '';
+    expect(frame).toContain('U-1');
+    expect(frame).toContain('A-1');
+    instance.unmount();
+  });
+
+  it('renders a 500-message conversation without losing the tail', () => {
+    const messages: DisplayMessage[] = [];
+    for (let i = 0; i < 250; i++) {
+      messages.push(user('Q-' + String(i)));
+      messages.push(assistant('A-' + String(i)));
+    }
+    const instance = render(<ChatView messages={messages} displayKind={staticKind} />);
+    const frame = instance.lastFrame() ?? '';
+    expect(frame).toContain('Q-249');
+    expect(frame).toContain('A-249');
+    expect(frame).toContain('Welcome'.length > 0 ? 'A-249' : '');
     instance.unmount();
   });
 

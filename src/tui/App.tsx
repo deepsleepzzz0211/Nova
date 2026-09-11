@@ -11,6 +11,7 @@ import type { ThinkingLevel } from '../llm/compat.js';
 import type { ModelCost } from '../llm/catalog.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
+import { latestToolId } from './message-partition.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusBar } from './StatusBar.js';
 import { ChatView } from './ChatView.js';
@@ -105,7 +106,7 @@ export function App({
   mcpConnectionCount,
 }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, isThinking, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
+  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent({
     llm,
     toolRegistry,
     toolExecutionPipeline,
@@ -142,17 +143,12 @@ export function App({
   );
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
-      let latestToolId: string | null = null;
-      for (const m of messages) {
-        if (m.toolCalls !== undefined && m.toolCalls.length > 0) {
-          latestToolId = m.toolCalls[m.toolCalls.length - 1].id;
-        }
-      }
+      const toolId = latestToolId(messages);
       setExpandedToolIds((prev) => {
-        if (latestToolId === null) return prev;
+        if (toolId === null) return prev;
         const next = new Set(prev);
-        if (next.has(latestToolId)) next.delete(latestToolId);
-        else next.add(latestToolId);
+        if (next.has(toolId)) next.delete(toolId);
+        else next.add(toolId);
         return next;
       });
     }
@@ -181,7 +177,7 @@ export function App({
         messages={messages}
         expandedToolIds={expandedToolIds}
         displayKind={displayKind}
-        isStreaming={isStreaming}
+        staticEpoch={staticEpoch}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />

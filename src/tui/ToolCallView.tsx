@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { DisplayToolCall } from './hooks/useAgent.js';
-import { spinnerFrame, summarizeCall, foldLines, parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
+import type { DisplayToolCall } from './display-types.js';
+import {
+  spinnerFrame,
+  summarizeCall,
+  foldLines,
+  formatArgs,
+  parseToolArgs,
+  STATUS_STYLE,
+  type DisplayKindResolver,
+} from './tool-summary.js';
 
 /** Props for the ToolCallView component. */
 export interface ToolCallViewProps {
@@ -25,25 +33,12 @@ export interface ToolCallViewProps {
 function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
   const tick = useSpinnerTick(toolCall.status === 'running');
 
-  const statusIcon =
-    toolCall.status === 'running'
-      ? spinnerFrame(tick)
-      : toolCall.status === 'pending'
-        ? '⚠'
-        : toolCall.status === 'done'
-          ? '✓'
-          : '✗';
-
-  const statusColor =
-    toolCall.status === 'running' || toolCall.status === 'pending'
-      ? 'yellow'
-      : toolCall.status === 'done'
-        ? 'green'
-        : 'red';
+  const statusStyle = STATUS_STYLE[toolCall.status];
+  const statusIcon = toolCall.status === 'running' ? spinnerFrame(tick) : statusStyle.icon;
+  const statusColor = statusStyle.color;
 
   // Pretty args for the expanded view (compact summary is typed).
-  const parsedArgs = parseToolArgs(toolCall.arguments);
-  const argsDisplay = parsedArgs === null ? toolCall.arguments : JSON.stringify(parsedArgs, null, 2);
+  const argsDisplay = formatArgs(toolCall.arguments, parseToolArgs(toolCall.arguments));
 
   const summary = summarizeCall(toolCall.name, toolCall.arguments, displayKind);
 

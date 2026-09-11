@@ -99,6 +99,8 @@ export interface UseAgentResult {
   isStreaming: boolean;
   /** Whether the model is emitting reasoning (thinking) deltas. */
   isThinking: boolean;
+  /** Conversation epoch for the static region (bumped on wholesale replace). */
+  staticEpoch: number;
   sendMessage: (input: string) => void;
   /** Interrupt the in-flight LLM stream (Esc). */
   interrupt: () => void;
@@ -145,6 +147,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
 
   // Ref to track the current assistant message being built during streaming
   const [isThinking, setIsThinking] = useState(false);
+  // Bumped whenever the displayed conversation is replaced wholesale (/undo):
+  // Ink's static region is append-only and must be remounted to reprint.
+  const [staticEpoch, setStaticEpoch] = useState(0);
   const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
 
@@ -416,6 +421,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         listModels: config.listModels,
         resolveSwitch: config.resolveSwitch,
         updateMessages: (updater) => setMessages(updater),
+        onConversationReplaced: () => setStaticEpoch((n) => n + 1),
         setModelInfo,
         runUpdate: runNpmUpdate,
       });
@@ -469,6 +475,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     messages,
     isStreaming,
     isThinking,
+    staticEpoch,
     sendMessage,
     interrupt: () => loopRef.current?.interrupt(),
     pendingPermission,

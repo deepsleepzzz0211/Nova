@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { DisplayMessage } from './hooks/useAgent.js';
+import type { DisplayMessage } from './display-types.js';
 import { MarkdownText } from './MarkdownText.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { ToolCallView } from './ToolCallView.js';
@@ -35,8 +35,6 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
   }
 
   // Reasoning stream (dim, italic, above the visible content)
-  const thinking = message.thinking;
-
   // System notices (compaction, etc.)
   if (message.role === 'system') {
     return (
@@ -49,9 +47,9 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
   // Assistant message
   return (
     <Box flexDirection="column" marginY={0}>
-      {thinking && (
+      {message.thinking && (
         <Box paddingLeft={0}>
-          <Text color="gray" dimColor italic>{thinking}</Text>
+          <Text color="gray" dimColor italic>{message.thinking}</Text>
         </Box>
       )}
       {message.content.length > 0 && (

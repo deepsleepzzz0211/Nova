@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  STATUS_STYLE,
+  formatArgs,
   SPINNER_FRAMES,
   spinnerFrame,
   summarizeCall,
@@ -62,5 +64,19 @@ describe('tool-summary (tui-refactor 05)', () => {
       expect(r.text).toBe('L0\nL1\nL2\nL3\nL4\nL5\nL6\nL7\nL8\nL9\n... (20 more lines)');
       expect(r.hidden).toBe(20);
     });
+  });
+});
+
+describe('status style table and arg formatting (review fixes)', () => {
+  it('exposes one icon/color per status', () => {
+    expect(STATUS_STYLE.pending).toEqual({ icon: '⚠', color: 'yellow' });
+    expect(STATUS_STYLE.done).toEqual({ icon: '✓', color: 'green' });
+    expect(STATUS_STYLE.error).toEqual({ icon: '✗', color: 'red' });
+    expect(STATUS_STYLE.running.color).toBe('yellow');
+  });
+
+  it('formats parsed args pretty-printed and falls back to raw', () => {
+    expect(formatArgs('{"a":1}', { a: 1 })).toBe('{\n  "a": 1\n}');
+    expect(formatArgs('not json', null)).toBe('not json');
   });
 });
