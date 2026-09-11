@@ -24,10 +24,17 @@ export interface ToolResult {
 }
 
 /** A tool that can be invoked by the LLM. */
+/** How a tool's primary argument should be summarized in the UI. */
+export interface ToolDisplay {
+  kind: 'command' | 'path';
+}
+
 export interface Tool {
   name: string;
   description: string;
   parameters: JSONSchema;
+  /** Optional UI display metadata (command/path argument kind). */
+  display?: ToolDisplay;
   /** Optional pipeline metadata; defaults to non-cacheable with a default timeout. */
   metadata?: ToolMetadata;
   execute(

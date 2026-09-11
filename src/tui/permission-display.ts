@@ -1,5 +1,5 @@
 import { DANGEROUS_PATTERNS } from '../permission/dangerous.js';
-import { COMMAND_TOOLS, cap, primaryArg } from './tool-summary.js';
+import { cap, primaryArg, type DisplayKindResolver } from './tool-summary.js';
 
 /**
  * Pure helpers for the permission dialog (tui-refactor ticket 04): typed
@@ -18,9 +18,13 @@ export type PermissionDecision = 'deny' | 'allow' | 'always';
  * One-line human description of the call: bash -> command, path tools ->
  * path, fallback -> compact JSON. Null args render a placeholder.
  */
-export function describeCall(name: string, args: Record<string, unknown> | null): string {
+export function describeCall(
+  name: string,
+  args: Record<string, unknown> | null,
+  kindOf?: DisplayKindResolver,
+): string {
   if (args === null) return '(unparseable arguments)';
-  const primary = primaryArg(name, args);
+  const primary = primaryArg(name, args, kindOf);
   if (primary !== null) return cap(primary);
   try {
     return cap(JSON.stringify(args));
@@ -33,8 +37,12 @@ export function describeCall(name: string, args: Record<string, unknown> | null)
  * Danger reason for a call, or null. Dangerous command patterns only apply
  * to command tools.
  */
-export function dangerReason(name: string, args: Record<string, unknown> | null): string | null {
-  if (!COMMAND_TOOLS.has(name) || args === null) return null;
+export function dangerReason(
+  name: string,
+  args: Record<string, unknown> | null,
+  kindOf?: DisplayKindResolver,
+): string | null {
+  if (kindOf?.(name) !== 'command' || args === null) return null;
   const command = typeof args.command === 'string' ? args.command : '';
   if (!command) return null;
   for (const { pattern, reason } of DANGEROUS_PATTERNS) {
@@ -55,17 +63,25 @@ export class SessionAlwaysRules {
   private readonly pairs = new Set<string>();
 
   /** Stable rule key: tool + primary argument (JSON fallback for opaque calls). */
-  private static key(name: string, args: Record<string, unknown> | null): string {
-    return name + ' ' + (primaryArg(name, args) ?? (args === null ? '<unparseable>' : JSON.stringify(args)));
+  private static key(
+    name: string,
+    args: Record<string, unknown> | null,
+    kindOf?: DisplayKindResolver,
+  ): string {
+    return (
+      name +
+      ' ' +
+      (primaryArg(name, args, kindOf) ?? (args === null ? '<unparseable>' : JSON.stringify(args)))
+    );
   }
 
   /** Record an always-allow decision for this call. */
-  add(name: string, args: Record<string, unknown> | null): void {
-    this.pairs.add(SessionAlwaysRules.key(name, args));
+  add(name: string, args: Record<string, unknown> | null, kindOf?: DisplayKindResolver): void {
+    this.pairs.add(SessionAlwaysRules.key(name, args, kindOf));
   }
 
   /** Whether an identical (tool, primary argument) pair was always-allowed. */
-  matches(name: string, args: Record<string, unknown> | null): boolean {
-    return this.pairs.has(SessionAlwaysRules.key(name, args));
+  matches(name: string, args: Record<string, unknown> | null, kindOf?: DisplayKindResolver): boolean {
+    return this.pairs.has(SessionAlwaysRules.key(name, args, kindOf));
   }
 }

@@ -7,6 +7,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export function createBashTool(): Tool {
   return {
     name: 'bash',
+    display: { kind: 'command' },
     description: 'Execute a shell command and return its output.',
     parameters: {
       type: 'object',

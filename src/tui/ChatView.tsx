@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { DisplayMessage } from './hooks/useAgent.js';
 import { MessageBubble } from './MessageBubble.js';
+import type { DisplayKindResolver } from './tool-summary.js';
 
 /** Props for the ChatView component. */
 export interface ChatViewProps {
@@ -9,6 +10,8 @@ export interface ChatViewProps {
   messages: DisplayMessage[];
   /** Ids of tool blocks whose details are expanded (Ctrl+O, App-level). */
   expandedToolIds?: ReadonlySet<string>;
+  /** Registry-backed tool display kind resolver. */
+  displayKind?: DisplayKindResolver;
 }
 
 /**
@@ -17,11 +20,16 @@ export interface ChatViewProps {
  * Renders all messages and auto-scrolls to the bottom
  * when new content is added.
  */
-export function ChatView({ messages, expandedToolIds }: ChatViewProps): React.ReactElement {
+export function ChatView({ messages, expandedToolIds, displayKind }: ChatViewProps): React.ReactElement {
   return (
     <Box flexDirection="column" flexGrow={1} overflowY="hidden">
       {messages.map((msg, index) => (
-        <MessageBubble key={index} message={msg} expandedToolIds={expandedToolIds} />
+        <MessageBubble
+          key={index}
+          message={msg}
+          expandedToolIds={expandedToolIds}
+          displayKind={displayKind}
+        />
       ))}
       {messages.length === 0 && (
         <Box paddingY={1}>

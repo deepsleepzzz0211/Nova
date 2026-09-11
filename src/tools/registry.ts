@@ -16,6 +16,15 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /**
+   * UI display kind declared by a tool ('command' | 'path'), or undefined.
+   * The registry is the single source of tool-display knowledge — UI modules
+   * must not hardcode tool names (AGENTS rule; tui-refactor ticket 14).
+   */
+  displayKindFor(name: string): 'command' | 'path' | undefined {
+    return this.tools.get(name)?.display?.kind;
+  }
+
   /** Return all registered tools. */
   getAll(): Tool[] {
     return [...this.tools.values()];

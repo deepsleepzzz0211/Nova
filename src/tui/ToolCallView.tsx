@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { DisplayToolCall } from './hooks/useAgent.js';
-import { spinnerFrame, summarizeCall, foldLines } from './tool-summary.js';
+import { spinnerFrame, summarizeCall, foldLines, type DisplayKindResolver } from './tool-summary.js';
 
 /** Props for the ToolCallView component. */
 export interface ToolCallViewProps {
@@ -9,6 +9,8 @@ export interface ToolCallViewProps {
   toolCall: DisplayToolCall;
   /** Whether this block's details are expanded (Ctrl+O, App-controlled). */
   expanded: boolean;
+  /** Registry-backed tool display kind resolver (command/path). */
+  displayKind?: DisplayKindResolver;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface ToolCallViewProps {
  * ✗ (error). Folded by default to a one-line typed summary; expanded shows
  * the arguments and the (line-folded) result.
  */
-export function ToolCallView({ toolCall, expanded }: ToolCallViewProps): React.ReactElement {
+export function ToolCallView({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
   const tick = useSpinnerTick(toolCall.status === 'running');
 
   const statusIcon =
@@ -47,7 +49,7 @@ export function ToolCallView({ toolCall, expanded }: ToolCallViewProps): React.R
     argsDisplay = toolCall.arguments;
   }
 
-  const summary = summarizeCall(toolCall.name, toolCall.arguments);
+  const summary = summarizeCall(toolCall.name, toolCall.arguments, displayKind);
 
   return (
     <Box flexDirection="column" marginY={0} paddingLeft={2}>

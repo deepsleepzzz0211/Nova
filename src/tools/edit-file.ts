@@ -5,6 +5,7 @@ import type { Tool, ToolContext, ToolResult } from './types.js';
 export function createEditFileTool(): Tool {
   return {
     name: 'edit_file',
+    display: { kind: 'path' },
     description: 'Replace an exact string in a file. Errors if the string is not found or is ambiguous.',
     parameters: {
       type: 'object',

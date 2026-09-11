@@ -12,10 +12,8 @@ export function spinnerFrame(tick: number): string {
   return SPINNER_FRAMES[((tick % n) + n) % n];
 }
 
-/** Tools whose first string arg is the display summary. */
-export const COMMAND_TOOLS = new Set(['bash']);
-
-export const PATH_TOOLS = new Set(['read', 'read_file', 'write', 'write_file', 'edit']);
+/** Resolver for a tool's declared display kind (usually registry.displayKindFor). */
+export type DisplayKindResolver = (name: string) => 'command' | 'path' | undefined;
 
 /** Cap for the fallback summary. */
 const SUMMARY_CAP = 200;
@@ -25,7 +23,11 @@ const SUMMARY_CAP = 200;
  * (bash -> command, path tools -> path), falling back to a compact JSON
  * preview capped at SUMMARY_CAP.
  */
-export function summarizeCall(name: string, argsJson: string): string {
+export function summarizeCall(
+  name: string,
+  argsJson: string,
+  kindOf?: DisplayKindResolver,
+): string {
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = JSON.parse(argsJson) as Record<string, unknown>;
@@ -34,7 +36,7 @@ export function summarizeCall(name: string, argsJson: string): string {
   }
 
   if (parsed !== null) {
-    const primary = primaryArg(name, parsed);
+    const primary = primaryArg(name, parsed, kindOf);
     if (primary !== null) return cap(primary);
     return cap(JSON.stringify(parsed));
   }
@@ -42,10 +44,15 @@ export function summarizeCall(name: string, argsJson: string): string {
 }
 
 /** The typed primary argument of a call: command string, path, or null. */
-export function primaryArg(name: string, parsed: Record<string, unknown> | null): string | null {
+export function primaryArg(
+  name: string,
+  parsed: Record<string, unknown> | null,
+  kindOf?: DisplayKindResolver,
+): string | null {
   if (parsed === null) return null;
-  if (COMMAND_TOOLS.has(name) && typeof parsed.command === 'string') return parsed.command;
-  if (PATH_TOOLS.has(name)) {
+  const kind = kindOf?.(name);
+  if (kind === 'command' && typeof parsed.command === 'string') return parsed.command;
+  if (kind === 'path') {
     const p = parsed.path ?? parsed.file_path ?? parsed.filePath;
     if (typeof p === 'string') return p;
   }
