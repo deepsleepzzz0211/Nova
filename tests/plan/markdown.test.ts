@@ -105,13 +105,15 @@ describe('markdown pipeline (tui-refactor 07)', () => {
       expect(getCachedBlocks('hello')).toBe(a);
     });
 
-    it('evicts when over the cap', () => {
+    it('evicts the oldest entries beyond the cap (observable recompute)', () => {
       clearBlockCache();
-      for (let i = 0; i < 250; i++) getCachedBlocks('text ' + String(i));
-      // Oldest entries were evicted: the first key is recomputed (new array)
-      const first = getCachedBlocks('text 0');
-      const again = getCachedBlocks('text 0');
-      expect(first).toBe(again); // still consistent after recompute
+      const firstBeforeFlood = getCachedBlocks('text 0');
+      for (let i = 1; i < 260; i++) getCachedBlocks('text ' + String(i));
+      // 'text 0' was evicted, so it is parsed again -> a different array
+      expect(getCachedBlocks('text 0')).not.toBe(firstBeforeFlood);
+      // ...and the newest entry is still cached
+      const newest = getCachedBlocks('text 259');
+      expect(getCachedBlocks('text 259')).toBe(newest);
     });
   });
 });
