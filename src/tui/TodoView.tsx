@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { TodoState } from '../tools/todo.js';
+import { theme } from './theme.js';
 
 /** Props for the TodoView component. */
 export interface TodoViewProps {
@@ -31,7 +32,7 @@ export function TodoView({ todoState }: TodoViewProps): React.ReactElement | nul
 
   return (
     <Box flexDirection="column" paddingX={2} marginY={0}>
-      <Text color="gray" dimColor>Tasks:</Text>
+      <Text color={theme.muted} dimColor>Tasks:</Text>
       {todoState.todos.map((todo, i) => (
         <Text key={i} color={MARKER_COLOR[todo.status] ?? 'gray'}>
           {`${MARKER_TEXT[todo.status] ?? '[ ]'} ${todo.content}`}

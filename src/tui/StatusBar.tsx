@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import { theme } from './theme.js';
 import type { CacheStatsView } from './hooks/useAgent.js';
 import {
   fmtTokens,
@@ -78,13 +79,13 @@ export function StatusBar({
 
   return (
     <Box flexDirection="column">
-      <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
+      <Box borderStyle="single" borderColor={theme.border} paddingX={1} justifyContent="space-between">
         {/* Left: working directory + git branch */}
         <Box>
-          <Text color="gray" dimColor>{workingDirectory}</Text>
-          {gitBranch && <Text color="cyan"> ({gitBranch})</Text>}
+          <Text color={theme.muted} dimColor>{workingDirectory}</Text>
+          {gitBranch && <Text color={theme.primary}> ({gitBranch})</Text>}
           {mcpConnectionCount > 0 && (
-            <Text color="gray" dimColor> · {mcpConnectionCount} MCP</Text>
+            <Text color={theme.muted} dimColor> · {mcpConnectionCount} MCP</Text>
           )}
         </Box>
 
@@ -92,18 +93,18 @@ export function StatusBar({
         <Box>
           {cacheStats && (
             <>
-              <Text color="green">{`↑${fmtTokens(cacheStats.totalInputTokens)} ↓${fmtTokens(cacheStats.totalOutputTokens)}`}</Text>
+              <Text color={theme.success}>{`↑${fmtTokens(cacheStats.totalInputTokens)} ↓${fmtTokens(cacheStats.totalOutputTokens)}`}</Text>
               {cacheStats.totalCachedTokens + cacheStats.totalCacheWriteTokens > 0 && (
-                <Text color="gray">
+                <Text color={theme.muted}>
                   {` R${fmtTokens(cacheStats.totalCachedTokens)} W${fmtTokens(cacheStats.totalCacheWriteTokens)} CH${Math.round(cacheStats.latestHitRate * 100)}%`}
                 </Text>
               )}
               <Text color={context.color}>
                 {` · ctx ${context.percent}%${contextWindow ? `/${fmtTokens(contextWindow)}` : ''}${context.percent >= 85 ? ' ⚠' : ''}`}
               </Text>
-              {contextStrategy && <Text color="gray" dimColor>{` (${contextStrategy})`}</Text>}
-              <Text color="gray">{` · ${cost === null || !hasUsage ? '—' : `$${cost.toFixed(4)}`}`}</Text>
-              <Text color="gray" dimColor>{'  '}</Text>
+              {contextStrategy && <Text color={theme.muted} dimColor>{` (${contextStrategy})`}</Text>}
+              <Text color={theme.muted}>{` · ${cost === null || !hasUsage ? '—' : `$${cost.toFixed(4)}`}`}</Text>
+              <Text color={theme.muted} dimColor>{'  '}</Text>
             </>
           )}
         </Box>
@@ -111,21 +112,21 @@ export function StatusBar({
         {/* Right: provider + model + thinking */}
         <Box>
           {providerName && (
-            <Text color="gray" dimColor>{`${providerName}/`}</Text>
+            <Text color={theme.muted} dimColor>{`${providerName}/`}</Text>
           )}
-          <Text bold color="cyan">{model}</Text>
-          {thinkingLevel && <Text color="gray" dimColor>{` · ${thinkingLevel}`}</Text>}
+          <Text bold color={theme.primary}>{model}</Text>
+          {thinkingLevel && <Text color={theme.muted} dimColor>{` · ${thinkingLevel}`}</Text>}
         </Box>
       </Box>
 
       {subagentActivity && (
         <Box paddingX={1}>
-          <Text color="magenta">{subagentActivity}</Text>
+          <Text color={theme.secondary}>{subagentActivity}</Text>
         </Box>
       )}
       {updateNotice && (
         <Box paddingX={1}>
-          <Text color="yellow">{updateNotice}</Text>
+          <Text color={theme.warning}>{updateNotice}</Text>
         </Box>
       )}
     </Box>

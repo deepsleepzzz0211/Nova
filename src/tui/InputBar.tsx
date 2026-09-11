@@ -30,6 +30,7 @@ import {
   buildFileIndex,
   type CompletionContext,
 } from './completions.js';
+import { theme } from './theme.js';
 
 /** An active completion popup: context + filtered items + selected index. */
 interface ActiveCompletion {
@@ -324,7 +325,7 @@ function EditorView({
   return (
     <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column">
       {editor.text.length === 0 ? (
-        <Text color="gray" dimColor>
+        <Text color={theme.muted} dimColor>
           {workingState !== 'idle'
             ? '(working… — you can still type)'
             : 'Type a message... (Shift+Enter for newline)'}
@@ -335,15 +336,15 @@ function EditorView({
             const at = line[cursorCol] ?? ' ';
             return (
               <Box key={row}>
-                <Text color="white">{line.slice(0, cursorCol)}</Text>
-                <Text inverse color="white">{at}</Text>
-                <Text color="white">{line.slice(cursorCol + 1)}</Text>
+                <Text color={theme.assistantMessage}>{line.slice(0, cursorCol)}</Text>
+                <Text inverse color={theme.assistantMessage}>{at}</Text>
+                <Text color={theme.assistantMessage}>{line.slice(cursorCol + 1)}</Text>
               </Box>
             );
           }
           return (
             <Box key={row}>
-              <Text color="white">{line}</Text>
+              <Text color={theme.assistantMessage}>{line}</Text>
             </Box>
           );
         })
@@ -352,7 +353,7 @@ function EditorView({
         <Box flexDirection="column" marginTop={0}>
           {completion.items.map((item, i) => (
             <Box key={item.label} paddingLeft={1}>
-              <Text inverse={i === completion.index} color={i === completion.index ? 'cyan' : 'gray'}>
+              <Text inverse={i === completion.index} color={i === completion.index ? theme.primary : theme.muted}>
                 {item.label}
               </Text>
             </Box>

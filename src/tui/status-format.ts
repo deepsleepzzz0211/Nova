@@ -1,3 +1,4 @@
+import { theme } from './theme.js';
 import type { ModelCost } from '../llm/catalog.js';
 
 /**
@@ -66,7 +67,6 @@ export function contextUsage(
 
 /** Editor border color as the working indicator (idle/streaming/thinking). */
 export function workingBorderColor(state: 'idle' | 'streaming' | 'thinking'): string {
-  if (state === 'thinking') return 'magenta';
-  if (state === 'streaming') return 'yellow';
-  return 'cyan';
+  // Single source: the theme's working palette (ticket 11).
+  return theme.working[state];
 }
