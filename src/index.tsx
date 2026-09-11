@@ -99,21 +99,29 @@ async function main(): Promise<void> {
     'x-opencode-session': randomUUID(),
   };
 
+  /**
+   * The ONLY place a provider instance is constructed (ticket 20): the
+   * startup provider, /model switching and subagent routing all go through
+   * this factory, so a new provider option is added exactly once.
+   */
+  const createProvider = (next: import('./llm/catalog.js').ResolvedModel): LLMProvider =>
+    providerRegistry.getForApi(next.api, {
+      name: next.name,
+      apiKey: next.apiKey,
+      baseUrl: next.baseUrl,
+      model: next.model.id,
+      defaultHeaders,
+      // config.toml prompt_cache stays honored as a fallback
+      compat: {
+        supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
+        streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
+      },
+      thinkingLevelMap: next.model.thinkingLevelMap,
+      reasoning: next.model.reasoning,
+    });
+
   // Initialize LLM provider by wire protocol (pi-style api layer)
-  const llm = providerRegistry.getForApi(resolution.api, {
-    name: resolution.name,
-    apiKey: resolution.apiKey,
-    baseUrl: resolution.baseUrl,
-    model: resolution.model.id,
-    defaultHeaders,
-    // config.toml prompt_cache stays honored as a fallback
-    compat: {
-      supportsDeveloperRole: resolution.model.compat.supportsDeveloperRole,
-      streamUsage: resolution.model.compat.streamUsage || config.llm.promptCache,
-    },
-    thinkingLevelMap: resolution.model.thinkingLevelMap,
-    reasoning: resolution.model.reasoning,
-  });
+  const llm = createProvider(resolution);
 
   // Initialize permission system
   const permissionPolicy = new PermissionPolicy(config.permission);
@@ -172,22 +180,8 @@ async function main(): Promise<void> {
 
   // /model listing + resolution (catalog-driven; loop application in useAgent)
   const listModels = (): string => describeModels(catalog, selectionRef.provider, selectionRef.model);
-  // Single construction site for catalog-resolved providers (used by
-  // /model switching and subagent model routing).
-  const buildLlmProvider = (next: import('./llm/catalog.js').ResolvedModel) =>
-    providerRegistry.getForApi(next.api, {
-      name: next.name,
-      apiKey: next.apiKey,
-      baseUrl: next.baseUrl,
-      model: next.model.id,
-      defaultHeaders,
-      compat: {
-        supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
-        streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
-      },
-      thinkingLevelMap: next.model.thinkingLevelMap,
-      reasoning: next.model.reasoning,
-    });
+  // /model switching and subagent routing share the startup factory above.
+  const buildLlmProvider = createProvider;
 
   // Shared spec resolution (used by /model and subagent model routing)
   const resolveSpec = (spec: string):
