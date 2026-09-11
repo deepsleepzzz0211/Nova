@@ -5,6 +5,7 @@ import {
   makeWorkspace,
   launchTui,
   exitTui,
+  announceArtifacts,
   skipIfThrottled,
   cleanup,
 } from './harness.js';
@@ -45,6 +46,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('Result:').expect({ timeout: 30_000 });
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
@@ -72,6 +74,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('Permission denied').expect({ timeout: 30_000 });
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
@@ -92,6 +95,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('Type a message', { regex: true }).expect();
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
@@ -114,8 +118,68 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('undone 1 turn', { regex: true }).expect({ timeout: 30_000 });
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
       cleanup(cwd);
     }
   });
 
+  it('long tool output folds with a hidden-line counter', async ({ skip }) => {
+    if (!hasKey) {
+      skip(MISSING_KEY_NOTE);
+      return;
+    }
+    const cwd = makeWorkspace();
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.submit('Use the bash tool to run exactly: seq 1 40');
+      if (await skipIfThrottled(terminal, skip)) return;
+      await terminal.getByText('Permission Required').expect({ timeout: 60_000 });
+      await terminal.keyboard.press('2');
+      await terminal.getByText('seq 1 40').expect({ timeout: 60_000 });
+      await terminal.keyboard.press('Ctrl+O');
+      // The fold counter is app-generated text (20 of 40 lines hidden).
+      await terminal.getByText('more lines', { regex: true }).expect({ timeout: 30_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
+
+  it('delegating to a subagent surfaces its lifecycle in the transcript', async ({ skip }) => {
+    if (!hasKey) {
+      skip(MISSING_KEY_NOTE);
+      return;
+    }
+    const cwd = makeWorkspace();
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.submit(
+        'Use the spawn_subagent tool with task "reply with the single word OK" and then tell me what it said.',
+      );
+      if (await skipIfThrottled(terminal, skip)) return;
+      // The spawn tool asks for permission first; the model may also decide
+      // not to delegate at all (that is model behaviour, not a product bug).
+      let delegated = false;
+      try {
+        await terminal
+          .getByText('Permission Required', { regex: false })
+          .wait({ state: 'visible', timeout: 60_000 });
+        delegated = true;
+      } catch {
+        delegated = false;
+      }
+      if (!delegated) {
+        skip('model did not delegate to a subagent this run');
+        return;
+      }
+      await terminal.keyboard.press('2');
+      // Subagent start/end notices are appended by useAgent, not the model.
+      await terminal.getByText('[subagent', { regex: false }).expect({ timeout: 90_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
 });

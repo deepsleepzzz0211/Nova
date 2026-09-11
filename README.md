@@ -39,6 +39,9 @@ nova --list             # list previous sessions (scriptable)
 nova --resume           # interactive session picker (Enter = most recent)
 ```
 
+Test layers (unit / print-mode E2E / PTY TUI E2E, and why real-LLM cases stay
+local) are documented in [tests/e2e/README.md](tests/e2e/README.md).
+
 ### Print mode (non-interactive)
 
 Run a single turn without the TUI — useful in scripts and for the E2E suite:

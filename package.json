@@ -20,7 +20,7 @@
     "test:e2e": "vitest run --config tests/e2e/vitest.e2e.config.ts",
     "test:spike": "vitest run --config tests/spike/vitest.spike.config.ts",
     "test:e2e:deterministic": "vitest run --config tests/e2e/vitest.deterministic.config.ts",
-    "test:e2e:llm": "vitest run --config tests/e2e/vitest.llm.config.ts"
+    "test:e2e:llm": "node scripts/require-env.mjs WEIXIN_API_KEY && vitest run --config tests/e2e/vitest.llm.config.ts"
   },
   "keywords": [
     "ai",
