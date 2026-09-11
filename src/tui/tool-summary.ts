@@ -28,12 +28,7 @@ export function summarizeCall(
   argsJson: string,
   kindOf?: DisplayKindResolver,
 ): string {
-  let parsed: Record<string, unknown> | null = null;
-  try {
-    parsed = JSON.parse(argsJson) as Record<string, unknown>;
-  } catch {
-    parsed = null;
-  }
+  const parsed = parseToolArgs(argsJson);
 
   if (parsed !== null) {
     const primary = primaryArg(name, parsed, kindOf);
@@ -52,11 +47,18 @@ export function primaryArg(
   if (parsed === null) return null;
   const kind = kindOf?.(name);
   if (kind === 'command' && typeof parsed.command === 'string') return parsed.command;
-  if (kind === 'path') {
-    const p = parsed.path ?? parsed.file_path ?? parsed.filePath;
-    if (typeof p === 'string') return p;
-  }
+  if (kind === 'path' && typeof parsed.path === 'string') return parsed.path;
   return null;
+}
+
+/** Parse tool-call arguments, returning null when the JSON is unusable. */
+export function parseToolArgs(argsJson: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(argsJson);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Cap a display string (shared with permission-display). */

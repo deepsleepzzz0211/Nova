@@ -3,7 +3,7 @@ import { Box, Text, useInput } from 'ink';
 import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
 import { describeCall, dangerReason } from './permission-display.js';
-import type { DisplayKindResolver } from './tool-summary.js';
+import { parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
 
 /** Props for the PermissionDialog component. */
 export interface PermissionDialogProps {
@@ -31,9 +31,20 @@ const OPTIONS: Array<{ key: '1' | '2' | '3'; label: string; decision: Permission
  *   itself is purely presentational over the decision callback
  */
 export function PermissionDialog({ pending, displayKind }: PermissionDialogProps): React.ReactElement | null {
+  // Derived display data computed before the hooks (pure values, no hooks):
+  // the filtered option list is what the key handler and the view share, so
+  // a hidden option can never be selected by number or by arrows.
+  const parsedArgs = pending === null ? null : parseToolArgs(pending.call.function.arguments);
+  const warning = pending !== null ? dangerReason(pending.call.function.name, parsedArgs, displayKind) : null;
+  const options = warning !== null ? OPTIONS.filter((o) => o.decision !== 'always') : OPTIONS;
+
   // Rules of hooks: all hooks run unconditionally; the early return below
   // comes AFTER all hooks (tui-refactor ticket 01).
   const [selected, setSelected] = useState(0);
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
   // Ref mirror: key events can burst before React re-renders (lessons.md #9).
   const selectedRef = useRef(0);
   // A new request must not inherit the previous selection (review: the
@@ -42,27 +53,32 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
     selectedRef.current = 0;
     setSelected(0);
   }, [pending]);
-  const move = (fn: (i: number) => number): void => {
-    const next = Math.max(0, Math.min(OPTIONS.length - 1, fn(selectedRef.current)));
+  const move = (fn: (i: number) => number, length: number): void => {
+    const next = Math.max(0, Math.min(length - 1, fn(selectedRef.current)));
     selectedRef.current = next;
     setSelected(next);
   };
   useInput((inputChar, key) => {
     if (!pending) return;
-    if (inputChar === '1' || inputChar === '2' || inputChar === '3') {
-      pending.resolve(OPTIONS[Number(inputChar) - 1].decision);
+    // Route keys through the FILTERED option list: option 3 does not exist
+    // for dangerous calls, so '3' / Down-Down+Enter must not resolve
+    // 'always' behind the user's back (review finding).
+    const available = optionsRef.current;
+    if (inputChar >= '1' && inputChar <= '9') {
+      const picked = available[Number(inputChar) - 1];
+      if (picked) pending.resolve(picked.decision);
       return;
     }
     if (key.upArrow) {
-      move((i) => i - 1);
+      move((i) => i - 1, available.length);
       return;
     }
     if (key.downArrow) {
-      move((i) => i + 1);
+      move((i) => i + 1, available.length);
       return;
     }
     if (key.return) {
-      pending.resolve(OPTIONS[selectedRef.current].decision);
+      pending.resolve(available[selectedRef.current].decision);
       return;
     }
     if (key.escape) {
@@ -72,17 +88,7 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
 
   if (!pending) return null;
 
-  let args: Record<string, unknown> | null = null;
-  try {
-    args = JSON.parse(pending.call.function.arguments) as Record<string, unknown>;
-  } catch {
-    args = null;
-  }
-  const description = describeCall(pending.call.function.name, args, displayKind);
-  const warning = dangerReason(pending.call.function.name, args, displayKind);
-  // Dangerous calls must never be session-whitelisted silently: the
-  // always option is simply not offered.
-  const options = warning !== null ? OPTIONS.filter((o) => o.decision !== 'always') : OPTIONS;
+  const description = describeCall(pending.call.function.name, parsedArgs, displayKind);
   const effectiveSelected = Math.min(selected, options.length - 1);
 
   return (

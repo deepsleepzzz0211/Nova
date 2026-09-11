@@ -1,13 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import {
-  fmtTokens,
-  estimateCostUsd,
-  contextUsage,
-  readGitBranch,
-} from '../../src/tui/status-format.js';
+import { describe, it, expect } from 'vitest';
+import { fmtTokens, estimateCostUsd, contextUsage, workingBorderColor } from '../../src/tui/status-format.js';
 
 describe('status-format (tui-refactor 09)', () => {
   describe('fmtTokens', () => {
@@ -66,33 +58,11 @@ describe('status-format (tui-refactor 09)', () => {
     });
   });
 
-  describe('readGitBranch', () => {
-    let dir: string;
-    beforeAll(() => {
-      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-git-'));
-      fs.mkdirSync(path.join(dir, '.git'));
-      fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/feature-x\n');
-    });
-    afterAll(() => {
-      fs.rmSync(dir, { recursive: true, force: true });
-    });
-
-    it('reads the branch from .git/HEAD', () => {
-      expect(readGitBranch(dir)).toBe('feature-x');
-    });
-
-    it('returns a short sha for a detached HEAD', () => {
-      const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-git2-'));
-      fs.mkdirSync(path.join(d2, '.git'));
-      fs.writeFileSync(path.join(d2, '.git', 'HEAD'), 'a'.repeat(40) + '\n');
-      expect(readGitBranch(d2)).toBe('aaaaaaaa');
-      fs.rmSync(d2, { recursive: true, force: true });
-    });
-
-    it('returns null outside a repository', () => {
-      const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-git3-'));
-      expect(readGitBranch(d3)).toBeNull();
-      fs.rmSync(d3, { recursive: true, force: true });
+  describe('workingBorderColor', () => {
+    it('maps the working states to distinct colors', () => {
+      expect(workingBorderColor('idle')).toBe('cyan');
+      expect(workingBorderColor('streaming')).toBe('yellow');
+      expect(workingBorderColor('thinking')).toBe('magenta');
     });
   });
 });

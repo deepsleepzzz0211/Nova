@@ -20,7 +20,9 @@ function makePending(name: string, args: string): PendingPermission {
 describe('PermissionDialog options list (tui-refactor 04)', () => {
   it('transitions null -> pending -> null without hook-order crashes', () => {
     const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
-    const { lastFrame, rerender } = render(<PermissionDialog pending={null} displayKind={displayKind} />);
+    const { lastFrame, rerender } = render(
+      <PermissionDialog pending={null} displayKind={displayKind} />,
+    );
     expect(lastFrame()).not.toContain('Permission Required');
 
     rerender(<PermissionDialog pending={pending} displayKind={displayKind} />);
@@ -43,7 +45,9 @@ describe('PermissionDialog options list (tui-refactor 04)', () => {
 
   it('number keys pick directly: 2=allow, 1=deny, 3=always', async () => {
     const allow = makePending('bash', JSON.stringify({ command: 'ls' }));
-    const { stdin, rerender } = render(<PermissionDialog pending={allow} displayKind={displayKind} />);
+    const { stdin, rerender } = render(
+      <PermissionDialog pending={allow} displayKind={displayKind} />,
+    );
     stdin.write('2');
     await new Promise((r) => setTimeout(r, 20));
     expect(allow.resolve).toHaveBeenCalledWith('allow');
@@ -111,12 +115,33 @@ describe('PermissionDialog safety (review fixes)', () => {
   it('selection resets when a new request arrives (no stale always)', async () => {
     const first = makePending('bash', JSON.stringify({ command: 'ls' }));
     const second = makePending('bash', JSON.stringify({ command: 'pwd' }));
-    const { stdin, rerender } = render(<PermissionDialog pending={first} displayKind={displayKind} />);
+    const { stdin, rerender } = render(
+      <PermissionDialog pending={first} displayKind={displayKind} />,
+    );
     stdin.write('\x1b[B'); // down -> option 2
     stdin.write('\x1b[B'); // down -> option 3 (always)
     rerender(<PermissionDialog pending={second} displayKind={displayKind} />); // new request
     stdin.write('\r'); // Enter must hit option 1 (No), NOT always
     await new Promise((r) => setTimeout(r, 30));
     expect(second.resolve).toHaveBeenCalledWith('deny');
+  });
+
+  it('number key 3 on a dangerous call does not resolve at all', async () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'rm -rf /tmp/x' }));
+    const { stdin } = render(<PermissionDialog pending={pending} displayKind={displayKind} />);
+    stdin.write('3'); // option 3 is hidden for dangerous calls
+    await new Promise((r) => setTimeout(r, 30));
+    expect(pending.resolve).not.toHaveBeenCalled();
+  });
+
+  it('down-down + Enter on a dangerous call lands on the last visible option', async () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'sudo rm -rf /x' }));
+    const { stdin } = render(<PermissionDialog pending={pending} displayKind={displayKind} />);
+    stdin.write('\x1b[B');
+    stdin.write('\x1b[B');
+    stdin.write('\r');
+    await new Promise((r) => setTimeout(r, 30));
+    // Only No/Yes are visible: Enter resolves allow, never always.
+    expect(pending.resolve).toHaveBeenCalledWith('allow');
   });
 });

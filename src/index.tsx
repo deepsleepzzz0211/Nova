@@ -11,7 +11,7 @@ import { App } from './tui/App.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
-import { readGitBranch } from './tui/status-format.js';
+import { readGitBranch } from './tui/git-branch.js';
 import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
 
   // Shared spec resolution (used by /model and subagent model routing)
   const resolveSpec = (spec: string):
-    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string }
+    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; cost?: import('./llm/catalog.js').ModelCost }
     | { ok: false; message: string } => {
     try {
       const parsed = parseModelSpec(spec, selectionRef.provider);
@@ -189,13 +189,14 @@ async function main(): Promise<void> {
         model: next.model.id,
         contextWindow: next.model.contextWindow,
         providerName: next.name,
+        cost: next.model.cost,
       };
     } catch (err: unknown) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
   };
   type SwitchResult =
-    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; message: string }
+    | { ok: true; llm: LLMProvider; model: string; contextWindow: number; providerName: string; message: string; cost?: import('./llm/catalog.js').ModelCost }
     | { ok: false; message: string };
   const resolveSwitch = (spec: string): SwitchResult => {
     const result = resolveSpec(spec);
