@@ -38,24 +38,14 @@ for (const [name, def] of Object.entries({
  * tolerance, highlighting and the render caches are unit-testable.
  */
 
-export interface MdBlock {
-  kind: 'heading' | 'paragraph' | 'list' | 'code' | 'quote' | 'table' | 'rule';
-  /** Plain text content (code: raw source; heading/paragraph/quote: text).
-   * Lists and tables carry their content in `items` / `rows` instead. */
-  text: string;
-  /** Heading level (1-6). */
-  level?: number;
-  /** List items (plain text, may contain inline markers). */
-  items?: string[];
-  /** Whether a list is ordered. */
-  ordered?: boolean;
-  /** First number of an ordered list. */
-  start?: number;
-  /** Fence language for code blocks. */
-  language?: string | null;
-  /** Table rows (first row = header), column-padded for display. */
-  rows?: string[][];
-}
+export type MdBlock =
+  | { kind: 'heading'; level: number; text: string }
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'list'; ordered: boolean; start: number; items: string[] }
+  | { kind: 'code'; text: string; language: string | null }
+  | { kind: 'quote'; text: string }
+  | { kind: 'table'; rows: string[][] }
+  | { kind: 'rule' };
 
 /** Normalize a fence info string to a highlight.js language hint. */
 export function languageOf(info: string): string | null {
@@ -136,7 +126,6 @@ export function parseMarkdownBlocks(text: string): MdBlock[] {
         );
         blocks.push({
           kind: 'list',
-          text: '',
           ordered: list.ordered === true,
           start: typeof list.start === 'number' ? list.start : 1,
           items,
@@ -149,11 +138,11 @@ export function parseMarkdownBlocks(text: string): MdBlock[] {
           table.header.map((cell) => cell.text),
           ...table.rows.map((row) => row.map((cell) => cell.text)),
         ];
-        blocks.push({ kind: 'table', text: '', rows: padColumns(rows) });
+        blocks.push({ kind: 'table', rows: padColumns(rows) });
         break;
       }
       case 'hr':
-        blocks.push({ kind: 'rule', text: '' });
+        blocks.push({ kind: 'rule' });
         break;
       case 'space':
         // Blank lines carry no display content; the renderer uses spacing.
