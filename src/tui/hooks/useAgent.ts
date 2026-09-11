@@ -15,25 +15,18 @@ import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
 import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
 import { parseToolArgs } from '../tool-summary.js';
-import { findCommand, type SlashCommandContext } from '../commands.js';
+import { findCommand } from '../commands.js';
+import { createCommandContext } from '../command-context.js';
 
-/** A tool call as displayed in the UI. */
-export interface DisplayToolCall {
-  id: string;
-  name: string;
-  arguments: string;
-  status: 'pending' | 'running' | 'done' | 'error';
-  result?: string;
-}
+// UI display types live in a neutral module so the command/context layers
+// can use them without importing React hooks (tui-refactor ticket 15 fixes).
+import type {
+  DisplayMessage,
+  DisplayToolCall,
+  DisplayModelInfo,
+} from '../display-types.js';
 
-/** A message as displayed in the UI. */
-export interface DisplayMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  toolCalls?: DisplayToolCall[];
-  /** Reasoning text accumulated before the visible content. */
-  thinking?: string;
-}
+export type { DisplayMessage, DisplayToolCall, DisplayModelInfo } from '../display-types.js';
 
 /** Pending permission request awaiting user decision. */
 export interface PendingPermission {
@@ -418,61 +411,27 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     // share one declaration; handlers receive UI callbacks here.
     const found = findCommand(trimmed);
     if (found !== null) {
-      const restored = (): Array<{ role: 'user' | 'assistant'; content: string }> =>
-        loop
-          .getMessages()
-          .filter((msg): msg is { role: 'user' | 'assistant'; content: string } =>
-            (msg.role === 'user' || msg.role === 'assistant') &&
-            typeof msg.content === 'string' && msg.content.length > 0)
-          .map((msg) => ({ role: msg.role, content: msg.content }));
-      const ctx: SlashCommandContext = {
-        appendUserMessage: (text) =>
-          setMessages((prev) => [...prev, { role: 'user' as const, content: text }]),
-        appendSystemMessage: (text) =>
-          setMessages((prev) => [...prev, { role: 'system' as const, content: text }]),
-        replaceConversation: (messages) =>
-          setMessages(messages.map((m) => ({ role: m.role, content: m.content }))),
-        listModels: () => config.listModels?.() ?? 'No model catalog available.',
-        switchModel: (spec) => {
-          const result = config.resolveSwitch?.(spec);
-          if (result?.ok) {
-            const loopNow = loopRef.current;
-            if (loopNow) {
-              loopNow.setProvider(result.llm);
-              loopNow.setModel(result.model);
-            }
-            setModelInfo({
-              model: result.model,
-              contextWindow: result.contextWindow,
-              providerName: result.providerName,
-              cost: result.cost,
-            });
-          }
-          return { ok: result?.ok ?? false, message: result?.message ?? 'Model switching unavailable.', model: result?.ok ? result.model : undefined };
-        },
-        undoTurns: (n) => {
-          const result = loop.undoTurns(n);
-          return {
-            undone: result.undone,
-            undoneTurns: result.undoneTurns,
-            restored: result.undone ? restored() : [],
-          };
-        },
-        compact: async () => {
-          const result = await loop.compactNow();
-          return {
-            compacted: result.compacted,
-            note: result.compacted
-              ? `[context compacted: ${result.beforeTokens} → ${result.afterTokens} tokens]`
-              : '[nothing to compact — context is small]',
-          };
-        },
-        update: async () => {
-          const r = await runNpmUpdate();
-          return { message: r.message };
-        },
-      };
-      void Promise.resolve(found.command.run(ctx, found.args));
+      const ctx = createCommandContext({
+        loop,
+        listModels: config.listModels,
+        resolveSwitch: config.resolveSwitch,
+        updateMessages: (updater) => setMessages(updater),
+        setModelInfo,
+        runUpdate: runNpmUpdate,
+      });
+      const echoLine =
+        found.args === '' ? `/${found.command.name}` : `/${found.command.name} ${found.args}`;
+      // Handlers must not fail silently (AGENTS: error handling is
+      // implemented, not deferred); the echo is appended AFTER the handler
+      // so an /undo restore cannot swallow it.
+      void Promise.resolve(found.command.run(ctx, found.args))
+        .then(() => {
+          if (found.command.echoesInput === true) ctx.appendUserMessage(echoLine);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.appendSystemMessage(`[error] ${msg}`);
+        });
       return;
     }
 

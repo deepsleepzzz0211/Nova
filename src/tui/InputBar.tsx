@@ -101,7 +101,10 @@ export function InputBar({
       const matches = completeCommands(ctx.query);
       setC(() => ({
         ctx,
-        items: matches.map((m) => ({ label: `/${m.name} — ${m.description}`, insert: `/${m.name} ` })),
+        items: matches.map((m) => ({
+          label: `/${m.name} — ${m.description}`,
+          insert: m.acceptsArgs ? `/${m.name} ` : `/${m.name}`,
+        })),
         index: 0,
       }));
       return;
