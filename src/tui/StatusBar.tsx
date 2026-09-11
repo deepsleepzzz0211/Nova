@@ -71,7 +71,10 @@ export function StatusBar({
   const hasUsage = (cacheStats?.totalInputTokens ?? 0) > 0 || (cacheStats?.totalOutputTokens ?? 0) > 0;
   // Current context size = prompt size of the most recent request (the
   // session total grows monotonically and would saturate the gauge).
-  const context = contextUsage(cacheStats?.contextTokens ?? 0, contextWindow ?? 0);
+  const context = contextUsage(
+    cacheStats?.contextTokens ?? 0,
+    cacheStats?.contextTriggerTokens ?? contextWindow ?? 0,
+  );
 
   return (
     <Box flexDirection="column">
@@ -96,7 +99,7 @@ export function StatusBar({
                 </Text>
               )}
               <Text color={context.color}>
-                {` · ctx ${context.percent}%${contextWindow ? `/${fmtTokens(contextWindow)}` : ''}`}
+                {` · ctx ${context.percent}%${contextWindow ? `/${fmtTokens(contextWindow)}` : ''}${context.percent >= 85 ? ' ⚠' : ''}`}
               </Text>
               {contextStrategy && <Text color="gray" dimColor>{` (${contextStrategy})`}</Text>}
               <Text color="gray">{` · ${cost === null || !hasUsage ? '—' : `$${cost.toFixed(4)}`}`}</Text>
