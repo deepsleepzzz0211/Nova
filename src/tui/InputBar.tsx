@@ -23,21 +23,13 @@ import {
   cursorColumn,
   type EditorState,
 } from './editor-state.js';
+import { buildFileIndex } from './completions.js';
 import {
-  detectCompletion,
-  completeCommands,
-  fuzzyMatchFiles,
-  buildFileIndex,
-  type CompletionContext,
-} from './completions.js';
+  CompletionController,
+  type ActiveCompletion,
+  type CompletionItem,
+} from './completion-controller.js';
 import { theme } from './theme.js';
-
-/** An active completion popup: context + filtered items + selected index. */
-interface ActiveCompletion {
-  ctx: CompletionContext;
-  items: Array<{ label: string; insert: string }>;
-  index: number;
-}
 
 /** Props for the InputBar component. */
 export interface InputBarProps {
@@ -86,71 +78,31 @@ export function InputBar({
   // key events can arrive in one synchronous burst before React re-renders,
   // making the closure stale (e.g. type then Ctrl+C in the same tick).
   const editorRef = useRef<EditorState>(editor);
-  // Active completion (slash command / @ file), or null when closed.
-  // completionRef mirrors the state synchronously: key events burst before
-  // React re-renders, so handlers must not read the stale closure.
-  const completionRef = useRef<ActiveCompletion | null>(null);
-  const setCompletionState = (fn: (c: ActiveCompletion | null) => ActiveCompletion | null): void => {
-    const next = fn(completionRef.current);
-    completionRef.current = next;
-    setCompletion(next);
-  };
-  const [completion, setCompletion] = useState<ActiveCompletion | null>(null);
-  // Lazy @ file index (walked once per process).
-  const fileIndexRef = useRef<string[] | null | 'loading'>(null);
+  // Completion popup state machine lives in its own module (ticket 17); this
+  // component only renders its state and routes keys to it.
+  const [completion, setCompletion] = useState<ActiveCompletion | undefined>(undefined);
+  const completionRef = useRef<CompletionController | null>(null);
+  if (completionRef.current === null) {
+    completionRef.current = new CompletionController({
+      commands: (query) => CompletionController.commandItems(query),
+      loadFiles: () => buildFileIndex(fileIndexRoot ?? process.cwd()),
+      onChange: (state) => setCompletion(state),
+    });
+  }
+  const completionController = completionRef.current;
 
   const refreshCompletion = (): void => {
-    const ctx = detectCompletion(editorRef.current.text, editorRef.current.cursor);
-    if (ctx === null) {
-      setCompletionState(() => null);
-      return;
-    }
-    if (ctx.kind === 'slash') {
-      const matches = completeCommands(ctx.query);
-      setCompletionState(() => ({
-        ctx,
-        items: matches.map((m) => ({
-          label: `/${m.name} — ${m.description}`,
-          insert: m.acceptsArgs ? `/${m.name} ` : `/${m.name}`,
-        })),
-        index: 0,
-      }));
-      return;
-    }
-    // @ file: ensure the index is loaded, then fuzzy-match.
-    if (fileIndexRef.current === null) {
-      fileIndexRef.current = 'loading';
-      void buildFileIndex(fileIndexRoot ?? process.cwd()).then((files) => {
-        fileIndexRef.current = files;
-        // Recompute now that the index arrived.
-        refreshCompletion();
-      });
-      return;
-    }
-    if (fileIndexRef.current === 'loading') return; // index still walking
-    const matches = fuzzyMatchFiles(fileIndexRef.current, ctx.query);
-    setCompletionState(() => ({
-      ctx,
-      items: matches.map((f) => ({ label: f, insert: f })),
-      index: 0,
-    }));
+    completionController.refresh(editorRef.current.text, editorRef.current.cursor);
   };
 
-  /** True when accepting the highlighted item changes the editor text. */
-  const completionWouldChangeText = (): boolean => {
-    const c = completionRef.current;
-    if (c === null) return false;
-    const item = c.items[c.index];
-    if (item === undefined) return false;
-    return item.insert.trimEnd() !== editorRef.current.text.trimEnd();
+  /** Accept the highlighted item into the editor (token replacement). */
+  const acceptCompletion = (): void => {
+    const accepted = completionController.accept();
+    if (accepted === null) return;
+    update((e) => replaceToken(e, accepted.tokenStart, accepted.end, accepted.insert));
+    completionController.close();
   };
 
-  const acceptCompletion = (item: { insert: string }): void => {
-    const c = completionRef.current;
-    if (c === null) return;
-    update((e) => replaceToken(e, c.ctx.tokenStart, e.cursor, item.insert));
-    setCompletionState(() => null);
-  };
   const update = (fn: (e: EditorState) => EditorState): void => {
     const next = fn(editorRef.current);
     editorRef.current = next;
@@ -158,9 +110,9 @@ export function InputBar({
   };
 
   useInput((inputChar, key) => {
-    if (key.escape && completionRef.current !== null) {
+    if (key.escape && completionController.current !== undefined) {
       // Close the popup first; interrupt only when no popup is open.
-      setCompletionState(() => null);
+      completionController.close();
       return;
     }
     if (key.escape && isStreaming && modalOpen !== true) {
@@ -198,14 +150,11 @@ export function InputBar({
       const wantsNewline = key.shift || key.ctrl || inputChar === '\n';
       if (wantsNewline) {
         update(newline);
-      } else if (completionWouldChangeText()) {
+      } else if (completionController.wouldChangeText(editorRef.current.text)) {
         // Enter accepts a completion only when it actually completes
         // something; typing an exact command name ("/model") must submit
         // (E2E finding: Enter used to be swallowed by the popup).
-        const completionState = completionRef.current;
-        if (completionState !== null) {
-          acceptCompletion(completionState.items[completionState.index]);
-        }
+        acceptCompletion();
       } else if (!isStreaming) {
         const r = submit(editorRef.current);
         update(() => r.state);
@@ -215,18 +164,16 @@ export function InputBar({
     }
 
     if (key.upArrow) {
-      if (completionRef.current !== null) {
-        setCompletionState((c) => (c === null ? c : { ...c, index: Math.max(0, c.index - 1) }));
+      if (completion !== undefined) {
+        completionController.move(-1);
         return;
       }
       update((e) => (cursorLine(e) === 0 ? historyPrev(e) : moveUp(e)));
       return;
     }
     if (key.downArrow) {
-      if (completionRef.current !== null) {
-        setCompletionState((c) =>
-          c === null ? c : { ...c, index: Math.min(c.items.length - 1, c.index + 1) },
-        );
+      if (completion !== undefined) {
+        completionController.move(1);
         return;
       }
       update((e) => {
@@ -252,14 +199,7 @@ export function InputBar({
       return;
     }
     if (key.tab) {
-      const c = completionRef.current;
-      if (c !== null) {
-        acceptCompletion(c.items[c.index]);
-      }
-      return;
-    }
-    if (key.escape && completionRef.current !== null) {
-      setCompletionState(() => null);
+      if (completionController.current !== undefined) acceptCompletion();
       return;
     }
 
@@ -277,7 +217,7 @@ export function InputBar({
         const r = submit(editorRef.current);
         update(() => r.state);
         if (r.submitted !== null) onSubmit(r.submitted);
-        setCompletionState(() => null);
+        completionController.close();
         return;
       }
       // Multi-char events with newlines are terminal pastes: route through
@@ -297,7 +237,7 @@ export function InputBar({
       editor={editor}
       workingState={workingState ?? (isStreaming ? 'streaming' : 'idle')}
       completion={completion}
-      onSelect={(i) => setCompletion((c) => (c === null ? c : { ...c, index: i }))}
+      onSelect={(i) => completionController.select(i)}
     />
   );
 }
@@ -311,7 +251,7 @@ function EditorView({
 }: {
   editor: EditorState;
   workingState: 'idle' | 'streaming' | 'thinking';
-  completion: ActiveCompletion | null;
+  completion: ActiveCompletion | undefined;
   onSelect: (index: number) => void;
 }): React.ReactElement {
   const lines = editor.text.split('\n');
@@ -349,9 +289,9 @@ function EditorView({
           );
         })
       )}
-      {completion !== null && (
+      {completion !== undefined && (
         <Box flexDirection="column" marginTop={0}>
-          {completion.items.map((item, i) => (
+          {completion.items.map((item: CompletionItem, i: number) => (
             <Box key={item.label} paddingLeft={1}>
               <Text inverse={i === completion.index} color={i === completion.index ? theme.primary : theme.muted}>
                 {item.label}
