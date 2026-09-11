@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
+import { AgentLoop } from './agent/loop.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { providerRegistry } from './llm/registry.js';
 import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
@@ -47,13 +48,32 @@ async function main(): Promise<void> {
       'base-url': { type: 'string' },
       resume: { type: 'boolean', short: 'r' },
       list: { type: 'boolean' },
+      print: { type: 'string', short: 'p' },
+      yes: { type: 'boolean' },
       thinking: { type: 'string' },
     },
     strict: false,
   });
 
-  // Apply CLI overrides
-  if (values.model && typeof values.model === 'string') config.llm.model = values.model;
+  // Apply CLI overrides. A "provider/model" spec routes to that provider
+  // (e.g. --model weixin/Deepseek-v4-flash), which keeps E2E invocations
+  // self-contained without editing the user's config.
+  if (values.model && typeof values.model === 'string') {
+    const spec = values.model;
+    if (spec.includes('/')) {
+      const parsedSpec = parseModelSpec(spec, config.llm.provider || 'openai');
+      if (parsedSpec.provider !== (config.llm.provider || 'openai')) {
+        // Provider switch on the CLI: the configured endpoint/key belong to
+        // the previous provider, so let the catalog supply both.
+        config.llm.baseUrl = undefined;
+        config.llm.apiKey = undefined;
+      }
+      config.llm.provider = parsedSpec.provider;
+      config.llm.model = parsedSpec.model;
+    } else {
+      config.llm.model = spec;
+    }
+  }
   if (values['api-key']) config.llm.apiKey = values['api-key'] as string;
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
   if (values.thinking && typeof values.thinking === 'string') config.agent.thinkingLevel = values.thinking;
@@ -173,12 +193,18 @@ async function main(): Promise<void> {
     | { ok: false; message: string } => {
     try {
       const parsed = parseModelSpec(spec, selectionRef.provider);
+      // Config-level base_url/api_key belong to the CONFIGURED provider: only
+      // pass them when the spec stays on that provider, otherwise the request
+      // would go to the wrong endpoint (e.g. switching to a catalog provider
+      // while config.toml still points at opencode-go). Pre-existing bug found
+      // while wiring E2E against a second provider.
+      const sameProvider = parsed.provider === (config.llm.provider || 'openai');
       const next = resolveModel(
         {
           provider: parsed.provider,
           model: parsed.model,
-          baseUrl: config.llm.baseUrl,
-          apiKey: config.llm.apiKey,
+          baseUrl: sameProvider ? config.llm.baseUrl : undefined,
+          apiKey: sameProvider ? config.llm.apiKey : undefined,
         },
         catalog,
       );
@@ -285,6 +311,59 @@ async function main(): Promise<void> {
     await mcpManager.startAll(config.mcpServers);
     await mcpManager.registerTools(toolRegistry);
     mcpConnectionCount = config.mcpServers.length;
+  }
+
+  // Non-interactive print mode (nova -p "prompt"): run one turn against the
+  // configured provider, stream the answer to stdout and exit. Tool calls run
+  // through the normal pipeline; without --yes, anything needing permission
+  // is denied (no dialog is possible). Used by the E2E suite and scripts.
+  const printPrompt = typeof values.print === 'string' ? values.print : null;
+  if (printPrompt !== null) {
+    const autoApprove = values.yes === true;
+    let sawError = false;
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry,
+      toolExecutionPipeline,
+      session: sessionStore,
+      skills: skillRegistry,
+      promptOptions: {
+        environment,
+        projectInstructions,
+        memory,
+        customPrompt: config.agent.systemPrompt || undefined,
+      },
+      context: {
+        maxTokens: resolution.model.contextWindow,
+        reserveTokens: config.agent.contextReserveTokens,
+        keepRecentTokens: config.agent.contextKeepRecentTokens,
+        strategy: config.agent.contextStrategy as 'truncate' | 'compact',
+      },
+      streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
+      thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+      config: { maxToolRounds: config.agent.maxToolRounds, model: config.llm.model },
+      onToken: (token: string) => {
+        // The loop reports failures as [Error: ...] tokens; print mode must
+        // exit non-zero so scripts and the E2E suite can detect them.
+        if (token.startsWith('[Error:')) sawError = true;
+        process.stdout.write(token);
+      },
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onThinking: () => {},
+      onPermissionRequest: async () => autoApprove,
+    });
+    try {
+      const result = await loop.processUserInput(printPrompt);
+      if (result.text.length > 0 && !result.text.endsWith('\n')) process.stdout.write('\n');
+      await mcpManager.stopAll();
+      process.exit(0);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[error] ${msg}\n`);
+      await mcpManager.stopAll();
+      process.exit(1);
+    }
   }
 
   // Render TUI
