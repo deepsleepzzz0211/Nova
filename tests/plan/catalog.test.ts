@@ -7,6 +7,7 @@ import {
   resolveModel,
   BUILTIN_PROVIDER_API,
 } from '../../src/llm/catalog.js';
+import { PiaiEngine } from '../../src/llm/piai-engine.js';
 
 function writeJson(file: string, data: unknown): void {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
@@ -264,5 +265,35 @@ describe('model cost metadata (tui-refactor 09)', () => {
     };
     const resolved = resolveModel({ provider: 'p', model: 'm' }, catalog);
     expect(resolved.model.cost).toBeUndefined();
+  });
+});
+
+describe('ModelCatalog sourced from pi-ai (ticket 01)', () => {
+  it('lists built-in openai models from the pi-ai catalog (not a hand-written table)', () => {
+    const catalog = loadModelCatalog([]);
+    const ids = (catalog.providers.openai?.models ?? []).map((m) => m.id);
+    // gpt-5 and gpt-4.1 exist in the pi-ai catalog but were never in the
+    // hand-written built-in list, proving describe/resolve now source pi-ai
+    expect(ids).toContain('gpt-5');
+    expect(ids).toContain('gpt-4.1');
+  });
+
+  it('carries pi-ai context/cost metadata onto built-in models', () => {
+    const catalog = loadModelCatalog([]);
+    const gpt4o = (catalog.providers.openai?.models ?? []).find((m) => m.id === 'gpt-4o');
+    expect(gpt4o?.contextWindow).toBeGreaterThan(0);
+    expect(gpt4o?.cost).toBeDefined();
+  });
+
+  it('injects providers into a shared pi-ai engine collection', () => {
+    const engine = new PiaiEngine();
+    engine.registerUserProvider({
+      id: 'my-gateway',
+      baseUrl: 'http://localhost:8010/v1',
+      api: 'openai-completions',
+      models: [{ id: 'g-pro-capable' }],
+    });
+    expect(engine.getProvider('my-gateway')).toBeDefined();
+    expect(engine.getModel('my-gateway', 'g-pro-capable')).toBeDefined();
   });
 });

@@ -8,42 +8,37 @@ import type {
 } from './compat.js';
 import { normalizeCompat } from './compat.js';
 import { resolveSecretValue } from './secrets.js';
+import { PiaiEngine, type UserProviderSpec } from './piai-engine.js';
 
 export type { ThinkingLevel, ThinkingLevelMap } from './compat.js';
 
 /**
  * Data-driven model catalog (pi-style): providers are data, wire protocols
  * are adapters. User providers/models are declared in `~/.nova/models.json`
- * and merged over the built-in defaults.
+ * and merged over the built-in defaults. Ticket (pi-ai-migration) 01: the
+ * built-in model lists now come from the pi-ai engine Models collection,
+ * so ids/context/cost are no longer hand-written.
  */
 
 /** Built-in provider → default wire API. */
 /** Built-in provider defaults — ONE table (ticket 21). */
 export const BUILTIN_PROVIDERS: Record<
   string,
-  { api: ApiId; baseUrl?: string; contextWindow: number; models?: string[] }
+  { api: ApiId; baseUrl?: string; contextWindow: number }
 > = {
   openai: {
     api: 'openai-completions',
     baseUrl: 'https://api.openai.com/v1',
     contextWindow: 128_000,
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'],
   },
   anthropic: {
     api: 'anthropic-messages',
     contextWindow: 200_000,
-    models: [
-      'claude-3-5-sonnet-20241022',
-      'claude-3-opus-20240229',
-      'claude-3-sonnet-20240229',
-      'claude-3-haiku-20240307',
-    ],
   },
   ollama: {
     api: 'ollama',
     baseUrl: 'http://localhost:11434',
     contextWindow: 32_768,
-    models: ['llama3', 'llama2', 'codellama', 'mistral', 'mixtral'],
   },
 };
 
@@ -82,6 +77,8 @@ export type ModelOverride = Partial<Omit<ModelCatalogEntry, 'id' | 'api'>>;
 
 /** A provider entry as declared in models.json. */
 export interface ProviderCatalogEntry {
+  /** Optional display name (pi-ai provider display). */
+  name?: string;
   baseUrl?: string;
   api?: ApiId;
   apiKey?: string;
@@ -133,16 +130,6 @@ export interface ModelSelection {
   apiKey?: string;
 }
 
-function builtinEntry(provider: string): ProviderCatalogEntry {
-  const entry = BUILTIN_PROVIDERS[provider];
-  if (entry === undefined) return { models: [] };
-  return {
-    baseUrl: entry.baseUrl,
-    api: entry.api,
-    models: (entry.models ?? []).map((id) => ({ id })),
-  };
-}
-
 export function defaultContextWindow(provider: string): number {
   return BUILTIN_PROVIDERS[provider]?.contextWindow ?? 128_000;
 }
@@ -152,15 +139,47 @@ export function defaultContextWindow(provider: string): number {
  * files (later files win). Merge semantics (pi-style):
  *  - provider-level fields (baseUrl/api/apiKey/compat) override built-ins
  *  - `models` arrays are upserted by id over the built-in list
- * Malformed files are ignored.
+ * Malformed files are ignored. Ticket 01: built-in provider model lists
+ * come from the pi-ai engine's Models collection, and user providers are
+ * injected into the same collection.
  */
 export function loadModelCatalog(userPaths: string[]): ModelCatalog {
+  const engine = new PiaiEngine();
+  return loadModelCatalogWithEngine(engine, userPaths).catalog;
+}
+
+/**
+ * Internal: build the catalog against a shared pi-ai engine. Returns both
+ * the catalog (Nova view) and the engine (pi-ai collection) so callers that
+ * need the runtime provider set don't recreate it.
+ */
+export function loadModelCatalogWithEngine(
+  engine: PiaiEngine,
+  userPaths: string[],
+): { catalog: ModelCatalog; engine: PiaiEngine } {
   const catalog: ModelCatalog = { providers: {} };
 
-  for (const provider of Object.keys(BUILTIN_PROVIDER_API)) {
-    catalog.providers[provider] = builtinEntry(provider);
+  // Built-in providers: model lists come from the pi-ai engine so ids and
+  // per-model metadata (context, cost, reasoning) are not hand-written.
+  for (const [provider, entry] of Object.entries(BUILTIN_PROVIDERS)) {
+    const models = engine.describeProviderModels(provider).map((m) => ({
+      id: m.id,
+      name: m.id,
+      cost: m.cost,
+      contextWindow: m.contextWindow,
+      maxTokens: m.maxTokens,
+      reasoning: m.reasoning,
+      thinkingLevelMap: m.thinkingLevelMap as ThinkingLevelMap,
+    }));
+    catalog.providers[provider] = {
+      baseUrl: entry.baseUrl,
+      api: entry.api,
+      models,
+    };
   }
 
+  // User files: inject custom providers into the engine AND merge over the
+  // built-in catalog (later files win, pi-style upsert semantics).
   for (const filePath of userPaths) {
     let raw: string;
     try {
@@ -169,7 +188,12 @@ export function loadModelCatalog(userPaths: string[]): ModelCatalog {
       continue;
     }
 
-    let parsed: { providers?: Record<string, ProviderCatalogEntry> };
+    let parsed: {
+      providers?: Record<
+        string,
+        ProviderCatalogEntry & { name?: string }
+      >;
+    };
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -177,11 +201,35 @@ export function loadModelCatalog(userPaths: string[]): ModelCatalog {
     }
 
     for (const [name, userEntry] of Object.entries(parsed.providers ?? {})) {
+      // Register / sync the provider's models into the pi-ai collection.
+      if (catalog.providers[name] === undefined) {
+        const spec: UserProviderSpec = {
+          id: name,
+          name: userEntry.name ?? name,
+          baseUrl: userEntry.baseUrl,
+          api: userEntry.api,
+          models: (userEntry.models ?? []).map((m) => ({
+            id: m.id,
+            contextWindow: m.contextWindow,
+            maxTokens: m.maxTokens,
+            reasoning: m.reasoning,
+            cost: m.cost,
+            thinkingLevelMap: m.thinkingLevelMap,
+          })),
+        };
+        engine.registerUserProvider(spec);
+      }
+
       const base = catalog.providers[name] ?? { models: [] };
+      const baseModels =
+        catalog.providers[name]?.models ??
+        engine
+          .describeProviderModels(name)
+          .map((m) => ({ id: m.id, contextWindow: m.contextWindow }));
       const merged: ProviderCatalogEntry = {
         ...base,
         ...userEntry,
-        models: mergeModels(base.models ?? [], userEntry.models ?? []),
+        models: mergeModels(baseModels, userEntry.models ?? []),
       };
       // Apply per-model overrides (pi-style): unknown ids are ignored
       merged.models = applyOverrides(merged.models ?? [], userEntry.modelOverrides ?? {});
@@ -189,7 +237,7 @@ export function loadModelCatalog(userPaths: string[]): ModelCatalog {
     }
   }
 
-  return catalog;
+  return { catalog, engine };
 }
 
 /** Upsert user models by id over the existing list (built-ins kept). */
