@@ -37,7 +37,9 @@ export const BUILTIN_PROVIDERS: Record<
   },
   ollama: {
     api: 'ollama',
-    baseUrl: 'http://localhost:11434',
+    // pi-ai talks to Ollama through its OpenAI-compatible endpoint, which
+    // lives under /v1 (ticket 03: providers are now built on the engine).
+    baseUrl: 'http://localhost:11434/v1',
     contextWindow: 32_768,
   },
 };

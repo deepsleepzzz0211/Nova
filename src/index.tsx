@@ -11,8 +11,9 @@ import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
 import { AgentLoop } from './agent/loop.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
-import { providerRegistry } from './llm/registry.js';
-import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import { loadModelCatalogWithEngine, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import { PiaiEngine } from './llm/piai-engine.js';
+import { PiProvider } from './llm/providers/piai.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatStartupHeader } from './tui/header.js';
 import type { LLMProvider } from './llm/provider.js';
@@ -82,8 +83,12 @@ async function main(): Promise<void> {
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
   if (values.thinking && typeof values.thinking === 'string') config.agent.thinkingLevel = values.thinking;
 
-  // Model catalog: user-level models.json merged over built-in providers
-  const catalog = loadModelCatalog([path.join(novaHome(), '.nova', 'models.json')]);
+  // Model catalog: user-level models.json merged over built-in providers.
+  // The catalog and the pi-ai engine are built together (ticket 01/03): the
+  // engine is the runtime provider set the PiProviders stream through.
+  const { catalog, engine } = loadModelCatalogWithEngine(new PiaiEngine(), [
+    path.join(novaHome(), '.nova', 'models.json'),
+  ]);
   const resolution = resolveModel(
     {
       provider: config.llm.provider || 'openai',
@@ -105,21 +110,17 @@ async function main(): Promise<void> {
    * The ONLY place a provider instance is constructed (ticket 20): the
    * startup provider, /model switching and subagent routing all go through
    * this factory, so a new provider option is added exactly once.
+   * Ticket 03 (pi-ai migration): every provider is now a PiProvider over
+   * the shared engine's Models collection.
    */
   const createProvider = (next: import('./llm/catalog.js').ResolvedModel): LLMProvider =>
-    providerRegistry.getForApi(next.api, {
-      name: next.name,
-      apiKey: next.apiKey,
-      baseUrl: next.baseUrl,
+    new PiProvider({
+      engine,
+      provider: next.name,
       model: next.model.id,
+      baseUrl: next.baseUrl,
+      apiKey: next.apiKey,
       defaultHeaders,
-      // config.toml prompt_cache stays honored as a fallback
-      compat: {
-        supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
-        streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
-      },
-      thinkingLevelMap: next.model.thinkingLevelMap,
-      reasoning: next.model.reasoning,
     });
 
   // Initialize LLM provider by wire protocol (pi-style api layer)

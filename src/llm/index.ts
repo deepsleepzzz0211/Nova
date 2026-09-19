@@ -3,4 +3,5 @@ export type { LLMProvider, ProviderCapabilities, ProviderConfig } from './provid
 export { OpenAIProvider } from './openai.js';
 export { AnthropicProvider } from './providers/anthropic.js';
 export { OllamaProvider } from './providers/ollama.js';
+export { PiProvider } from './providers/piai.js';
 export { LLMProviderRegistry, providerRegistry } from './registry.js';
