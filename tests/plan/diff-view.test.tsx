@@ -15,9 +15,9 @@ describe('diff view (tui-refactor 06)', () => {
       expect(view).not.toBeNull();
       expect(view?.header).toBe('edit src/a.ts (+2 -1)');
       expect(view?.lines).toEqual([
-        { kind: 'del', text: 'const a = 1;' },
-        { kind: 'add', text: 'const a = 2;' },
-        { kind: 'add', text: 'const b = 3;' },
+        { kind: 'del', text: 'const a = 1;', oldNo: 1 },
+        { kind: 'add', text: 'const a = 2;', newNo: 1 },
+        { kind: 'add', text: 'const b = 3;', newNo: 2 },
       ]);
       expect(view?.removed).toBe(1);
       expect(view?.added).toBe(2);
@@ -30,7 +30,7 @@ describe('diff view (tui-refactor 06)', () => {
 
       const append = buildDiffView({ path: 'notes.md', content: 'three', mode: 'append' }, 'write');
       expect(append?.header).toBe('append notes.md (+1 -0)');
-      expect(append?.lines).toEqual([{ kind: 'add', text: 'three' }]);
+      expect(append?.lines).toEqual([{ kind: 'add', text: 'three', newNo: 1 }]);
     });
 
     it('ignores a trailing newline instead of adding a phantom line', () => {

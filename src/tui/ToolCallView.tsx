@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type { DisplayToolCall } from './display-types.js';
 import { buildDiffView, foldDiff, type DiffLine } from './diff-view.js';
+import { truncateToWidth } from './text-measure.js';
 import {
   spinnerFrame,
   summarizeCall,
@@ -37,6 +38,10 @@ export interface ToolCallViewProps {
  */
 function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
   const tick = useSpinnerTick(toolCall.status === 'running');
+  // Diff rows must fit the terminal minus the block's left padding
+  // (tui-redesign 08: no overflow past the last column).
+  const { stdout } = useStdout();
+  const diffRowWidth = Math.max(20, (stdout.columns ?? 80) - 3);
 
   const statusStyle = STATUS_STYLE[toolCall.status];
   const statusIcon = toolCall.status === 'running' ? spinnerFrame(tick) : statusStyle.icon;
@@ -73,7 +78,7 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
         <Box flexDirection="column" paddingLeft={3}>
           <Text color={theme.diffHeader} dimColor>{diffView.header}</Text>
           {folded.lines.map((line, i) => (
-            <DiffLineRow key={i} line={line} />
+            <DiffLineRow key={i} line={line} width={diffRowWidth} />
           ))}
           {folded.hidden > 0 && (
             <Text color={theme.muted} dimColor>{`... (${folded.hidden} more diff lines)`}</Text>
@@ -112,25 +117,23 @@ export function ToolGroupRow({ group }: { group: Extract<ToolRow, { type: 'group
   );
 }
 
-/** One diff row: additions green, removals red, wrapped but never truncated. */
-function DiffLineRow({ line }: { line: DiffLine }): React.ReactElement {
-  if (line.kind === 'add') {
-    return (
-      <Box>
-        <Text color={theme.diffAdded}>{`+ `}</Text>
-        <Text color={theme.diffAdded}>{line.text}</Text>
-      </Box>
-    );
-  }
-  if (line.kind === 'del') {
-    return (
-      <Box>
-        <Text color={theme.diffRemoved}>{`- `}</Text>
-        <Text color={theme.diffRemoved}>{line.text}</Text>
-      </Box>
-    );
-  }
-  return <Text color={theme.diffContext} dimColor>{line.text}</Text>;
+/** One diff row: 4-wide number gutter, marker, text on a full-line bg. */
+function DiffLineRow({ line, width }: { line: DiffLine; width: number }): React.ReactElement {
+  const no = line.oldNo ?? line.newNo;
+  const gutter = `${String(no ?? '').padStart(4)} `;
+  const marker = line.kind === 'add' ? '+ ' : line.kind === 'del' ? '- ' : '';
+  const body = truncateToWidth(line.text, Math.max(8, width - gutter.length - marker.length), '...');
+  const fg =
+    line.kind === 'add' ? theme.diffAdded : line.kind === 'del' ? theme.diffRemoved : theme.diffContext;
+  const bg =
+    line.kind === 'add' ? theme.diffAddedBg : line.kind === 'del' ? theme.diffRemovedBg : undefined;
+  return (
+    <Box width="100%" backgroundColor={bg}>
+      <Text color={fg}>
+        {line.kind === 'meta' ? line.text : `${gutter}${marker}${body}`}
+      </Text>
+    </Box>
+  );
 }
 
 /** Ticks 80ms while active; frozen at 0 otherwise. */
