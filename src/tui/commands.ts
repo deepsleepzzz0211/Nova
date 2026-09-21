@@ -28,6 +28,8 @@ export interface SlashCommandContext {
   compact(): Promise<{ note: string }>;
   /** Run the global update flow. */
   update(): Promise<{ message: string }>;
+  /** Composed `/status` report (model, context, usage, cwd/branch, MCP). */
+  statusReport(): string;
 }
 
 export interface SlashCommand {
@@ -93,6 +95,13 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
       ctx.appendSystemMessage('checking for updates…');
       const result = await ctx.update();
       ctx.appendSystemMessage(result.message);
+    },
+  },
+  {
+    name: 'status',
+    description: 'show session status (model, context, usage, cwd, MCP)',
+    async run(ctx) {
+      ctx.appendSystemMessage(ctx.statusReport());
     },
   },
 ];

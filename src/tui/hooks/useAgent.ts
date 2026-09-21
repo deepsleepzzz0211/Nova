@@ -17,6 +17,7 @@ import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../pe
 import { parseToolArgs } from '../tool-summary.js';
 import { findCommand } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
+import { formatStatusReport } from '../status-format.js';
 
 // UI display types live in a neutral module so the command/context layers
 // can use them without importing React hooks (tui-refactor ticket 15 fixes).
@@ -76,6 +77,8 @@ export interface UseAgentConfig {
   streamIdleTimeoutMs?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
+  /** Extra pre-rendered lines for the /status report (cwd/branch, MCP count). */
+  statusExtras?: () => string[];
   /** List models for the /model command (returns display text). */
   listModels?: () => string;
   /** Resolve a /model <spec> switch (loop application happens here). */
@@ -385,7 +388,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   }
 
   // Wire the subagent progress sink once mounted (index.tsx feeds events
-  // from the spawner): tool activity → a live StatusBar line, start/end →
+  // from the spawner): tool activity → a live StatusLine line, start/end →
   // system messages.
   const [subagentActivity, setSubagentActivity] = useState<string | null>(null);
   useEffect(() => {
@@ -445,6 +448,17 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         onConversationReplaced: () => setStaticEpoch((n) => n + 1),
         setModelInfo,
         runUpdate: runNpmUpdate,
+        buildStatusReport: () =>
+          formatStatusReport({
+            providerName: modelInfo.providerName,
+            model: modelInfo.model,
+            thinkingLevel: config.thinkingLevel,
+            contextWindow: modelInfo.contextWindow,
+            contextStrategy: config.contextStrategy,
+            cacheStats,
+            modelCost: modelInfo.cost,
+            extras: config.statusExtras?.(),
+          }),
       });
       const echoLine =
         found.args === '' ? `/${found.command.name}` : `/${found.command.name} ${found.args}`;

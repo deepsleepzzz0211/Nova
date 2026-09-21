@@ -32,6 +32,8 @@ export interface CommandContextDeps {
   onConversationReplaced?: () => void;
   /** Run the global update flow. */
   runUpdate: () => Promise<{ message: string }>;
+  /** Compose the `/status` report from live model/usage state. */
+  buildStatusReport?: () => string;
 }
 
 /** UI-only conversation entries (drops tool/system rows for /undo restore). */
@@ -96,5 +98,6 @@ export function createCommandContext(deps: CommandContextDeps): SlashCommandCont
       };
     },
     update: async () => deps.runUpdate(),
+    statusReport: () => deps.buildStatusReport?.() ?? 'Status unavailable.',
   };
 }

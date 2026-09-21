@@ -490,6 +490,12 @@ async function main(): Promise<void> {
     modelCost: resolution.model.cost,
     model: config.llm.model,
     maxToolRounds: config.agent.maxToolRounds,
+    statusExtras: () => {
+      const branch = readGitBranch(process.cwd());
+      const lines = [`cwd ${process.cwd()}${branch ? ` (${branch})` : ''}`];
+      if (mcpConnectionCount > 0) lines.push(`${mcpConnectionCount} MCP server(s) connected`);
+      return lines;
+    },
   };
 
   const { waitUntilExit } = render(

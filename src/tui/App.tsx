@@ -14,7 +14,6 @@ import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
 import { latestToolId } from './message-partition.js';
-import { startBranchRefresh } from './git-branch.js';
 import {
   MOUSE_DISABLE,
   MOUSE_ENABLE,
@@ -24,7 +23,7 @@ import {
   stepMatch,
 } from './fullscreen-input.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
-import { StatusBar } from './StatusBar.js';
+import { StatusLine } from './StatusLine.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
 import { PermissionDialog } from './PermissionDialog.js';
@@ -47,7 +46,7 @@ export interface AppProps {
   /** Shared todo state maintained by the todo_write tool (UI view). */
   todoState?: TodoState;
 }
-export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoState }: AppProps): React.ReactElement {
+export function App({ agent, fullscreen, todoState }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
   const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
 
@@ -81,10 +80,8 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
   // Fullscreen search (ticket 13): Ctrl+F opens an inline query, n/N step
   // through matches, Esc closes.
   const [search, setSearch] = useState<{ query: string; index: number } | null>(null);
-  // The branch can change during a session (checkout in another terminal), so
-  // refresh it on a slow timer instead of reading once at startup (#23).
-  const [branch, setBranch] = useState<string | null>(gitBranch ?? null);
-  useEffect(() => startBranchRefresh(setBranch), []);
+  // The git branch used to be refreshed here for the top StatusBar; it now
+  // lives in the /status report (tui-redesign ticket 02).
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
@@ -163,21 +160,6 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
 
   return (
     <Box flexDirection="column" width="100%" height="100%">
-      <StatusBar
-        model={modelInfo.model}
-        workingDirectory={process.cwd()}
-        gitBranch={branch}
-        providerName={modelInfo.providerName}
-        thinkingLevel={agent.thinkingLevel}
-        contextWindow={modelInfo.contextWindow}
-        contextStrategy={agent.contextStrategy}
-        modelCost={modelInfo.cost}
-        mcpConnectionCount={mcpConnectionCount}
-        cacheStats={cacheStats}
-        updateNotice={updateNotice ?? undefined}
-        subagentActivity={subagentActivity}
-      />
-
       {todoState && <TodoView todoState={todoState} />}
 
       <ChatView
@@ -207,6 +189,15 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         modalOpen={pendingPermission !== null}
         disabled={search !== null}
         onExit={() => process.exit(0)}
+      />
+
+      <StatusLine
+        working={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
+        cacheStats={cacheStats}
+        modelCost={modelInfo.cost}
+        contextWindow={modelInfo.contextWindow}
+        updateNotice={updateNotice ?? undefined}
+        subagentActivity={subagentActivity}
       />
     </Box>
   );
