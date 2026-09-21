@@ -135,11 +135,10 @@ describe('PiProvider forwards model-clamped reasoning to pi-ai', () => {
   });
 
   it('a non-reasoning model omits reasoning entirely (no request error)', async () => {
-    const { provider, capture, faux } = makeFaux(false);
+    const { provider, capture } = makeFaux(false);
     const chunks = await run(provider, 'high');
     expect(capture.reasoning).toBeUndefined();
     expect(chunks.some((c) => c.type === 'error')).toBe(false);
-    void faux;
   });
 });
 
