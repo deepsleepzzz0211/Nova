@@ -350,6 +350,14 @@ async function main(): Promise<void> {
       onToolCall: () => {},
       onToolResult: () => {},
       onThinking: () => {},
+      // Context-policy observability: diagnostics go to stderr, never stdout
+      // (stdout stays the requested answer only).
+      onCompaction: (info) => {
+        process.stderr.write(`[context] ${info.strategy} (${info.reason}): ${info.beforeTokens} -> ${info.afterTokens} tokens\n`);
+      },
+      onContextNote: (note) => {
+        process.stderr.write(`[context] ${note}\n`);
+      },
       onPermissionRequest: async () => autoApprove,
     });
     try {

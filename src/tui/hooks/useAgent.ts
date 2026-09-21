@@ -363,8 +363,11 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         };
         setMessages((prev) => [...prev, {
           role: 'system' as const,
-          content: `[context ${label[info.strategy]}: ${info.beforeTokens} → ${info.afterTokens} tokens]`,
+          content: `[context ${label[info.strategy]} (${info.reason}): ${info.beforeTokens} → ${info.afterTokens} tokens]`,
         }]);
+      },
+      onContextNote: (note) => {
+        setMessages((prev) => [...prev, { role: 'system' as const, content: `[context] ${note}` }]);
       },
     });
 

@@ -5,6 +5,8 @@ import type { ToolResult } from '../tools/types.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
+import type { CompactResult } from './compaction.js';
+import { CompactionGuard } from './compaction-guard.js';
 import { ContextManager } from './context.js';
 import { microcompactMessages } from './microcompact.js';
 import { isContextOverflowError } from '../llm/errors.js';
@@ -26,6 +28,9 @@ export interface AgentTurnResult {
   /** Number of LLM rounds consumed. */
   rounds: number;
 }
+
+/** Why a context-management pass ran (or the notice that replaced it). */
+export type ContextDecisionReason = 'pressure' | 'idle' | 'manual' | 'overflow';
 
 /** Context management configuration. */
 export interface LoopContextConfig {
@@ -61,12 +66,18 @@ export interface AgentLoopConfig {
   promptOptions?: BuildPromptOptions;
   /** Maximum matched skills whose full body is injected per turn. Default 2. */
   maxActiveSkills?: number;
-  /** Notified after a compaction/truncation pass. */
+  /** Notified after a compaction/truncation pass; reason codes the decision. */
   onCompaction?: (info: {
     strategy: 'truncate' | 'compact' | 'microcompact';
     beforeTokens: number;
     afterTokens: number;
+    reason: ContextDecisionReason;
   }) => void;
+  /**
+   * Session-visible context-policy notices that change no tokens: circuit
+   * breaker opening, rapid-refill suppression (zcode-borrow ticket 02).
+   */
+  onContextNote?: (note: string) => void;
   /** Notified once per turn with aggregated provider usage (cache metrics). */
   onUsage?: (usage: TurnUsage) => void;
   /**
@@ -107,6 +118,8 @@ export class AgentLoop {
   private readonly compactor: Compactor | null;
   private readonly microcompactIdleMs: number;
   private lastActivityAtMs: number;
+  private readonly compactionGuard = new CompactionGuard();
+  private readonly onContextNote: AgentLoopConfig['onContextNote'];
   private readonly session: SessionStore | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
@@ -172,6 +185,7 @@ export class AgentLoop {
       ...this.promptOptions,
     });
     this.onCompaction = options.onCompaction;
+    this.onContextNote = options.onContextNote;
     this.onToken = options.onToken;
     this.onToolCall = options.onToolCall;
     this.onToolResult = options.onToolResult;
@@ -203,7 +217,7 @@ export class AgentLoop {
    * Layer 0 (zcode-borrow 01): run the zero-LLM microcompact pass; when it
    * applies, swap, persist, report, and return the new token count.
    */
-  private runMicrocompact(currentTokens: number): number {
+  private runMicrocompact(currentTokens: number, reason: ContextDecisionReason): number {
     if (!this.contextManager) return currentTokens;
     const micro = microcompactMessages(this.messages, {
       countTokens: (text) => this.contextManager?.countText(text) ?? 0,
@@ -212,14 +226,40 @@ export class AgentLoop {
     const afterTokens = this.contextManager.countTokens(micro.messages);
     this.messages = micro.messages;
     this.persistCompaction(micro.messages);
-    this.onCompaction?.({ strategy: 'microcompact', beforeTokens: currentTokens, afterTokens });
+    this.onCompaction?.({ strategy: 'microcompact', beforeTokens: currentTokens, afterTokens, reason });
     return afterTokens;
+  }
+
+  /**
+   * Guard bookkeeping for one summarization attempt, shared by the automatic
+   * chain and the manual/overflow path: counts failures toward the circuit
+   * (announcing when the attempt OPENS it), records successes, and anchors
+   * the rapid-refill window on real compactions only.
+   */
+  private noteSummaryOutcome(
+    result: CompactResult | null,
+  ): { outcome: 'applied'; messages: Message[] } | { outcome: 'failed' | 'nothing' } {
+    if (result === null) {
+      if (this.compactionGuard.recordFailure()) {
+        this.onContextNote?.(
+          `compaction circuit breaker opened: summary failed ${this.compactionGuard.failureThreshold} times in a row, truncating without summarizing for the rest of the session`,
+        );
+      }
+      return { outcome: 'failed' };
+    }
+    if (result.method === 'none') {
+      return { outcome: 'nothing' };
+    }
+    this.compactionGuard.recordSuccess();
+    this.compactionGuard.noteCompactionApplied();
+    return { outcome: 'applied', messages: result.messages };
   }
 
   /** Run a truncate/compact pass when the conversation approaches the budget. */
   private async prepareContext(): Promise<void> {
     if (!this.contextManager || !this.contextStrategy) return;
 
+    this.compactionGuard.nextRound();
     const nowMs = Date.now();
     const idleElapsed = nowMs - this.lastActivityAtMs >= this.microcompactIdleMs;
     this.lastActivityAtMs = nowMs;
@@ -229,26 +269,38 @@ export class AgentLoop {
     // on the cleared messages.
     let tokens = this.contextManager.countTokens(this.messages);
     if (idleElapsed || this.contextManager.isNearLimit(tokens)) {
-      tokens = this.runMicrocompact(tokens);
+      tokens = this.runMicrocompact(tokens, idleElapsed ? 'idle' : 'pressure');
     }
     if (!this.contextManager.isNearLimit(tokens)) return;
 
     const beforeTokens = tokens;
 
+    // Rapid refill (pressure back on the tail of the last pass): repeated
+    // occurrences silence the automatic chain — overflow recovery and
+    // /compact still bypass it (zcode-borrow ticket 02).
+    const pressure = this.compactionGuard.notePressure();
+    if (pressure.suppressedNow) {
+      this.onContextNote?.(
+        `rapid refill detected: context hit the limit again within ${this.compactionGuard.refillWindowRounds} rounds of each of the last ${this.compactionGuard.refillStreakLimit} compactions; automatic compaction is off for this session (use /compact if needed)`,
+      );
+    }
+    if (this.compactionGuard.compactSuppressed) return;
+
     // Fallback chain: compact → truncate. A failed summary must still
     // shrink the context; fail-open here would hit the window on the
     // very next round. "Nothing to summarize" is NOT a failure — keep
-    // the messages as-is (e.g. a single huge user message). 
+    // the messages as-is (e.g. a single huge user message). Once the
+    // summary circuit has opened, passes go straight to truncate.
     let after: Message[] | null = null;
     let applied: LoopContextConfig['strategy'] = this.contextStrategy;
-    if (this.contextStrategy === 'compact' && this.compactor) {
-      const result = await this.compactor.compact(this.messages);
-      if (result === null) {
-        applied = 'truncate';
-      } else if (result.method !== 'none') {
-        after = result.messages; // summary or placeholder pass
-      } else {
+    if (this.contextStrategy === 'compact' && this.compactor && !this.compactionGuard.circuitOpen) {
+      const attempt = this.noteSummaryOutcome(await this.compactor.compact(this.messages));
+      if (attempt.outcome === 'applied') {
+        after = attempt.messages; // summary or placeholder pass
+      } else if (attempt.outcome === 'nothing') {
         return; // nothing to compact — no compaction possible
+      } else {
+        applied = 'truncate';
       }
     }
     if (after === null) {
@@ -258,7 +310,7 @@ export class AgentLoop {
     const afterTokens = this.contextManager.countTokens(after);
     this.messages = after;
     this.persistCompaction(after);
-    this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens });
+    this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens, reason: 'pressure' });
   }
 
   /** Persist a compaction checkpoint so --resume replays the slim state. */
@@ -462,7 +514,7 @@ export class AgentLoop {
         // compact once and retry the same round.
         this.runAbort = null;
         if (isContextOverflowError(err) && !overflowRetried) {
-          const compacted = await this.compactNow();
+          const compacted = await this.compactNow('overflow');
           if (compacted.compacted) {
             overflowRetried = true;
             toolRound--; // retry the same round after compaction
@@ -662,9 +714,10 @@ export class AgentLoop {
 
   /**
    * Force a compaction/truncation pass regardless of the token trigger.
-   * Used by the /compact command.
+   * Origins: the /compact command ('manual') and reactive overflow recovery
+   * ('overflow') — both bypass the automatic-path gates.
    */
-  async compactNow(): Promise<{
+  async compactNow(origin: 'manual' | 'overflow' = 'manual'): Promise<{
     compacted: boolean;
     strategy?: 'truncate' | 'compact';
     beforeTokens?: number;
@@ -675,23 +728,29 @@ export class AgentLoop {
     }
 
     // Manual/overflow path also gets the free layer first: microcompact, then
-    // summary/truncate on whatever pressure remains.
-    const beforeTokens = this.runMicrocompact(this.contextManager.countTokens(this.messages));
+    // summary/truncate on whatever pressure remains. It bypasses the
+    // automatic-path gates (breaker, suppression) by design — an explicit
+    // request or a real overflow deserves the attempt — but still feeds the
+    // guard so repeated failures eventually open the circuit for auto too.
+    const beforeTokens = this.runMicrocompact(
+      this.contextManager.countTokens(this.messages),
+      origin,
+    );
 
     let after: Message[] | null = null;
     if (this.compactor) {
-      const result = await this.compactor.compact(this.messages);
-      if (result === null) {
+      const attempt = this.noteSummaryOutcome(await this.compactor.compact(this.messages));
+      if (attempt.outcome === 'applied') {
+        after = attempt.messages; // summary or placeholder pass
+      } else if (attempt.outcome === 'nothing') {
+        // Nothing to summarize (e.g. all user messages): nothing to do
+        return { compacted: false, strategy: this.contextStrategy, beforeTokens };
+      } else {
         // Summary failed → degrade to an aggressive truncate
         after = this.contextManager.truncateToTokens(
           this.messages,
           Math.floor(this.contextManager.triggerTokens / 2),
         );
-      } else if (result.method !== 'none') {
-        after = result.messages; // summary or placeholder pass
-      } else {
-        // Nothing to summarize (e.g. all user messages): nothing to do
-        return { compacted: false, strategy: this.contextStrategy, beforeTokens };
       }
     }
     if (after === null) {
@@ -710,7 +769,12 @@ export class AgentLoop {
     }
     this.messages = after;
     this.persistCompaction(after);
-    this.onCompaction?.({ strategy: this.contextStrategy, beforeTokens, afterTokens });
+    this.onCompaction?.({
+      strategy: this.contextStrategy,
+      beforeTokens,
+      afterTokens,
+      reason: origin,
+    });
     return { compacted: true, strategy: this.contextStrategy, beforeTokens, afterTokens };
   }
 }

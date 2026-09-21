@@ -33,12 +33,13 @@ describe('ContextManager', () => {
     expect(truncated[0].role).toBe('system');
   });
 
-  it('isNearLimit uses the reserve-based trigger (window − reserveTokens)', () => {
+  it('isNearLimit uses the effective window (reserve capped at 21K + safety buffer)', () => {
+    // zcode-borrow ticket 02: trigger = window − min(reserve, 21K) − 13K buffer
     for (const window of [128_000, 200_000, 1_000_000]) {
       const cm = new ContextManager({ model: 'gpt-4o', maxTokens: window });
-      expect(cm.triggerTokens).toBe(window - 16_384);
-      expect(cm.isNearLimit(window - 16_384)).toBe(true);
-      expect(cm.isNearLimit(window - 16_385)).toBe(false);
+      expect(cm.triggerTokens).toBe(window - 16_384 - 13_000);
+      expect(cm.isNearLimit(window - 16_384 - 13_000)).toBe(true);
+      expect(cm.isNearLimit(window - 16_384 - 13_000 - 1)).toBe(false);
     }
   });
 
@@ -48,9 +49,10 @@ describe('ContextManager', () => {
     expect(tiny.triggerTokens).toBe(50); // reserve clamped to maxTokens/2
   });
 
-  it('honors an explicit reserveTokens override', () => {
+  it('honors an explicit reserveTokens override (still capped at 21K)', () => {
     const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 200_000, reserveTokens: 40_000 });
-    expect(cm.triggerTokens).toBe(160_000);
+    // min(40000, 21000) + 13000 buffer
+    expect(cm.triggerTokens).toBe(200_000 - 21_000 - 13_000);
   });
 
   it('override is also clamped to half the window', () => {

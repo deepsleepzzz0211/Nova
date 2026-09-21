@@ -1004,7 +1004,9 @@ describe('AgentLoop context reporting (ticket 22)', () => {
     expect(seen.length).toBeGreaterThan(0);
     const last = seen[seen.length - 1];
     // A real count of the conversation, and the reserve-adjusted trigger.
+    // zcode-borrow ticket 02: trigger = window − min(reserve + 13K buffer,
+    // window/2) → 10_000 − 5_000 (half-window clamp) here.
     expect(last.tokens).toBeGreaterThan(0);
-    expect(last.trigger).toBe(8_000);
+    expect(last.trigger).toBe(5_000);
   });
 });

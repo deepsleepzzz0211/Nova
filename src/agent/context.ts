@@ -8,11 +8,20 @@ export interface ContextManagerOptions {
   maxTokens: number;
   /**
    * Tokens reserved for the LLM response: the compaction trigger is
-   * `maxTokens − reserveTokens`. Default 16384 (pi-style), clamped to
-   * half the window so tiny windows keep a sane trigger point.
+   * `maxTokens − min(reserveTokens, MAX_OUTPUT_RESERVE) − safetyBuffer`.
+   * Default 16384 (pi-style), clamped so tiny windows keep a sane trigger.
    */
   reserveTokens?: number;
+  /**
+   * Fixed safety buffer subtracted from the window on top of the output
+   * reserve (token-estimate error, tool-schema overhead). Default 13000.
+   */
+  safetyBufferTokens?: number;
 }
+
+/** Output-reserve ceiling: reserving more is the window's problem to solve. */
+const MAX_OUTPUT_RESERVE_TOKENS = 21_000;
+const DEFAULT_SAFETY_BUFFER_TOKENS = 13_000;
 
 /**
  * Precise tiktoken encoder (cl100k_base), created lazily on first use.
@@ -45,8 +54,18 @@ export class ContextManager {
   constructor(options: ContextManagerOptions) {
     this.model = options.model;
     this.maxTokens = options.maxTokens;
-    this.reserveTokens = Math.min(
+    // Effective window (zcode-borrow 02): output reserve capped at 21K plus
+    // a fixed safety buffer. The half-window clamp still applies and WINS
+    // for windows under ~59K — deliberate: the fixed 29K deduction would
+    // leave small/mid models no usable headroom, while triggering at 50%
+    // errs early and cheap.
+    const outputReserve = Math.min(
       options.reserveTokens ?? 16_384,
+      MAX_OUTPUT_RESERVE_TOKENS,
+    );
+    const buffer = options.safetyBufferTokens ?? DEFAULT_SAFETY_BUFFER_TOKENS;
+    this.reserveTokens = Math.min(
+      outputReserve + buffer,
       Math.floor(this.maxTokens / 2),
     );
   }
