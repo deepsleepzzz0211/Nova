@@ -354,6 +354,7 @@ async function main(): Promise<void> {
         projectInstructions,
         memory,
         customPrompt: config.agent.systemPrompt || undefined,
+        skillsBudgetTokens: config.agent.skillsBudgetTokens,
       },
       context: {
         maxTokens: resolution.model.contextWindow,

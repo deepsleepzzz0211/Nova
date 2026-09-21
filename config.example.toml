@@ -38,6 +38,9 @@ context_strategy = "truncate"
 # subagent_model = ""
 # Max concurrently running subagents. Default 3.
 # subagent_max_concurrent = 3
+# Token ceiling for the Available-Skills listing in the system prompt;
+# descriptions are truncated in order to fit. Default 2000.
+# skills_budget_tokens = 2000
 
 [search]
 # Search backend: Tavily API (free 1000/month at tavily.com).

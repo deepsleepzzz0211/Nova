@@ -22,6 +22,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     subagentModel: '',
     subagentMaxConcurrent: 3,
     thinkingLevel: 'off',
+    skillsBudgetTokens: 2000,
   },
   search: {
     provider: 'tavily',

@@ -183,6 +183,7 @@ export class AgentLoop {
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? 60_000;
     this.frozenSystemPrompt = buildSystemPrompt(this.toolRegistry.getAll(), options.skills?.findAll() ?? [], {
       ...this.promptOptions,
+      countText: this.contextManager ? (t: string) => this.contextManager!.countText(t) : undefined,
     });
     this.onCompaction = options.onCompaction;
     this.onContextNote = options.onContextNote;
