@@ -77,6 +77,23 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     }
   });
 
+  it('shift+tab cycles the approval mode badge (tui-redesign 10)', async () => {
+    const cwd = makeWorkspace({ stubKey: true });
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.getByText('Type a prompt').expect({ timeout: 60_000 });
+      await terminal.getByText('default', { regex: true }).expect();
+      await terminal.keyboard.press('Shift+Tab');
+      await terminal.getByText('accept edits', { regex: true }).expect({ timeout: 10_000 });
+      await terminal.keyboard.press('Shift+Tab');
+      await terminal.getByText('plan', { regex: true }).expect({ timeout: 10_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
+
   it('--resume loads a previous session from disk and shows it', async () => {
     // Deterministic: the session file is written by hand, so no LLM is needed.
     // NOVA_HOME/sessions is where the store appends one JSON object per line.

@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { theme } from './theme.js';
 import { spinnerFrame } from './tool-summary.js';
 import { fmtTokens, estimateCostUsd, contextUsage, type ModelCost } from './status-format.js';
+import { modeBadge, type ApprovalModeId } from './approval-mode.js';
 import type { CacheStatsView } from './hooks/useAgent.js';
 
 /** Props for the StatusLine component (tui-redesign ticket 02). */
@@ -19,6 +20,10 @@ export interface StatusLineProps {
   updateNotice?: string;
   /** Live subagent activity line (or null when idle). */
   subagentActivity?: string | null;
+  /** Active approval mode; renders the Shift+Tab badge (tui-redesign 10). */
+  approvalMode?: ApprovalModeId;
+  /** Transient toast text replacing the badge right after a mode switch. */
+  modeToast?: string | null;
 }
 
 /**
@@ -34,6 +39,8 @@ export function StatusLine({
   contextWindow,
   updateNotice,
   subagentActivity,
+  approvalMode,
+  modeToast,
 }: StatusLineProps): React.ReactElement {
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -46,7 +53,8 @@ export function StatusLine({
 
   const hasUsage =
     (cacheStats?.totalInputTokens ?? 0) > 0 || (cacheStats?.totalOutputTokens ?? 0) > 0;
-  if (working === 'idle' && !hasUsage && !updateNotice && !subagentActivity) {
+  const hasBadge = approvalMode !== undefined || (modeToast ?? null) !== null;
+  if (working === 'idle' && !hasUsage && !hasBadge && !updateNotice && !subagentActivity) {
     return <></>;
   }
 
@@ -83,8 +91,22 @@ export function StatusLine({
       )}
       <Box paddingX={1} justifyContent="space-between">
         <Box>
+          {modeToast != null ? (
+            <Text color={theme.primary} bold>{`${modeToast} (shift+tab)`}</Text>
+          ) : (
+            approvalMode !== undefined &&
+            (() => {
+              const badge = modeBadge(approvalMode);
+              return (
+                <Text color={badge.color} dimColor={approvalMode === 'default'}>
+                  {`${badge.symbol} ${badge.label} · shift+tab`}
+                </Text>
+              );
+            })()
+          )}
           {working !== 'idle' && (
             <>
+              {approvalMode !== undefined || modeToast != null ? <Text>{'  '}</Text> : null}
               <Text color={theme.primary}>
                 {`${spinnerFrame(tick)} ${working === 'thinking' ? 'Thinking…' : 'Responding…'}`}
               </Text>

@@ -18,6 +18,8 @@ import { parseToolArgs } from '../tool-summary.js';
 import { findCommand } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
 import { formatStatusReport } from '../status-format.js';
+import { modeGate, nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
+import { toolVerb } from '../tool-summary.js';
 
 // UI display types live in a neutral module so the command/context layers
 // can use them without importing React hooks (tui-refactor ticket 15 fixes).
@@ -115,6 +117,9 @@ export interface UseAgentResult {
   isStreaming: boolean;
   /** Whether the model is emitting reasoning (thinking) deltas. */
   isThinking: boolean;
+  /** Shift+Tab approval mode + its cycle entry point (tui-redesign 10). */
+  approvalMode: ApprovalModeId;
+  cycleApprovalMode: () => ApprovalModeId;
   /** Conversation epoch for the static region (bumped on wholesale replace). */
   staticEpoch: number;
   sendMessage: (input: string) => void;
@@ -163,6 +168,16 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
 
   // Ref to track the current assistant message being built during streaming
   const [isThinking, setIsThinking] = useState(false);
+  // Shift+Tab approval mode (tui-redesign 10): state for the badge, ref for
+  // the async permission callback which must read the LATEST value.
+  const [approvalMode, setApprovalMode] = useState<ApprovalModeId>('default');
+  const approvalModeRef = useRef<ApprovalModeId>('default');
+  const cycleApprovalMode = (): ApprovalModeId => {
+    const next = nextApprovalMode(approvalModeRef.current);
+    approvalModeRef.current = next;
+    setApprovalMode(next);
+    return next;
+  };
   // Bumped whenever the displayed conversation is replaced wholesale (/undo):
   // Ink's static region is append-only and must be remounted to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
@@ -324,9 +339,29 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // Ticket 05: show the awaiting-permission state on the tool block.
       setToolCallStatus(call.id, 'pending');
       const args = parseToolArgs(call.function.arguments);
+      const dangerous = dangerReason(call.function.name, args, kindOf) !== null;
+      // Shift+Tab approval modes (tui-redesign 10): acceptEdits lets plain
+      // file edits through, plan denies every writing tool. Dangerous calls
+      // always reach a human either way.
+      const gate = modeGate(approvalModeRef.current, toolClassOf(kindOf(call.function.name)), dangerous);
+      if (gate === 'allow') {
+        setToolCallStatus(call.id, 'running');
+        return Promise.resolve(true);
+      }
+      if (gate === 'deny') {
+        setToolCallStatus(call.id, 'running');
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system' as const,
+            content: `[plan mode] ${toolVerb(call.function.name)} blocked — shift+tab switches approval modes`,
+          },
+        ]);
+        return Promise.resolve(false);
+      }
       // Dangerous calls are never session-whitelisted: always-rules must
       // not short-circuit the dialog for them (review finding).
-      if (dangerReason(call.function.name, args, kindOf) === null && alwaysRules.matches(call.function.name, args, kindOf)) {
+      if (!dangerous && alwaysRules.matches(call.function.name, args, kindOf)) {
         setToolCallStatus(call.id, 'running');
         return Promise.resolve(true);
       }
@@ -334,7 +369,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setPendingPermission({
           call,
           resolve: (decision: PermissionDecision) => {
-            if (decision === 'always' && dangerReason(call.function.name, args, kindOf) === null) {
+            if (decision === 'always' && !dangerous) {
               alwaysRules.add(call.function.name, args, kindOf);
             }
             setToolCallStatus(call.id, 'running');
@@ -539,6 +574,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     messages,
     isStreaming,
     isThinking,
+    approvalMode,
+    cycleApprovalMode,
     staticEpoch,
     sendMessage,
     interrupt: () => loopRef.current?.interrupt(),

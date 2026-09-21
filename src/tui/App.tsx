@@ -24,6 +24,7 @@ import {
 } from './fullscreen-input.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusLine } from './StatusLine.js';
+import { modeBadge } from './approval-mode.js';
 import type { WelcomeCard } from './header.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
@@ -51,7 +52,18 @@ export interface AppProps {
 }
 export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
+  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity, approvalMode, cycleApprovalMode } = useAgent(agent);
+
+  // Shift+Tab approval-mode cycling (tui-redesign 10): the badge lives on
+  // the bottom status line; a switch briefly toasts the new mode instead.
+  const [modeToast, setModeToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (modeToast === null) return undefined;
+    const timer = setTimeout(() => setModeToast(null), 1500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [modeToast]);
 
   // Wheel/click reporting is only enabled in fullscreen, and always turned
   // off again so a crash cannot leave the terminal in mouse mode.
@@ -92,6 +104,12 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
     [agent.toolRegistry],
   );
   useInput((inputChar, key) => {
+    // Shift+Tab (bare Tab must still reach the editor's completion accept).
+    if (key.tab && key.shift) {
+      const nextMode = cycleApprovalMode();
+      setModeToast(`${modeBadge(nextMode).symbol} ${modeBadge(nextMode).label}`);
+      return;
+    }
     if (key.ctrl && inputChar === 'o') {
       const toolId = latestExpandableId(messages);
       setExpandedToolIds((prev) => {
@@ -208,6 +226,8 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
         contextWindow={modelInfo.contextWindow}
         updateNotice={updateNotice ?? undefined}
         subagentActivity={subagentActivity}
+        approvalMode={approvalMode}
+        modeToast={modeToast}
       />
     </Box>
   );

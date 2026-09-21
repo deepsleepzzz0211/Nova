@@ -208,7 +208,8 @@ export function InputBar({
       update(deleteForward);
       return;
     }
-    if (key.tab) {
+    // Shift+Tab belongs to the approval-mode cycle (App), not to accept.
+    if (key.tab && !key.shift) {
       if (completionController.current !== undefined) acceptCompletion();
       return;
     }
