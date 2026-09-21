@@ -25,6 +25,7 @@ import type { SessionSummary } from './agent/session.js';
 import { SessionPicker, formatSessionList } from './tui/SessionPicker.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
 import { SkillRegistry } from './skills/registry.js';
+import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from './skills/skill-lock.js';
 import { SubagentSpawner } from './subagent/spawner.js';
 import { createSpawnSubagentTool } from './subagent/tool.js';
 import { createReadFileTool } from './tools/read-file.js';
@@ -56,9 +57,27 @@ async function main(): Promise<void> {
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
+      'pin-skills': { type: 'string' },
     },
     strict: false,
   });
+
+  // Explicit integrity re-pin: hash every SKILL.md under the given repo dir
+  // into a sibling lock file. Runs and exits before any session/model work.
+  const pinSkillsDir = typeof values['pin-skills'] === 'string' ? values['pin-skills'] : null;
+  if (pinSkillsDir !== null) {
+    const target = path.resolve(projectDir, pinSkillsDir);
+    try {
+      // Preserve provenance: reuse the source already recorded at install.
+      const existing = readSkillLock(path.join(target, SKILL_LOCK_FILENAME));
+      const lock = writeSkillLock(target, existing?.source ?? 'manual');
+      console.log(`pinned ${lock.skills.length} skill file(s) under ${target} (source: ${lock.source})`);
+      process.exit(0);
+    } catch (err: unknown) {
+      console.error(`[skills-lock] ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
 
   // Apply CLI overrides. A "provider/model" spec routes to that provider
   // (e.g. --model weixin/Deepseek-v4-flash), which keeps E2E invocations
@@ -234,10 +253,13 @@ async function main(): Promise<void> {
     return result;
   };
 
-  // Skills: scan user-level and project-level skill directories
+  // Skills: scan user-level and project-level skill directories. Locked
+  // repos (installed via the installer) are integrity-checked; drift/unpinned
+  // skills are refused and surfaced on stderr, never silently loaded.
   const skillRegistry = new SkillRegistry();
-  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'));
-  await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'));
+  const skillWarn = (message: string): void => console.error(message);
+  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'), { onWarn: skillWarn });
+  await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'), { onWarn: skillWarn });
 
   // Environment facts + project instructions for the system prompt
   const environment = gatherEnvironment(projectDir);
