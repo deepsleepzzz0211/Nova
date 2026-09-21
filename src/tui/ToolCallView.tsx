@@ -8,8 +8,11 @@ import {
   foldLines,
   formatArgs,
   parseToolArgs,
+  toolVerb,
+  formatDurationMs,
   STATUS_STYLE,
   type DisplayKindResolver,
+  type ToolRow,
 } from './tool-summary.js';
 import { theme } from './theme.js';
 
@@ -49,13 +52,21 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
   const folded = diffView !== null ? foldDiff(diffView) : { lines: [], hidden: 0 };
 
   const summary = summarizeCall(toolCall.name, toolCall.arguments, displayKind);
+  const durationMs =
+    toolCall.startedAtMs !== undefined && toolCall.endedAtMs !== undefined
+      ? Math.max(0, toolCall.endedAtMs - toolCall.startedAtMs)
+      : null;
 
   return (
     <Box flexDirection="column" marginY={0} paddingLeft={2}>
       <Box>
-        <Text color={statusColor}>{statusIcon} </Text>
-        <Text bold color={theme.toolTitle}>{toolCall.name}</Text>
-        {!expanded && <Text color={theme.muted} dimColor> {summary}</Text>}
+        <Text color={statusColor} bold>{`${statusIcon} ${toolVerb(toolCall.name)}`}</Text>
+        {!expanded && summary !== '' && (
+          <Text color={theme.muted} dimColor> {summary}</Text>
+        )}
+        {!expanded && durationMs !== null && (
+          <Text color={theme.muted} dimColor>{` ${formatDurationMs(durationMs)}`}</Text>
+        )}
       </Box>
 
       {expanded && diffView !== null && (
@@ -83,6 +94,19 @@ function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps
             {foldLines(toolCall.result, 20).text}
           </Text>
         </Box>
+      )}
+    </Box>
+  );
+}
+
+/** Folded same-verb count row: `✓ Read ×3 (latest src/a.ts)` (tui-redesign 05). */
+export function ToolGroupRow({ group }: { group: Extract<ToolRow, { type: 'group' }> }): React.ReactElement {
+  const style = STATUS_STYLE[group.status];
+  return (
+    <Box paddingLeft={2}>
+      <Text color={style.color} bold>{`${style.icon} ${group.verb} ×${group.count}`}</Text>
+      {group.latestSummary !== '' && (
+        <Text color={theme.muted} dimColor>{` (latest ${group.latestSummary})`}</Text>
       )}
     </Box>
   );

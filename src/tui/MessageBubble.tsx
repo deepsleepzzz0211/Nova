@@ -3,7 +3,8 @@ import { Box, Text } from 'ink';
 import type { DisplayMessage } from './display-types.js';
 import { MarkdownText } from './MarkdownText.js';
 import type { DisplayKindResolver } from './tool-summary.js';
-import { ToolCallView } from './ToolCallView.js';
+import { groupToolCalls } from './tool-summary.js';
+import { ToolCallView, ToolGroupRow } from './ToolCallView.js';
 import { theme } from './theme.js';
 
 /** Props for the MessageBubble component. */
@@ -60,14 +61,22 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
       )}
       {message.toolCalls !== undefined && message.toolCalls.length > 0 && (
         <Box flexDirection="column">
-          {message.toolCalls.map((tc) => (
-            <ToolCallView
-              key={tc.id}
-              toolCall={tc}
-              expanded={expandedToolIds?.has(tc.id) ?? false}
-              displayKind={displayKind}
-            />
-          ))}
+          {groupToolCalls(
+            message.toolCalls,
+            (id) => expandedToolIds?.has(id) ?? false,
+            displayKind,
+          ).map((row) =>
+            row.type === 'group' ? (
+              <ToolGroupRow key={row.ids.join('+')} group={row} />
+            ) : (
+              <ToolCallView
+                key={row.call.id}
+                toolCall={row.call}
+                expanded={expandedToolIds?.has(row.call.id) ?? false}
+                displayKind={displayKind}
+              />
+            ),
+          )}
         </Box>
       )}
     </Box>

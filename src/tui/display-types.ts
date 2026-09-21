@@ -7,6 +7,10 @@ export interface DisplayToolCall {
   arguments: string;
   status: 'pending' | 'running' | 'done' | 'error';
   result?: string;
+  /** Wall-clock start (recorded by useAgent) for the row duration (tui-redesign 05). */
+  startedAtMs?: number;
+  /** Wall-clock end; duration shows only when both ends exist. */
+  endedAtMs?: number;
 }
 
 /** A message as displayed in the UI. */

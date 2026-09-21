@@ -236,6 +236,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         name: call.function.name,
         arguments: call.function.arguments,
         status: 'running',
+        startedAtMs: Date.now(),
       };
       currentAssistantRef.current.toolCalls.push(displayCall);
       commitAssistant(snapshot());
@@ -263,6 +264,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           ...calls[index],
           status: result.isError ? 'error' : 'done',
           result: result.content,
+          endedAtMs: Date.now(),
         };
       }
       commitAssistant(snapshot());
@@ -283,7 +285,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     };
 
     const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
-      patchToolCall(callId, { status });
+      // A run that starts (or restarts after a permission wait) re-baselines
+      // its start time, so the row duration never counts user think-time.
+      patchToolCall(callId, status === 'running' ? { status, startedAtMs: Date.now() } : { status });
     };
 
     // Session-scoped always-allow rules (ticket 04): matching calls are

@@ -44,12 +44,12 @@ describe('tool display metadata in the registry (tui-refactor 14)', () => {
       expect(summarizeCall('read_file', JSON.stringify({ path: 'src/a.ts' }), kindOf)).toBe('src/a.ts');
     });
 
-    it('falls back to compact JSON without a declared kind', () => {
-      expect(summarizeCall('web_search', JSON.stringify({ query: 'x' }), kindOf)).toBe('{"query":"x"}');
+    it('falls back to key: value pairs without a declared kind (tui-redesign 05)', () => {
+      expect(summarizeCall('web_search', JSON.stringify({ query: 'x' }), kindOf)).toBe('query: x');
     });
 
     it('falls back when no resolver is provided', () => {
-      expect(summarizeCall('read_file', JSON.stringify({ path: 'a' }))).toBe('{"path":"a"}');
+      expect(summarizeCall('read_file', JSON.stringify({ path: 'a' }))).toBe('path: a');
     });
   });
 
