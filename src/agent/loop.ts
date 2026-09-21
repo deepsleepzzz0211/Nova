@@ -6,6 +6,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
+import { microcompactMessages } from './microcompact.js';
 import { isContextOverflowError } from '../llm/errors.js';
 import { withIdleTimeout, consumeWithInterrupt, StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
@@ -36,6 +37,11 @@ export interface LoopContextConfig {
   keepRecentTokens?: number;
   /** What to do when the budget is approached: drop old messages or summarize. */
   strategy: 'truncate' | 'compact';
+  /**
+   * Microcompact (zero-LLM clearing of old tool results) also runs when the
+   * conversation has been idle this long without pressure. Default 60 min.
+   */
+  microcompactIdleMs?: number;
 }
 
 /** Configuration for the AgentLoop. */
@@ -56,7 +62,11 @@ export interface AgentLoopConfig {
   /** Maximum matched skills whose full body is injected per turn. Default 2. */
   maxActiveSkills?: number;
   /** Notified after a compaction/truncation pass. */
-  onCompaction?: (info: { strategy: 'truncate' | 'compact'; beforeTokens: number; afterTokens: number }) => void;
+  onCompaction?: (info: {
+    strategy: 'truncate' | 'compact' | 'microcompact';
+    beforeTokens: number;
+    afterTokens: number;
+  }) => void;
   /** Notified once per turn with aggregated provider usage (cache metrics). */
   onUsage?: (usage: TurnUsage) => void;
   /**
@@ -95,6 +105,8 @@ export class AgentLoop {
   private readonly contextManager: ContextManager | null;
   private readonly contextStrategy: LoopContextConfig['strategy'] | null;
   private readonly compactor: Compactor | null;
+  private readonly microcompactIdleMs: number;
+  private lastActivityAtMs: number;
   private readonly session: SessionStore | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
@@ -143,6 +155,8 @@ export class AgentLoop {
           triggerTokens: this.contextManager?.triggerTokens,
         })
       : null;
+    this.microcompactIdleMs = options.context?.microcompactIdleMs ?? 60 * 60 * 1000;
+    this.lastActivityAtMs = Date.now();
     this.session = options.session ?? null;
     this.skills = options.skills ?? null;
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
@@ -185,12 +199,41 @@ export class AgentLoop {
     void this.session?.append(message);
   }
 
+  /**
+   * Layer 0 (zcode-borrow 01): run the zero-LLM microcompact pass; when it
+   * applies, swap, persist, report, and return the new token count.
+   */
+  private runMicrocompact(currentTokens: number): number {
+    if (!this.contextManager) return currentTokens;
+    const micro = microcompactMessages(this.messages, {
+      countTokens: (text) => this.contextManager?.countText(text) ?? 0,
+    });
+    if (!micro.applied) return currentTokens;
+    const afterTokens = this.contextManager.countTokens(micro.messages);
+    this.messages = micro.messages;
+    this.persistCompaction(micro.messages);
+    this.onCompaction?.({ strategy: 'microcompact', beforeTokens: currentTokens, afterTokens });
+    return afterTokens;
+  }
+
   /** Run a truncate/compact pass when the conversation approaches the budget. */
   private async prepareContext(): Promise<void> {
     if (!this.contextManager || !this.contextStrategy) return;
 
-    const beforeTokens = this.contextManager.countTokens(this.messages);
-    if (!this.contextManager.isNearLimit(beforeTokens)) return;
+    const nowMs = Date.now();
+    const idleElapsed = nowMs - this.lastActivityAtMs >= this.microcompactIdleMs;
+    this.lastActivityAtMs = nowMs;
+
+    // Microcompact fires on token pressure OR long idle; when it alone fits
+    // the budget we stop, otherwise the compact → truncate chain continues
+    // on the cleared messages.
+    let tokens = this.contextManager.countTokens(this.messages);
+    if (idleElapsed || this.contextManager.isNearLimit(tokens)) {
+      tokens = this.runMicrocompact(tokens);
+    }
+    if (!this.contextManager.isNearLimit(tokens)) return;
+
+    const beforeTokens = tokens;
 
     // Fallback chain: compact → truncate. A failed summary must still
     // shrink the context; fail-open here would hit the window on the
@@ -631,7 +674,9 @@ export class AgentLoop {
       return { compacted: false };
     }
 
-    const beforeTokens = this.contextManager.countTokens(this.messages);
+    // Manual/overflow path also gets the free layer first: microcompact, then
+    // summary/truncate on whatever pressure remains.
+    const beforeTokens = this.runMicrocompact(this.contextManager.countTokens(this.messages));
 
     let after: Message[] | null = null;
     if (this.compactor) {

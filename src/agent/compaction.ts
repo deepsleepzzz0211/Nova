@@ -1,5 +1,6 @@
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
+import { MICROCOMPACT_MARKER } from './microcompact.js';
 
 /** Marker that prefixes the synthesized summary message. */
 export const SUMMARY_MARKER = '[Conversation summary]';
@@ -167,7 +168,7 @@ export class Compactor {
       const placeholdered = messages.map((m) => {
         if (summarizeSet.has(m) && m.role === 'tool' && m.content) {
           cleared = true;
-          return { ...m, content: `[Old tool result cleared — ${m.content.length} chars]` };
+          return { ...m, content: `${MICROCOMPACT_MARKER} — ${m.content.length} chars]` };
         }
         return m;
       });

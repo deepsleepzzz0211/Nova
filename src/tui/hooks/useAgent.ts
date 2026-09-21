@@ -356,9 +356,14 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         });
       },
       onCompaction: (info) => {
+        const label: Record<typeof info.strategy, string> = {
+          compact: 'compacted',
+          microcompact: 'micro-compacted',
+          truncate: 'truncated',
+        };
         setMessages((prev) => [...prev, {
           role: 'system' as const,
-          content: `[context ${info.strategy === 'compact' ? 'compacted' : 'truncated'}: ${info.beforeTokens} → ${info.afterTokens} tokens]`,
+          content: `[context ${label[info.strategy]}: ${info.beforeTokens} → ${info.afterTokens} tokens]`,
         }]);
       },
     });
