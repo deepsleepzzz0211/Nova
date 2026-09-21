@@ -11,8 +11,9 @@ import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
 import { AgentLoop } from './agent/loop.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
-import { providerRegistry } from './llm/registry.js';
-import { loadModelCatalog, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import { loadModelCatalogWithEngine, resolveModel, describeModels, parseModelSpec } from './llm/catalog.js';
+import { PiaiEngine } from './llm/piai-engine.js';
+import { PiProvider } from './llm/providers/piai.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatStartupHeader } from './tui/header.js';
 import type { LLMProvider } from './llm/provider.js';
@@ -23,7 +24,9 @@ import { SessionStore, SESSION_RETENTION_DAYS } from './agent/session.js';
 import type { SessionSummary } from './agent/session.js';
 import { SessionPicker, formatSessionList } from './tui/SessionPicker.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
+import { replaySessionFile, replaySessionsDir } from './agent/shadow-replay.js';
 import { SkillRegistry } from './skills/registry.js';
+import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from './skills/skill-lock.js';
 import { SubagentSpawner } from './subagent/spawner.js';
 import { createSpawnSubagentTool } from './subagent/tool.js';
 import { createReadFileTool } from './tools/read-file.js';
@@ -55,9 +58,28 @@ async function main(): Promise<void> {
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
+      'pin-skills': { type: 'string' },
+      'replay-sessions': { type: 'boolean' },
     },
     strict: false,
   });
+
+  // Explicit integrity re-pin: hash every SKILL.md under the given repo dir
+  // into a sibling lock file. Runs and exits before any session/model work.
+  const pinSkillsDir = typeof values['pin-skills'] === 'string' ? values['pin-skills'] : null;
+  if (pinSkillsDir !== null) {
+    const target = path.resolve(projectDir, pinSkillsDir);
+    try {
+      // Preserve provenance: reuse the source already recorded at install.
+      const existing = readSkillLock(path.join(target, SKILL_LOCK_FILENAME));
+      const lock = writeSkillLock(target, existing?.source ?? 'manual');
+      console.log(`pinned ${lock.skills.length} skill file(s) under ${target} (source: ${lock.source})`);
+      process.exit(0);
+    } catch (err: unknown) {
+      console.error(`[skills-lock] ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
 
   // Apply CLI overrides. A "provider/model" spec routes to that provider
   // (e.g. --model weixin/Deepseek-v4-flash), which keeps E2E invocations
@@ -82,8 +104,12 @@ async function main(): Promise<void> {
   if (values['base-url']) config.llm.baseUrl = values['base-url'] as string;
   if (values.thinking && typeof values.thinking === 'string') config.agent.thinkingLevel = values.thinking;
 
-  // Model catalog: user-level models.json merged over built-in providers
-  const catalog = loadModelCatalog([path.join(novaHome(), '.nova', 'models.json')]);
+  // Model catalog: user-level models.json merged over built-in providers.
+  // The catalog and the pi-ai engine are built together (ticket 01/03): the
+  // engine is the runtime provider set the PiProviders stream through.
+  const { catalog, engine } = loadModelCatalogWithEngine(new PiaiEngine(), [
+    path.join(novaHome(), '.nova', 'models.json'),
+  ]);
   const resolution = resolveModel(
     {
       provider: config.llm.provider || 'openai',
@@ -105,21 +131,18 @@ async function main(): Promise<void> {
    * The ONLY place a provider instance is constructed (ticket 20): the
    * startup provider, /model switching and subagent routing all go through
    * this factory, so a new provider option is added exactly once.
+   * Ticket 03 (pi-ai migration): every provider is now a PiProvider over
+   * the shared engine's Models collection.
    */
   const createProvider = (next: import('./llm/catalog.js').ResolvedModel): LLMProvider =>
-    providerRegistry.getForApi(next.api, {
-      name: next.name,
-      apiKey: next.apiKey,
-      baseUrl: next.baseUrl,
+    new PiProvider({
+      engine,
+      provider: next.name,
       model: next.model.id,
+      baseUrl: next.baseUrl,
+      apiKey: next.apiKey,
       defaultHeaders,
-      // config.toml prompt_cache stays honored as a fallback
-      compat: {
-        supportsDeveloperRole: next.model.compat.supportsDeveloperRole,
-        streamUsage: next.model.compat.streamUsage || config.llm.promptCache,
-      },
-      thinkingLevelMap: next.model.thinkingLevelMap,
-      reasoning: next.model.reasoning,
+      maxStreamRetries: config.llm.streamMaxRetries,
     });
 
   // Initialize LLM provider by wire protocol (pi-style api layer)
@@ -150,6 +173,37 @@ async function main(): Promise<void> {
     const sessions = SessionStore.listSummaries(sessionsDir);
     console.log(formatSessionList(sessions));
     process.exit(0);
+  }
+  // Shadow-replay conservation gate (zcode-borrow 06): replay every stored
+  // session offline through the deterministic context pipeline and assert no
+  // silent message loss. Read-only; exits non-zero on any violation so it can
+  // gate a release.
+  if (values['replay-sessions']) {
+    const positional = Array.isArray(values._) ? values._[0] : undefined;
+    const target = typeof positional === 'string'
+      ? path.resolve(projectDir, positional)
+      : sessionsDir;
+    const isFile = fs.existsSync(target) && fs.statSync(target).isFile();
+    const reports = isFile ? [replaySessionFile(target)] : replaySessionsDir(target);
+    if (reports.length === 0) {
+      console.log(`no sessions to replay in ${target}`);
+      process.exit(0);
+    }
+    let violations = 0;
+    for (const report of reports) {
+      const name = path.basename(report.file);
+      if (report.conserved) {
+        console.log(
+          `OK   ${name}: ${report.loaded} msgs -> ${report.final} msgs ` +
+            `(cleared ${report.clearedToolResults} tool results, dropped ${report.droppedMessages})`,
+        );
+      } else {
+        violations++;
+        console.log(`FAIL ${name}: ${report.error ?? 'conservation violated'}`);
+      }
+    }
+    console.error(`\n${reports.length - violations}/${reports.length} sessions conserved`);
+    process.exit(violations > 0 ? 1 : 0);
   }
   if (values.resume) {
     const sessions = SessionStore.listSummaries(sessionsDir);
@@ -232,10 +286,13 @@ async function main(): Promise<void> {
     return result;
   };
 
-  // Skills: scan user-level and project-level skill directories
+  // Skills: scan user-level and project-level skill directories. Locked
+  // repos (installed via the installer) are integrity-checked; drift/unpinned
+  // skills are refused and surfaced on stderr, never silently loaded.
   const skillRegistry = new SkillRegistry();
-  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'));
-  await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'));
+  const skillWarn = (message: string): void => console.error(message);
+  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'), { onWarn: skillWarn });
+  await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'), { onWarn: skillWarn });
 
   // Environment facts + project instructions for the system prompt
   const environment = gatherEnvironment(projectDir);
@@ -330,6 +387,7 @@ async function main(): Promise<void> {
         projectInstructions,
         memory,
         customPrompt: config.agent.systemPrompt || undefined,
+        skillsBudgetTokens: config.agent.skillsBudgetTokens,
       },
       context: {
         maxTokens: resolution.model.contextWindow,
@@ -338,7 +396,7 @@ async function main(): Promise<void> {
         strategy: config.agent.contextStrategy as 'truncate' | 'compact',
       },
       streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
-      thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+      thinkingLevel: config.agent.thinkingLevel as import('./llm/types.js').ThinkingLevel,
       config: { maxToolRounds: config.agent.maxToolRounds, model: config.llm.model },
       onToken: (token: string) => {
         // The loop reports failures as [Error: ...] tokens; print mode must
@@ -349,6 +407,14 @@ async function main(): Promise<void> {
       onToolCall: () => {},
       onToolResult: () => {},
       onThinking: () => {},
+      // Context-policy observability: diagnostics go to stderr, never stdout
+      // (stdout stays the requested answer only).
+      onCompaction: (info) => {
+        process.stderr.write(`[context] ${info.strategy} (${info.reason}): ${info.beforeTokens} -> ${info.afterTokens} tokens\n`);
+      },
+      onContextNote: (note) => {
+        process.stderr.write(`[context] ${note}\n`);
+      },
       onPermissionRequest: async () => autoApprove,
     });
     try {
@@ -419,7 +485,7 @@ async function main(): Promise<void> {
     subagentSink,
     subagentLiveSink,
     streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
-    thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+    thinkingLevel: config.agent.thinkingLevel as import('./llm/types.js').ThinkingLevel,
     providerName: resolution.name,
     modelCost: resolution.model.cost,
     model: config.llm.model,

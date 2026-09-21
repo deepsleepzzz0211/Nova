@@ -12,6 +12,7 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
+import { displayWidth, padToWidth } from './text-measure.js';
 
 // Only the languages we render are registered: highlightAuto (unknown
 // fences) then scans a short list instead of the full ~190-language build.
@@ -166,10 +167,11 @@ export function parseMarkdownBlocks(text: string): MdBlock[] {
 /** Pad table cells so columns line up when joined with ' | '. */
 function padColumns(rows: string[][]): string[][] {
   const width = Math.max(...rows.map((r) => r.length));
+  // Measure TERMINAL COLUMNS, not code units, so CJK/emoji cells align.
   const widths = Array.from({ length: width }, (_, c) =>
-    Math.max(...rows.map((r) => (r[c] ?? '').length)),
+    Math.max(...rows.map((r) => displayWidth(r[c] ?? ''))),
   );
-  return rows.map((row) => widths.map((w, c) => (row[c] ?? '').padEnd(w)));
+  return rows.map((row) => widths.map((w, c) => padToWidth(row[c] ?? '', w)));
 }
 
 /** Inline markdown markers stripped to plain text for terminal display. */

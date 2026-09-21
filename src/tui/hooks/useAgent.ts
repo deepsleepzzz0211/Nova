@@ -9,7 +9,7 @@ import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 import { StreamBatcher } from '../stream-batcher.js';
-import type { ThinkingLevel } from '../../llm/compat.js';
+import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
@@ -356,10 +356,18 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         });
       },
       onCompaction: (info) => {
+        const label: Record<typeof info.strategy, string> = {
+          compact: 'compacted',
+          microcompact: 'micro-compacted',
+          truncate: 'truncated',
+        };
         setMessages((prev) => [...prev, {
           role: 'system' as const,
-          content: `[context ${info.strategy === 'compact' ? 'compacted' : 'truncated'}: ${info.beforeTokens} → ${info.afterTokens} tokens]`,
+          content: `[context ${label[info.strategy]} (${info.reason}): ${info.beforeTokens} → ${info.afterTokens} tokens]`,
         }]);
+      },
+      onContextNote: (note) => {
+        setMessages((prev) => [...prev, { role: 'system' as const, content: `[context] ${note}` }]);
       },
     });
 

@@ -11,6 +11,11 @@ export interface LLMConfig {
   promptCache: boolean;
   /** LLM stream idle timeout: error out when no chunk arrives for this long (ms). */
   streamIdleTimeoutMs?: number;
+  /**
+   * Transparent retries when a stream dies before real content lands
+   * (stream-retry boundary). Default 1; 0 disables.
+   */
+  streamMaxRetries?: number;
 }
 
 /** Agent behaviour configuration. */
@@ -31,6 +36,12 @@ export interface AgentConfig {
   subagentMaxConcurrent?: number;
   /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
   thinkingLevel: string;
+  /**
+   * Token ceiling for the Available-Skills listing in the system prompt.
+   * Descriptions are truncated in order to fit; skills are never dropped by
+   * the budget. Default 2000.
+   */
+  skillsBudgetTokens?: number;
 }
 
 /** Web search provider configuration. */

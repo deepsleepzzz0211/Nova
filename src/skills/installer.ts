@@ -2,11 +2,12 @@
  * Skill installer — clones skill repos into the local skill directory.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import { novaHome } from '../config/loader.js';
 import * as path from 'path';
+import { writeSkillLock } from './skill-lock.js';
 
 /**
  * Extract the repository name from a git URL.
@@ -38,9 +39,10 @@ export function installSkill(gitUrl: string): string {
     throw new Error(`Skill already installed: ${installDir}`);
   }
 
-  execSync(`git clone ${JSON.stringify(gitUrl)} ${JSON.stringify(installDir)}`, {
-    stdio: 'pipe',
-  });
+  execFileSync('git', ['clone', gitUrl, installDir], { stdio: 'pipe' });
+
+  // Pin integrity at install time so later loads refuse tampered content.
+  writeSkillLock(installDir, gitUrl);
 
   return installDir;
 }

@@ -1,15 +1,47 @@
-import type { ToolContext, ToolResult } from './types.js';
+import type { ToolContext, ToolResult, ApprovalNarrow } from './types.js';
 import type { Tool } from './types.js';
 import type { ToolResultCache } from '../cache/tool-result-cache.js';
 import type { PermissionPolicy } from '../permission/policy.js';
 import type { PipelineHooks } from '../hooks/types.js';
+
+/**
+ * Result of a confirmation prompt. A bare boolean keeps the legacy contract
+ * (no argument edit); the object form lets an approval UI return REVISED
+ * params, which the pipeline then re-checks against the permission policy.
+ */
+export type ApprovalOutcome =
+  | { approved: boolean }
+  | { approved: boolean; params: Record<string, unknown> };
 
 /** Callback that asks the user to confirm an 'ask' permission decision. */
 export type ConfirmCallback = (
   toolName: string,
   params: Record<string, unknown>,
   message?: string,
-) => Promise<boolean>;
+) => Promise<boolean | ApprovalOutcome>;
+
+/** Bound the approve→edit→re-ask loop so a tool can't ping-pong forever. */
+const MAX_APPROVAL_ROUNDS = 4;
+
+function normalizeApproval(result: boolean | ApprovalOutcome): {
+  approved: boolean;
+  params?: Record<string, unknown>;
+} {
+  if (typeof result === 'boolean') return { approved: result };
+  return 'params' in result
+    ? { approved: result.approved, params: result.params }
+    : { approved: result.approved };
+}
+
+/** Reduce a confirm result to a plain yes/no (for boolean-only consumers). */
+export function approvalAllowed(result: boolean | ApprovalOutcome): boolean {
+  return normalizeApproval(result).approved;
+}
+
+function joinMessages(base: string | undefined, note: string | undefined): string | undefined {
+  const parts = [base, note].filter((p): p is string => Boolean(p));
+  return parts.length > 0 ? parts.join('\n') : undefined;
+}
 
 /** Options for a single pipeline execution. */
 export interface ExecuteOptions {
@@ -36,13 +68,17 @@ export interface PipelineOptions {
  *
  * Order of checks (permission always precedes cache):
  *  1. PermissionPolicy decision → deny → error result
- *  2. decision ask → user confirmation (or deny when no callback)
- *  3. tool.permission declaration → auto or ask (ticket 19)
- *  4. pre-tool-use hooks (may deny)
- *  5. cache lookup for cacheable tools
- *  6. execute with timeout
- *  7. truncate oversized output; cache successful results
- *  8. post-tool-use hooks (observation only)
+ *  2. decision ask → approval loop (bounded):
+ *       a. tool.prepareApproval — may add a preview or escalate to deny,
+ *          never auto-approve (narrow-only by construction)
+ *       b. user confirm (may EDIT the arguments)
+ *       c. if edited, re-run the policy on the new input and loop; editing
+ *          can only make the gate stricter
+ *  3. pre-tool-use hooks (may deny)
+ *  4. cache lookup for cacheable tools
+ *  5. execute with timeout
+ *  6. truncate oversized output; cache successful results
+ *  7. post-tool-use hooks (observation only)
  */
 export class ToolExecutionPipeline {
   private readonly cache: ToolResultCache;
@@ -73,25 +109,54 @@ export class ToolExecutionPipeline {
       };
     }
 
-    // 2. ask decision → user confirmation
-    let allowed = true;
+    // 2. Approval. 'ask' decisions enter a bounded loop that lets the tool
+    // narrow the prompt (preview / escalate to deny — never auto-approve), the
+    // user confirm (optionally EDITING the arguments), and re-checks the policy
+    // on any edited arguments. Editing can only make the gate stricter.
+    let resolvedParams = params;
     if (permission.decision === 'ask') {
-      allowed = options?.confirm
-        ? await options.confirm(tool.name, params, permission.message)
-        : false;
+      let decision = permission;
+      for (let round = 0; ; round++) {
+        if (round >= MAX_APPROVAL_ROUNDS) {
+          return { content: `Permission denied for tool "${tool.name}" (approval loop guard).`, isError: true };
+        }
+        // The tool's own narrowing runs on the CURRENT params every round —
+        // including params a re-check just resolved to 'allow' — so an edit
+        // can never slip past a block the tool would have raised.
+        const narrow: ApprovalNarrow = tool.prepareApproval
+          ? await tool.prepareApproval(resolvedParams, context)
+          : {};
+        if (narrow.block) {
+          return {
+            content: `Tool "${tool.name}" declined to run (${narrow.previewNote ?? 'blocked by its own approval hook'}).`,
+            isError: true,
+          };
+        }
+        if (decision.decision !== 'ask') break; // re-check auto-allowed the edited params
+        if (!options?.confirm) {
+          // ask with no callback → deny (fail closed, unchanged semantics)
+          return { content: `Permission denied for tool "${tool.name}".`, isError: true };
+        }
+        const promptMessage = joinMessages(decision.message, narrow.previewNote);
+        const outcome = normalizeApproval(await options.confirm(tool.name, resolvedParams, promptMessage));
+        if (!outcome.approved) {
+          return { content: `Permission denied for tool "${tool.name}".`, isError: true };
+        }
+        if (!outcome.params) break; // approved unchanged → proceed
+        // Arguments were edited: re-run the policy on the new input, then loop
+        // so prepareApproval re-evaluates and an 'ask' re-prompts.
+        resolvedParams = outcome.params;
+        decision = this.permissionChecker.check(tool.name, resolvedParams, tool);
+        if (decision.decision === 'deny') {
+          return { content: `Permission denied for tool "${tool.name}" (edited arguments).`, isError: true };
+        }
+      }
     }
 
-    if (!allowed) {
-      return {
-        content: `Permission denied for tool "${tool.name}".`,
-        isError: true,
-      };
-    }
-
-    // 4. Pre-tool-use hooks (may deny)
+    // 3. Pre-tool-use hooks (may deny)
     for (const hook of this.hooks.pre ?? []) {
       try {
-        const decision = await hook({ tool: tool.name, params });
+        const decision = await hook({ tool: tool.name, params: resolvedParams });
         if (decision?.deny) {
           return {
             content: decision.reason ?? `Tool "${tool.name}" blocked by pre-tool-use hook.`,
@@ -103,31 +168,30 @@ export class ToolExecutionPipeline {
       }
     }
 
-    // 5. Cache lookup (cacheable tools only, after permission checks)
+    // 4. Cache lookup (cacheable tools only, after permission checks)
     const cacheable = tool.metadata?.cacheable ?? false;
+    const cacheKey = ToolExecutionPipeline.generateKey(tool.name, resolvedParams);
     if (cacheable) {
-      const cacheKey = ToolExecutionPipeline.generateKey(tool.name, params);
       const cached = await this.cache.get(cacheKey);
       if (cached) {
         return cached;
       }
     }
 
-    // 6-7. Execute with timeout, truncate oversized output, cache successes
+    // 5-6. Execute with timeout, truncate oversized output, cache successes
     try {
       const timeout = tool.metadata?.timeout ?? DEFAULT_TIMEOUT_MS;
-      const result = await this.executeWithTimeout(tool, params, context, timeout, options);
+      const result = await this.executeWithTimeout(tool, resolvedParams, context, timeout, options);
       const truncated = this.truncateResult(result);
 
       if (cacheable && !truncated.isError) {
-        const cacheKey = ToolExecutionPipeline.generateKey(tool.name, params);
         await this.cache.set(cacheKey, truncated);
       }
 
-      // 8. Post-tool-use hooks (observation only)
+      // 7. Post-tool-use hooks (observation only)
       for (const hook of this.hooks.post ?? []) {
         try {
-          await hook({ tool: tool.name, params, result: truncated });
+          await hook({ tool: tool.name, params: resolvedParams, result: truncated });
         } catch {
           // A crashing hook must not change the result
         }
@@ -183,9 +247,16 @@ export class ToolExecutionPipeline {
       timer.unref?.();
     });
 
+    // The tool-facing confirm keeps the boolean contract: an approval that
+    // edited params is handled by the pipeline loop, not the tool itself.
+    const execConfirm = options?.confirm
+      ? async (name: string, p: Record<string, unknown>, msg?: string): Promise<boolean> =>
+          approvalAllowed(await options.confirm!(name, p, msg))
+      : undefined;
+
     try {
       return await Promise.race([
-        tool.execute(params, context, { confirm: options?.confirm }),
+        tool.execute(params, context, { confirm: execConfirm }),
         timeoutPromise,
       ]);
     } finally {

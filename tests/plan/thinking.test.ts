@@ -1,61 +1,153 @@
-import { describe, it, expect, vi } from 'vitest';
-import { resolveThinking, type ThinkingModelInfo } from '../../src/llm/thinking.js';
-import { OpenAIProvider } from '../../src/llm/openai.js';
-import { AnthropicProvider } from '../../src/llm/providers/anthropic.js';
+import { describe, it, expect } from 'vitest';
+import {
+  fauxProvider,
+  fauxAssistantMessage,
+  type FauxProviderHandle,
+  type Context,
+  type Model,
+  type SimpleStreamOptions,
+} from '@earendil-works/pi-ai';
+import { createPiaiEngine, type PiaiEngine } from '../../src/llm/piai-engine.js';
+import { PiProvider, resolvePiReasoning } from '../../src/llm/providers/piai.js';
 import { AgentLoop } from '../../src/agent/loop.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
-import type { Message, StreamChunk } from '../../src/llm/types.js';
+import type { ChatOptions, Message, StreamChunk, ThinkingLevel } from '../../src/llm/types.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
-import type { ChatOptions } from '../../src/llm/types.js';
+
+/**
+ * Ticket 04 — thinking levels. Nova's unified thinkingLevel maps to pi-ai
+ * reasoning via the model's OWN capability: pi-ai clamps/degrades, so we no
+ * longer hand-roll a level map. Non-reasoning models must silently omit the
+ * parameter (no request error); xhigh/max only survive when the model
+ * advertises them (via thinkingLevelMap).
+ */
+
+function modelFor(over: Partial<Model<string>> = {}): Model<string> {
+  return {
+    id: 'm',
+    name: 'm',
+    api: 'openai-completions',
+    provider: 'p',
+    baseUrl: 'https://x.invalid',
+    reasoning: true,
+    input: ['text'],
+    contextWindow: 1000,
+    maxTokens: 100,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    ...over,
+  } as Model<string>;
+}
+
+describe('resolvePiReasoning (pi-ai model-capability clamping)', () => {
+  it('off and undefined send nothing', () => {
+    const m = modelFor();
+    expect(resolvePiReasoning(m, 'off')).toBeUndefined();
+    expect(resolvePiReasoning(m, undefined)).toBeUndefined();
+  });
+
+  it('standard levels pass through on a reasoning model', () => {
+    const m = modelFor();
+    for (const level of ['minimal', 'low', 'medium', 'high'] as ThinkingLevel[]) {
+      expect(resolvePiReasoning(m, level)).toBe(level);
+    }
+  });
+
+  it('a non-reasoning model drops any level (silent ignore, no error)', () => {
+    const m = modelFor({ reasoning: false });
+    expect(resolvePiReasoning(m, 'high')).toBeUndefined();
+    expect(resolvePiReasoning(m, 'max')).toBeUndefined();
+  });
+
+  it('xhigh/max are degraded to the nearest supported level by default', () => {
+    // Default reasoning model advertises only up to 'high'.
+    const m = modelFor();
+    expect(resolvePiReasoning(m, 'xhigh')).toBe('high');
+    expect(resolvePiReasoning(m, 'max')).toBe('high');
+  });
+
+  it('xhigh/max pass IN PLACE only when the model maps them', () => {
+    const withMap = modelFor({ thinkingLevelMap: { xhigh: 'xhigh', max: 'max' } as never });
+    expect(resolvePiReasoning(withMap, 'xhigh')).toBe('xhigh');
+    expect(resolvePiReasoning(withMap, 'max')).toBe('max');
+  });
+
+  it('a null map entry marks the level unsupported (clamped away)', () => {
+    const m = modelFor({ thinkingLevelMap: { high: null } as never });
+    // 'high' unsupported → nearest supported at-or-below the requested slot
+    expect(resolvePiReasoning(m, 'high')).toBe('medium');
+  });
+});
+
+// --- end-to-end through PiProvider.streamSimple -----------------------------
+
+interface Captured {
+  reasoning?: string;
+}
+
+function makeFaux(reasoning: boolean): {
+  engine: PiaiEngine;
+  faux: FauxProviderHandle;
+  capture: Captured;
+  provider: PiProvider;
+} {
+  const engine = createPiaiEngine();
+  const faux = fauxProvider({
+    provider: 'faux',
+    models: [{ id: 'fx', reasoning }],
+  });
+  engine.models.setProvider(faux.provider);
+  const capture: Captured = {};
+  const step = (
+    _ctx: Context,
+    options: SimpleStreamOptions | undefined,
+  ) => {
+    capture.reasoning = options?.reasoning;
+    return fauxAssistantMessage('ok');
+  };
+  faux.setResponses([step]);
+  const provider = new PiProvider({ engine, provider: 'faux', model: 'fx', apiKey: 'k' });
+  return { engine, faux, capture, provider };
+}
+
+async function run(provider: PiProvider, thinkingLevel: ThinkingLevel): Promise<StreamChunk[]> {
+  const out: StreamChunk[] = [];
+  const msgs: Message[] = [{ role: 'user', content: 'hi' }];
+  for await (const c of provider.chat(msgs, { model: 'fx', thinkingLevel })) out.push(c);
+  return out;
+}
+
+describe('PiProvider forwards model-clamped reasoning to pi-ai', () => {
+  it('a reasoning model receives the requested standard level', async () => {
+    const { provider, capture } = makeFaux(true);
+    const chunks = await run(provider, 'high');
+    expect(capture.reasoning).toBe('high');
+    expect(chunks.some((c) => c.type === 'error')).toBe(false);
+  });
+
+  it('a reasoning model degrades xhigh to its supported ceiling instead of erroring', async () => {
+    const { provider, capture } = makeFaux(true);
+    await run(provider, 'xhigh');
+    expect(capture.reasoning).toBe('high');
+  });
+
+  it('a non-reasoning model omits reasoning entirely (no request error)', async () => {
+    const { provider, capture } = makeFaux(false);
+    const chunks = await run(provider, 'high');
+    expect(capture.reasoning).toBeUndefined();
+    expect(chunks.some((c) => c.type === 'error')).toBe(false);
+  });
+});
+
+// --- AgentLoop still forwards thinkingLevel into ChatOptions ----------------
 
 const policy = new PermissionPolicy({
   autoApproveFileWrite: false,
   autoApproveBash: false,
   alwaysAllowCommands: [],
 });
-
-describe('resolveThinking (level map resolution)', () => {
-  const base: ThinkingModelInfo = { reasoning: true };
-
-  it('off and undefined send nothing', () => {
-    expect(resolveThinking(base, 'off').send).toBe(false);
-    expect(resolveThinking(base, undefined).send).toBe(false);
-  });
-
-  it('standard levels use the identity mapping by default', () => {
-    expect(resolveThinking(base, 'minimal')).toEqual({ send: true, value: 'minimal' });
-    expect(resolveThinking(base, 'low')).toEqual({ send: true, value: 'low' });
-    expect(resolveThinking(base, 'medium')).toEqual({ send: true, value: 'medium' });
-    expect(resolveThinking(base, 'high')).toEqual({ send: true, value: 'high' });
-  });
-
-  it('extended levels (xhigh/max) are unsupported without a map entry', () => {
-    expect(resolveThinking(base, 'xhigh').send).toBe(false);
-    expect(resolveThinking(base, 'max').send).toBe(false);
-  });
-
-  it('map entries override defaults: string maps, null clamps', () => {
-    const model: ThinkingModelInfo = {
-      reasoning: true,
-      thinkingLevelMap: { minimal: null, low: null, medium: null, high: 'high', xhigh: null, max: 'max' },
-    };
-    expect(resolveThinking(model, 'minimal').send).toBe(false);
-    expect(resolveThinking(model, 'high')).toEqual({ send: true, value: 'high' });
-    expect(resolveThinking(model, 'max')).toEqual({ send: true, value: 'max' });
-  });
-
-  it('non-reasoning models never send thinking params', () => {
-    expect(resolveThinking({ reasoning: false }, 'high').send).toBe(false);
-  });
-});
-
-// Shared fake SDK chunks are not needed here; providers are exercised through
-// mocked SDKs in provider-cache.test.ts. For thinking params we capture at the
-// ChatOptions level via a loop-driven fake LLM and at the provider level via
-// direct adapter behavior checks.
 
 describe('AgentLoop forwards thinkingLevel to ChatOptions', () => {
   it('passes the configured level into every chat call', async () => {
@@ -66,7 +158,6 @@ describe('AgentLoop forwards thinkingLevel to ChatOptions', () => {
         yield { type: 'text_delta', content: 'ok' };
       },
     };
-
     const loop = new AgentLoop({
       llm,
       toolRegistry: new ToolRegistry(),
@@ -78,20 +169,7 @@ describe('AgentLoop forwards thinkingLevel to ChatOptions', () => {
       onToolResult: () => {},
       onPermissionRequest: async () => true,
     });
-
     await loop.processUserInput('hi');
     expect(opts[0].thinkingLevel).toBe('high');
   });
 });
-
-describe('provider construction accepts thinkingLevelMap metadata', () => {
-  it('OpenAI/Anthropic providers accept compat + remain constructible', () => {
-    // Metadata plumbing smoke check — wire-format emission is covered by
-    // adapter tests against mocked SDKs in provider-cache.test.ts.
-    expect(() => new OpenAIProvider({ name: 'openai', apiKey: 'k' })).not.toThrow();
-    expect(() => new AnthropicProvider({ name: 'anthropic', apiKey: 'k' })).not.toThrow();
-  });
-});
-
-// Silence unused import warnings if any
-void vi;

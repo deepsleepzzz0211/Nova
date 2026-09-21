@@ -1,8 +1,11 @@
 import { spawn } from 'child_process';
 import * as os from 'os';
-import type { Tool, ToolContext, ToolResult } from './types.js';
+import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+/** Cap the echoed command in the approval preview. */
+const PREVIEW_MAX_CHARS = 200;
 
 export function createBashTool(): Tool {
   return {
@@ -18,6 +21,17 @@ export function createBashTool(): Tool {
       required: ['command'],
     },
     permission: { mode: 'ask', message: 'Bash command requires confirmation' },
+    // Preview-only approval hook (ticket 08): echoes the exact command so the
+    // user sees what will run. Narrow-only — it never approves on their behalf.
+    prepareApproval(params: Record<string, unknown>): ApprovalNarrow {
+      const command = typeof params.command === 'string' ? params.command : '';
+      if (!command) return {};
+      const preview =
+        command.length > PREVIEW_MAX_CHARS
+          ? `${command.slice(0, PREVIEW_MAX_CHARS)}…`
+          : command;
+      return { previewNote: `Run: ${preview}` };
+    },
     async execute(params: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
       const command = params.command as string;
       const timeout = (params.timeout as number) ?? DEFAULT_TIMEOUT_MS;

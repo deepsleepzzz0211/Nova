@@ -18,6 +18,10 @@ temperature = 0.7
 # Anthropic always uses prompt caching via cache_control markers.
 prompt_cache = false
 
+# Transparent retries when a stream dies before real content lands
+# (tool-call arguments half-streamed, no text yet). 0 disables. Default 1.
+# stream_max_retries = 1
+
 [agent]
 # Maximum tool execution rounds per request
 max_tool_rounds = 50
@@ -34,6 +38,9 @@ context_strategy = "truncate"
 # subagent_model = ""
 # Max concurrently running subagents. Default 3.
 # subagent_max_concurrent = 3
+# Token ceiling for the Available-Skills listing in the system prompt;
+# descriptions are truncated in order to fit. Default 2000.
+# skills_budget_tokens = 2000
 
 [search]
 # Search backend: Tavily API (free 1000/month at tavily.com).

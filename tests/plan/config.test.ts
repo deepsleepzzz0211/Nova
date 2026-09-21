@@ -38,6 +38,17 @@ describe('Config Loader', () => {
     expect(c.agent.contextKeepRecentTokens).toBe(12000);
   });
 
+  it('defaults llm.stream_max_retries to 1', () => {
+    const c = loadConfig(tmpDir);
+    expect(c.llm.streamMaxRetries).toBe(1);
+  });
+
+  it('honors llm.stream_max_retries from TOML', () => {
+    fs.writeFileSync(path.join(tmpDir, 'config.toml'), '[llm]\nstream_max_retries = 0\n');
+    const c = loadConfig(tmpDir);
+    expect(c.llm.streamMaxRetries).toBe(0);
+  });
+
   it('merges partial TOML config with defaults', () => {
     fs.writeFileSync(path.join(tmpDir, 'config.toml'), '[llm]\nmodel = "gpt-4o-mini"\napi_key = "sk-test"\n');
     const c = loadConfig(tmpDir);

@@ -33,7 +33,7 @@ export interface ChatViewProps {
    * the terminal rows are rendered, anchored at the newest unless the user
    * scrolled back. Auto-scroll stays in control of the offset.
    */
-  viewport?: { scrollOffset: number; terminalRows: number };
+  viewport?: { scrollOffset: number; terminalRows: number; terminalWidth?: number };
   /**
    * Inline search (ticket 13): when present, only matching messages are shown
    * and a header reports the current hit.
@@ -73,6 +73,9 @@ export function ChatView({
           rows: Math.max(3, viewport.terminalRows - 8),
           offset: viewport.scrollOffset,
           expandedToolIds,
+          // Real terminal columns so the wrap estimate matches Ink's rendering
+          // (zcode-borrow ticket 09); omit → estimator falls back to 80.
+          ...(viewport.terminalWidth === undefined ? {} : { width: viewport.terminalWidth }),
         })
       : null;
   const visibleMessages = windowed?.messages ?? baseMessages;

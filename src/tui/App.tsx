@@ -8,7 +8,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from '../agent/session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
-import type { ThinkingLevel } from '../llm/compat.js';
+import type { ThinkingLevel } from '../llm/types.js';
 import type { ModelCost } from '../llm/catalog.js';
 import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
@@ -185,7 +185,15 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         expandedToolIds={expandedToolIds}
         displayKind={displayKind}
         staticEpoch={staticEpoch}
-        viewport={fullscreen ? { scrollOffset, terminalRows: process.stdout.rows ?? 30 } : undefined}
+        viewport={
+          fullscreen
+            ? {
+                scrollOffset,
+                terminalRows: process.stdout.rows ?? 30,
+                terminalWidth: process.stdout.columns,
+              }
+            : undefined
+        }
         search={search === null ? undefined : { query: search.query, index: search.index }}
       />
 

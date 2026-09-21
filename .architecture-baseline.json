@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "violations": [
+    "cycle:cache..tools..cache",
+    "cycle:hooks..tools..hooks",
+    "cycle:permission..tools..permission",
+    "maxFileLines:agent/loop.ts",
+    "maxFileLines:index.tsx",
+    "maxFileLines:tui/hooks/useAgent.ts"
+  ]
+}
