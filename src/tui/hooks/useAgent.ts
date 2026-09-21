@@ -166,8 +166,32 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   // Bumped whenever the displayed conversation is replaced wholesale (/undo):
   // Ink's static region is append-only and must be remounted to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
-  const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
+  const currentAssistantRef = useRef<{
+    content: string;
+    toolCalls: DisplayToolCall[];
+    thinking: string;
+    /** Thought timing for the `– Thought 4.2s` header (tui-redesign 09). */
+    thinkingStartedAtMs?: number;
+    thinkingEndedAtMs?: number;
+  } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
+
+  /** One assistant-message snapshot (shared by batcher and event paths). */
+  const assistantSnapshot = (
+    cur: NonNullable<typeof currentAssistantRef.current>,
+  ): DisplayMessage => {
+    let thinkingSeconds: number | undefined;
+    if (cur.thinking !== '' && cur.thinkingStartedAtMs !== undefined && cur.thinkingEndedAtMs !== undefined) {
+      thinkingSeconds = Math.max(0, (cur.thinkingEndedAtMs - cur.thinkingStartedAtMs) / 1000);
+    }
+    return {
+      role: 'assistant' as const,
+      content: cur.content,
+      toolCalls: [...cur.toolCalls],
+      thinking: cur.thinking || undefined,
+      ...(thinkingSeconds === undefined ? {} : { thinkingSeconds }),
+    };
+  };
 
   // Token coalescing (streaming ticket 06): stream deltas mutate the ref;
   // at most one setState per window keeps long sessions from degrading.
@@ -179,12 +203,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // ref reset to null (crash: reading 'content' of null).
       const cur = currentAssistantRef.current;
       if (cur === null) return;
-      const snap: DisplayMessage = {
-        role: 'assistant',
-        content: cur.content,
-        toolCalls: [...cur.toolCalls],
-        thinking: cur.thinking || undefined,
-      };
+      const snap: DisplayMessage = assistantSnapshot(cur);
       setMessages((prev) => withAssistantSnapshot(prev, snap));
     }, 32);
   }
@@ -193,12 +212,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   // Create the AgentLoop once
   if (loopRef.current === null) {
     /** Immutable snapshot of the in-flight assistant message. */
-    const snapshot = (): DisplayMessage => ({
-      role: 'assistant' as const,
-      content: currentAssistantRef.current!.content,
-      toolCalls: [...currentAssistantRef.current!.toolCalls],
-      thinking: currentAssistantRef.current!.thinking || undefined,
-    });
+    const snapshot = (): DisplayMessage => assistantSnapshot(currentAssistantRef.current!);
 
     /**
      * Replace the trailing assistant message with `snap`. The snapshot is
@@ -214,6 +228,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
+      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
+        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
+      }
       currentAssistantRef.current.content += token;
       batcher.schedule();
     };
@@ -223,6 +240,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
+      if (currentAssistantRef.current.thinkingStartedAtMs === undefined) {
+        currentAssistantRef.current.thinkingStartedAtMs = Date.now();
+      }
       currentAssistantRef.current.thinking += delta;
       batcher.schedule();
     };
@@ -230,6 +250,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const onToolCall = (call: ToolCall): void => {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
+      }
+      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
+        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
       }
       const displayCall: DisplayToolCall = {
         id: call.id,

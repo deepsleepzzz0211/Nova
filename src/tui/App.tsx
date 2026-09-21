@@ -13,7 +13,7 @@ import type { ModelCost } from '../llm/catalog.js';
 import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
-import { latestToolId } from './message-partition.js';
+import { latestExpandableId } from './message-partition.js';
 import {
   MOUSE_DISABLE,
   MOUSE_ENABLE,
@@ -93,7 +93,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
   );
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'o') {
-      const toolId = latestToolId(messages);
+      const toolId = latestExpandableId(messages);
       setExpandedToolIds((prev) => {
         if (toolId === null) return prev;
         const next = new Set(prev);
@@ -181,6 +181,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
         }
         search={search === null ? undefined : { query: search.query, index: search.index }}
         welcome={welcome}
+        thinkingActive={isThinking}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />

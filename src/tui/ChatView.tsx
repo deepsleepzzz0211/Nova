@@ -46,6 +46,8 @@ export interface ChatViewProps {
    * windows the transcript instead) it shows while the conversation is empty.
    */
   welcome?: WelcomeCard;
+  /** True while the model streams reasoning (thought header, ticket 09). */
+  thinkingActive?: boolean;
 }
 
 /**
@@ -63,6 +65,7 @@ export function ChatView({
   viewport,
   search,
   welcome,
+  thinkingActive,
 }: ChatViewProps): React.ReactElement {
   // Search narrows the transcript to matching messages (ticket 13).
   const searchMatches = search !== undefined ? findMatches(messages, search.query) : [];
@@ -129,18 +132,22 @@ export function ChatView({
               message={msg.message}
               expandedToolIds={expandedToolIds}
               displayKind={displayKind}
+              thinkingExpanded={expandedToolIds?.has(`msg:${messages.indexOf(msg.message)}`) ?? false}
             />
           );
         }}
       </Static>
       {(windowed !== null ? visibleMessages : liveItems).map((msg, index) => {
         renderProbe?.('live', msg);
+        const isTail = index === (windowed !== null ? visibleMessages : liveItems).length - 1;
         return (
           <MessageBubble
             key={`live-${index}`}
             message={msg}
             expandedToolIds={expandedToolIds}
             displayKind={displayKind}
+            thinkingExpanded={expandedToolIds?.has(`msg:${messages.indexOf(msg)}`) ?? false}
+            thinkingActive={isTail && thinkingActive === true}
           />
         );
       })}

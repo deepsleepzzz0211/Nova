@@ -59,3 +59,20 @@ export function latestToolId(messages: DisplayMessage[]): string | null {
   }
   return null;
 }
+
+/**
+ * Newest expandable block for the Ctrl+O cycle (tui-redesign 09): returns a
+ * tool-call id, or `msg:<index>` when the newest expandable thing is an
+ * assistant thought, or null when there is nothing to expand.
+ */
+export function latestExpandableId(messages: DisplayMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const calls = m.toolCalls;
+    if (calls !== undefined && calls.length > 0) return calls[calls.length - 1].id;
+    if (m.role === 'assistant' && m.thinking !== undefined && m.thinking !== '') {
+      return `msg:${i}`;
+    }
+  }
+  return null;
+}

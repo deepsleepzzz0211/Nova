@@ -20,6 +20,8 @@ export interface DisplayMessage {
   toolCalls?: DisplayToolCall[];
   /** Reasoning text accumulated before the visible content. */
   thinking?: string;
+  /** Seconds the thought ran, when both ends were observed (tui-redesign 09). */
+  thinkingSeconds?: number;
 }
 
 /** Model info surfaced by the /model command. */

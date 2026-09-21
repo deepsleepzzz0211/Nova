@@ -16,6 +16,10 @@ export interface MessageBubbleProps {
   expandedToolIds?: ReadonlySet<string>;
   /** Registry-backed tool display kind resolver. */
   displayKind?: DisplayKindResolver;
+  /** Thought body revealed (Ctrl+O cycle, tui-redesign 09). Default collapsed. */
+  thinkingExpanded?: boolean;
+  /** This message's thought is streaming right now (spinner header instead). */
+  thinkingActive?: boolean;
 }
 
 /**
@@ -25,7 +29,13 @@ export interface MessageBubbleProps {
  * - Assistant messages: white, rendered with MarkdownText
  * - Tool calls: embedded ToolCallView components
  */
-function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBubbleProps): React.ReactElement {
+function MessageBubbleImpl({
+  message,
+  expandedToolIds,
+  displayKind,
+  thinkingExpanded,
+  thinkingActive,
+}: MessageBubbleProps): React.ReactElement {
   const { stdout } = useStdout();
   if (message.role === 'user') {
     // Full-width background band, no "> " prefix (tui-redesign 07).
@@ -58,10 +68,13 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
   // Assistant message
   return (
     <Box flexDirection="column" marginY={0}>
-      {message.thinking && (
-        <Box paddingLeft={0}>
-          <Text color={theme.thinking} dimColor italic>{message.thinking}</Text>
-        </Box>
+      {message.thinking !== undefined && message.thinking !== '' && (
+        <ThoughtBlock
+          thinking={message.thinking}
+          seconds={message.thinkingSeconds}
+          expanded={thinkingExpanded === true}
+          active={thinkingActive === true}
+        />
       )}
       {message.content.length > 0 && (
         <Box paddingLeft={0}>
@@ -88,6 +101,36 @@ function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBub
           )}
         </Box>
       )}
+    </Box>
+  );
+}
+
+/**
+ * Collapsible reasoning block (tui-redesign 09): a `+/- Thought 4.2s`
+ * header line (spinner + `Thinking…` while live); the body renders under a
+ * muted left rule only when expanded. Ctrl+O drives `expanded`.
+ */
+function ThoughtBlock({
+  thinking,
+  seconds,
+  expanded,
+  active,
+}: {
+  thinking: string;
+  seconds?: number;
+  expanded: boolean;
+  active: boolean;
+}): React.ReactElement {
+  const label = seconds !== undefined ? `Thought ${seconds.toFixed(1)}s` : 'Thought';
+  return (
+    <Box flexDirection="column">
+      <Text color={expanded || active ? theme.primary : theme.muted} dimColor={!expanded && !active}>
+        {active ? '⠋ Thinking…' : `${expanded ? '–' : '+'} ${label}`}
+      </Text>
+      {expanded &&
+        thinking.split('\n').map((line, i) => (
+          <Text key={i} color={theme.thinking} dimColor italic>{`  │ ${line}`}</Text>
+        ))}
     </Box>
   );
 }
