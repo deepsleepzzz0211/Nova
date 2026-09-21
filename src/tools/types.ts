@@ -42,6 +42,19 @@ export interface ToolPermission {
   message?: string;
 }
 
+/**
+ * A tool's own contribution to an approval prompt (ticket 08). The shape is
+ * deliberately narrow-only: it can add a preview or escalate to a deny, but
+ * there is NO field that turns a required confirmation into an auto-approve —
+ * widening is unrepresentable at the type level.
+ */
+export interface ApprovalNarrow {
+  /** Extra context surfaced to the user alongside the prompt. */
+  previewNote?: string;
+  /** Escalate to a hard deny: the tool refuses to run even if it would ask. */
+  block?: boolean;
+}
+
 export interface Tool {
   name: string;
   description: string;
@@ -52,6 +65,15 @@ export interface Tool {
   permission?: ToolPermission;
   /** Optional pipeline metadata; defaults to non-cacheable with a default timeout. */
   metadata?: ToolMetadata;
+  /**
+   * Optional hook run just before an 'ask' confirmation. May only narrow the
+   * decision (preview / escalate to deny); it can never approve on the user's
+   * behalf. See {@link ApprovalNarrow}.
+   */
+  prepareApproval?(
+    params: Record<string, unknown>,
+    context: ToolContext,
+  ): ApprovalNarrow | Promise<ApprovalNarrow>;
   execute(
     params: Record<string, unknown>,
     context: ToolContext,

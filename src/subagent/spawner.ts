@@ -2,6 +2,7 @@ import type { LLMProvider } from '../llm/provider.js';
 import type { Message } from '../llm/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline, ConfirmCallback } from '../tools/execution-pipeline.js';
+import { approvalAllowed } from '../tools/execution-pipeline.js';
 import { AgentLoop } from '../agent/loop.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
@@ -188,9 +189,14 @@ export class SubagentSpawner {
         onToken: (token) => emit({ type: 'token', payload: token }),
         onToolCall: (call) => emit({ type: 'tool_call', payload: call }),
         onToolResult: (result) => emit({ type: 'tool_result', payload: result }),
-        onPermissionRequest: async (call) => options?.confirm
-          ? options.confirm(call.function.name, safeParse(call.function.arguments))
-          : false,
+        onPermissionRequest: async (call) => {
+          if (!options?.confirm) return false;
+          // The agent-loop approval boundary is boolean, so an argument edit
+          // returned here can't be re-threaded; subagents inherit ask→deny
+          // semantics with no edit path (the parent's own tools re-check in
+          // the pipeline, which does support edits).
+          return approvalAllowed(await options.confirm(call.function.name, safeParse(call.function.arguments)));
+        },
       });
 
       if (history.length > 0) loop.loadMessages(history);
