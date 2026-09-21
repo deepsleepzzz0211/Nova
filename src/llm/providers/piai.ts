@@ -73,7 +73,11 @@ export class PiProvider implements LLMProvider {
     this.provider = config.provider;
     this.defaultModel = config.model;
     this.baseUrl = config.baseUrl;
-    this.apiKey = config.apiKey;
+    // Nova treats a blank key as "not provided" (its default config ships
+    // apiKey: ''), so pi-ai's env/CredentialStore/OAuth fallback stays
+    // reachable. A non-blank key is forwarded RAW (only its blankness is
+    // detected via trim; the value itself is not mutated).
+    this.apiKey = config.apiKey && config.apiKey.trim().length > 0 ? config.apiKey : undefined;
     this.defaultHeaders = config.defaultHeaders;
     this.maxStreamRetries = config.maxStreamRetries ?? 1;
     this.name = config.provider;
