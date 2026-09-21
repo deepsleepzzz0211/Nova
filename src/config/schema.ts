@@ -11,6 +11,11 @@ export interface LLMConfig {
   promptCache: boolean;
   /** LLM stream idle timeout: error out when no chunk arrives for this long (ms). */
   streamIdleTimeoutMs?: number;
+  /**
+   * Transparent retries when a stream dies before real content lands
+   * (stream-retry boundary). Default 1; 0 disables.
+   */
+  streamMaxRetries?: number;
 }
 
 /** Agent behaviour configuration. */

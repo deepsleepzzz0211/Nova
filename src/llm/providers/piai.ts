@@ -1,9 +1,13 @@
-import type { Model } from '@earendil-works/pi-ai';
+import type {
+  AssistantMessageEvent,
+  Model,
+} from '@earendil-works/pi-ai';
 import type { ModelsSimpleStreamOptions } from '@earendil-works/pi-ai';
 import type { LLMProvider, ProviderCapabilities } from '../provider.js';
 import type { ChatOptions, Message, StreamChunk } from '../types.js';
 import type { ThinkingLevel } from '../compat.js';
 import type { PiaiEngine } from '../piai-engine.js';
+import { isContextOverflowError } from '../errors.js';
 import { toPiaiContext, createPiaiChunkTranslator } from '../piai-bridge.js';
 
 /** Construction inputs for {@link PiProvider}; mirrors what the catalog resolves. */
@@ -20,6 +24,11 @@ export interface PiProviderConfig {
   apiKey?: string;
   /** Client identity headers sent on every request (session id, UA). */
   defaultHeaders?: Record<string, string>;
+  /**
+   * Transparent retries when a stream dies inside the safe prelude (before
+   * real text or a completed tool batch). Default 1; 0 disables retrying.
+   */
+  maxStreamRetries?: number;
 }
 
 /** pi-ai only understands levels above "off"; Nova's "off" omits reasoning. */
@@ -45,6 +54,7 @@ export class PiProvider implements LLMProvider {
   private readonly baseUrl?: string;
   private readonly apiKey?: string;
   private readonly defaultHeaders?: Record<string, string>;
+  private readonly maxStreamRetries: number;
 
   constructor(config: PiProviderConfig) {
     this.engine = config.engine;
@@ -53,6 +63,7 @@ export class PiProvider implements LLMProvider {
     this.baseUrl = config.baseUrl;
     this.apiKey = config.apiKey;
     this.defaultHeaders = config.defaultHeaders;
+    this.maxStreamRetries = config.maxStreamRetries ?? 1;
     this.name = config.provider;
     this.capabilities = this.buildCapabilities(config.model);
   }
@@ -114,22 +125,114 @@ export class PiProvider implements LLMProvider {
       ...(this.defaultHeaders !== undefined ? { headers: this.defaultHeaders } : {}),
     };
 
-    const translate = createPiaiChunkTranslator();
+    // Stream-retry-boundary (zcode-borrow 03): translated chunks before the
+    // commit point (non-empty text delta, completed tool batch, or terminal
+    // status) are held back; a stream failure inside that prelude discards
+    // them and re-issues the request. After the boundary, old error-chunk
+    // semantics stand. Aborts never retry.
+    const maxAttempts = 1 + this.maxStreamRetries;
     let drained = false;
     try {
-      const events = this.engine.models.streamSimple(model, context, streamOptions);
-      for await (const event of events) {
-        yield* translate(event);
+      for (let attempt = 1; ; attempt++) {
+        const translate = createPiaiChunkTranslator();
+        const pending: StreamChunk[] = [];
+        let committed = false;
+        let failure: { event: AssistantMessageEvent } | { thrown: Error } | null = null;
+
+        try {
+          const events = this.engine.models.streamSimple(model, context, streamOptions);
+          for await (const event of events) {
+            if (event.type === 'error') {
+              failure = { event };
+              break;
+            }
+            for (const chunk of translate(event)) {
+              if (committed) {
+                yield chunk;
+                continue;
+              }
+              if (commitsStreamBoundary(chunk)) {
+                committed = true;
+                yield* flush(pending);
+                yield chunk;
+              } else if (chunk.type === 'tool_call_start' || chunk.type === 'tool_call_delta') {
+                // State-dangerous fragments: a retry would regenerate the
+                // whole batch, so hold them back until the boundary lands.
+                pending.push(chunk);
+              } else {
+                // Display-only deltas (thinking, empty text) stream live:
+                // they cost a duplicated UI echo on retry but keep the
+                // stall watchdog seeing bytes, exactly like the old adapters.
+                yield chunk;
+              }
+            }
+          }
+        } catch (err: unknown) {
+          failure = { thrown: err instanceof Error ? err : new Error(String(err)) };
+        }
+
+        if (failure === null) {
+          yield* flush(pending); // clean end: deliver anything held back
+          drained = true;
+          return;
+        }
+
+        const aborted =
+          'event' in failure && failure.event.type === 'error' && failure.event.reason === 'aborted';
+        // Context overflow is deterministic (same oversized payload), not a
+        // stall: retrying just wastes a request. The loop's reactive
+        // compaction handles it after the error chunk surfaces.
+        const failureMessage =
+          'event' in failure && failure.event.type === 'error'
+            ? failure.event.error.errorMessage ?? ''
+            : 'thrown' in failure
+              ? failure.thrown.message
+              : '';
+        const overflow = isContextOverflowError(failureMessage);
+        if (
+          !committed &&
+          !aborted &&
+          !overflow &&
+          attempt < maxAttempts &&
+          !controller.signal.aborted
+        ) {
+          continue; // transparent retry
+        }
+
+        // Adapter-equivalent failure surface: the loop reports error chunks
+        // and short-circuits tool execution. Held-back fragments are
+        // discarded — the loop would drop the tool batch on error anyway.
+        pending.length = 0;
+        if ('event' in failure) {
+          yield* translate(failure.event);
+        } else {
+          yield { type: 'error', error: failure.thrown.message };
+        }
+        drained = true;
+        return;
       }
-      drained = true;
-    } catch (err: unknown) {
-      // Adapter-equivalent failure surface: the loop reports error chunks and
-      // short-circuits tool execution.
-      const message = err instanceof Error ? err.message : String(err);
-      yield { type: 'error', error: message };
-      drained = true;
     } finally {
       if (!drained) controller.abort();
     }
   }
+}
+
+/** True when this chunk makes the stream un-retryable (real content landed). */
+function commitsStreamBoundary(chunk: StreamChunk): boolean {
+  switch (chunk.type) {
+    case 'text_delta':
+      return chunk.content !== '';
+    case 'tool_call_end':
+    case 'truncated':
+    case 'usage':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function flush(pending: StreamChunk[]): StreamChunk[] {
+  const out = pending.slice();
+  pending.length = 0;
+  return out;
 }

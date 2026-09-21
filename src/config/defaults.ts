@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     temperature: 0.7,
     promptCache: false,
     streamIdleTimeoutMs: 60000,
+    streamMaxRetries: 1,
   },
   agent: {
     maxToolRounds: 50,

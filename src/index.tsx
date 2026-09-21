@@ -121,6 +121,7 @@ async function main(): Promise<void> {
       baseUrl: next.baseUrl,
       apiKey: next.apiKey,
       defaultHeaders,
+      maxStreamRetries: config.llm.streamMaxRetries,
     });
 
   // Initialize LLM provider by wire protocol (pi-style api layer)
