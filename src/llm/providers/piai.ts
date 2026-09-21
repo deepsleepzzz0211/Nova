@@ -1,3 +1,4 @@
+import { clampThinkingLevel } from '@earendil-works/pi-ai';
 import type {
   AssistantMessageEvent,
   Model,
@@ -31,9 +32,20 @@ export interface PiProviderConfig {
   maxStreamRetries?: number;
 }
 
-/** pi-ai only understands levels above "off"; Nova's "off" omits reasoning. */
-function toPiReasoning(level: ThinkingLevel | undefined): ModelsSimpleStreamOptions['reasoning'] {
-  return level && level !== 'off' ? level : undefined;
+/**
+ * Nova thinkingLevel → pi-ai reasoning, clamped to what the resolved model
+ * actually supports (pi-ai owns the level map). `off`/undefined and any level
+ * a non-reasoning model resolves down to become `undefined` so the parameter
+ * is omitted — never sent as an error. xhigh/max pass in place only when the
+ * model advertises them; otherwise they degrade to the nearest supported level.
+ */
+export function resolvePiReasoning(
+  model: Model<string>,
+  level: ThinkingLevel | undefined,
+): ModelsSimpleStreamOptions['reasoning'] {
+  if (!level || level === 'off') return undefined;
+  const clamped = clampThinkingLevel(model, level);
+  return clamped === 'off' ? undefined : clamped;
 }
 
 /**
@@ -115,7 +127,7 @@ export class PiProvider implements LLMProvider {
     // of the generator (iterator return()). pi-ai streams have no return(),
     // so own the AbortController and abort on early exit only.
     const controller = new AbortController();
-    const reasoning = toPiReasoning(options.thinkingLevel);
+    const reasoning = resolvePiReasoning(model, options.thinkingLevel);
     const streamOptions: ModelsSimpleStreamOptions = {
       signal: controller.signal,
       ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),

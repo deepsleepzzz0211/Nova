@@ -24,14 +24,20 @@ interface Captured {
   model?: Model<string>;
 }
 
-function setup(overrides?: { baseUrl?: string }): {
+function setup(overrides?: { baseUrl?: string; reasoning?: boolean }): {
   engine: PiaiEngine;
   faux: FauxProviderHandle;
   capture: Captured;
   provider: PiProvider;
 } {
   const engine = createPiaiEngine();
-  const faux = fauxProvider({ provider: 'faux' });
+  // Default to a reasoning-capable model: most request-translation tests check
+  // that levels/params reach pi-ai verbatim; ticket 04 clamps against the
+  // model's capability, so the model must advertise reasoning for pass-through.
+  const faux = fauxProvider({
+    provider: 'faux',
+    models: [{ id: 'faux-1', reasoning: overrides?.reasoning ?? true }],
+  });
   engine.models.setProvider(faux.provider);
 
   const capture: Captured = {};
