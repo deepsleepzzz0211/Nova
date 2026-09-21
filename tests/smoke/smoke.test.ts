@@ -16,8 +16,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { loadModelCatalog, resolveModel } from '../../src/llm/catalog.js';
-import { providerRegistry } from '../../src/llm/registry.js';
+import { loadModelCatalogWithEngine, resolveModel } from '../../src/llm/catalog.js';
+import { PiaiEngine } from '../../src/llm/piai-engine.js';
+import { PiProvider } from '../../src/llm/providers/piai.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { Message, ToolCall } from '../../src/llm/types.js';
 import type { ToolResult } from '../../src/tools/types.js';
@@ -90,20 +91,15 @@ function buildLoop(): {
       },
     }),
   );
-  const catalog = loadModelCatalog([catalogFile]);
+  const { catalog, engine } = loadModelCatalogWithEngine(new PiaiEngine(), [catalogFile]);
   const resolution = resolveModel({ provider: 'opencode-go', model: MODEL }, catalog);
-  const llm = providerRegistry.getForApi(resolution.api, {
-    name: resolution.name,
-    apiKey: resolution.apiKey,
-    baseUrl: resolution.baseUrl,
+  const llm: LLMProvider = new PiProvider({
+    engine,
+    provider: resolution.name,
     model: resolution.model.id,
-    compat: {
-      supportsDeveloperRole: resolution.model.compat.supportsDeveloperRole,
-      streamUsage: resolution.model.compat.streamUsage,
-    },
-    thinkingLevelMap: resolution.model.thinkingLevelMap,
-    reasoning: resolution.model.reasoning,
-  }) as LLMProvider;
+    baseUrl: resolution.baseUrl,
+    apiKey: resolution.apiKey,
+  });
 
   // Tools
   const toolRegistry = new ToolRegistry();

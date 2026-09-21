@@ -5,8 +5,7 @@ import type {
 } from '@earendil-works/pi-ai';
 import type { ModelsSimpleStreamOptions } from '@earendil-works/pi-ai';
 import type { LLMProvider, ProviderCapabilities } from '../provider.js';
-import type { ChatOptions, Message, StreamChunk } from '../types.js';
-import type { ThinkingLevel } from '../compat.js';
+import type { ChatOptions, Message, StreamChunk, ThinkingLevel } from '../types.js';
 import type { PiaiEngine } from '../piai-engine.js';
 import { isContextOverflowError } from '../errors.js';
 import { toPiaiContext, createPiaiChunkTranslator } from '../piai-bridge.js';

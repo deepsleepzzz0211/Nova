@@ -9,7 +9,7 @@ import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 import { StreamBatcher } from '../stream-batcher.js';
-import type { ThinkingLevel } from '../../llm/compat.js';
+import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';

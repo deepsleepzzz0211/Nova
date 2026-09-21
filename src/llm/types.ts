@@ -1,4 +1,15 @@
-import type { ThinkingLevel } from './compat.js';
+/**
+ * Thinking levels (pi-style unified abstraction over vendor-specific params).
+ * The wire translation is owned by pi-ai per provider/model capability.
+ */
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Map thinking levels to provider values. Tristate (pi semantics): a string
+ * sends that value, null marks the level unsupported, a missing key uses the
+ * provider default.
+ */
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 
 /** A tool call made by the assistant. */
 export interface ToolCall {
@@ -57,6 +68,6 @@ export interface ChatOptions {
   maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
-  /** Unified thinking level; adapters translate per wire protocol. */
+  /** Unified thinking level; the pi-ai engine translates it per model capability. */
   thinkingLevel?: ThinkingLevel;
 }

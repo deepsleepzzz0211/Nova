@@ -1,5 +1,4 @@
 import type { Message, StreamChunk, ChatOptions } from './types.js';
-import type { CompatFlags, ThinkingLevelMap } from './compat.js';
 
 /** Provider interface for LLM chat completions. */
 export interface LLMProvider {
@@ -34,37 +33,4 @@ export interface ProviderCapabilities {
   
   /** Supported models. */
   models: string[];
-}
-
-/** Provider configuration. */
-export interface ProviderConfig {
-  /** Provider name. */
-  name: string;
-  
-  /** API key. */
-  apiKey?: string;
-  
-  /** Base URL for API. */
-  baseUrl?: string;
-  
-  /** Default model. */
-  model?: string;
-
-  /** Extra HTTP headers sent on every request (session/UA identity). */
-  defaultHeaders?: Record<string, string>;
-
-  /** Additional provider-specific config. */
-  options?: Record<string, unknown>;
-
-  /** Enable provider prompt caching + usage reporting (OpenAI stream_options). */
-  promptCache?: boolean;
-
-  /** Compatibility flags for third-party endpoint deviations. */
-  compat?: CompatFlags;
-
-  /** Model thinking-level map (from the model catalog resolution). */
-  thinkingLevelMap?: ThinkingLevelMap;
-
-  /** Whether the model supports reasoning/thinking. Default true. */
-  reasoning?: boolean;
 }

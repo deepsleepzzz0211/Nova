@@ -14,8 +14,6 @@ import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
 import { createTodoTool } from '../../src/tools/todo.js';
 import { withSystemPrompt } from '../../src/llm/messages.js';
-import { LLMProviderRegistry } from '../../src/llm/registry.js';
-import { OpenAIProvider } from '../../src/llm/openai.js';
 import type { Message, StreamChunk, ChatOptions } from '../../src/llm/types.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { ToolContext } from '../../src/tools/types.js';
@@ -162,25 +160,6 @@ describe('withSystemPrompt roles and no-op cases', () => {
   it('does not prepend when history already starts with a system message', () => {
     const msgs: Message[] = [{ role: 'system', content: 'already' }, { role: 'user', content: 'x' }];
     expect(withSystemPrompt(msgs, 'sys')).toBe(msgs);
-  });
-});
-
-describe('LLMProviderRegistry caching by api and baseUrl', () => {
-  it('caches instances per api+baseUrl combination', () => {
-    const registry = new LLMProviderRegistry();
-    const a = registry.getForApi('openai-completions', { name: 'openai', apiKey: 'k', baseUrl: 'https://a.example' });
-    const a2 = registry.getForApi('openai-completions', { name: 'openai', apiKey: 'k', baseUrl: 'https://a.example' });
-    const b = registry.getForApi('openai-completions', { name: 'openai', apiKey: 'k', baseUrl: 'https://b.example' });
-    expect(a).toBe(a2);
-    expect(b).not.toBe(a);
-  });
-
-  it('name-based getProvider still caches per baseUrl', () => {
-    const registry = new LLMProviderRegistry();
-    const a = registry.getProvider({ name: 'openai', apiKey: 'k', baseUrl: 'https://x1' });
-    const a2 = registry.getProvider({ name: 'openai', apiKey: 'k', baseUrl: 'https://x1' });
-    expect(a).toBe(a2);
-    expect(() => registry.getForApi('unknown-api' as never, { name: 'x' })).toThrow(/Unknown API/);
   });
 });
 

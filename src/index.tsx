@@ -396,7 +396,7 @@ async function main(): Promise<void> {
         strategy: config.agent.contextStrategy as 'truncate' | 'compact',
       },
       streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
-      thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+      thinkingLevel: config.agent.thinkingLevel as import('./llm/types.js').ThinkingLevel,
       config: { maxToolRounds: config.agent.maxToolRounds, model: config.llm.model },
       onToken: (token: string) => {
         // The loop reports failures as [Error: ...] tokens; print mode must
@@ -485,7 +485,7 @@ async function main(): Promise<void> {
     subagentSink,
     subagentLiveSink,
     streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
-    thinkingLevel: config.agent.thinkingLevel as import('./llm/compat.js').ThinkingLevel,
+    thinkingLevel: config.agent.thinkingLevel as import('./llm/types.js').ThinkingLevel,
     providerName: resolution.name,
     modelCost: resolution.model.cost,
     model: config.llm.model,

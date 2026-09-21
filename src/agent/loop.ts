@@ -19,7 +19,7 @@ const TRUNCATION_CONTINUE_PROMPT =
   'Your previous response was cut off mid-output. Continue exactly where you stopped — do not repeat any content already emitted.';
 
 import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
-import type { ThinkingLevel } from '../llm/compat.js';
+import type { ThinkingLevel } from '../llm/types.js';
 
 /** Result of a single user-input turn. */
 export interface AgentTurnResult {
@@ -531,7 +531,7 @@ export class AgentLoop {
 
       this.runAbort = null;
 
-      // Truncation: the adapter signaled a max-token cutoff mid-output
+      // Truncation: the provider signaled a max-token cutoff mid-output
       // (streaming ticket 05). With partial output, ask the model to
       // continue exactly once; tool-call half-frames are discarded, never
       // executed. A second truncation keeps whatever partial output exists.
@@ -562,7 +562,7 @@ export class AgentLoop {
         return { text: finalText, rounds };
       }
 
-      // Empty stream: the adapter finished with zero content — abnormal.
+      // Empty stream: the provider finished with zero content — abnormal.
       // Retry the round once, then surface a clean error (ticket 05).
       // An explicit error chunk already reported the failure — keep the
       // legacy report-and-stop semantics, no retry.

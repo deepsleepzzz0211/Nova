@@ -14,8 +14,7 @@ import { ToolRegistry } from '../../src/tools/registry.js';
 import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
 import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
-import type { ThinkingLevel } from '../../src/llm/compat.js';
-import type { ChatOptions, Message, StreamChunk } from '../../src/llm/types.js';
+import type { ChatOptions, Message, StreamChunk, ThinkingLevel } from '../../src/llm/types.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 
 /**

@@ -38,7 +38,6 @@
   "license": "MIT",
   "packageManager": "pnpm@10.30.2",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
     "@earendil-works/pi-ai": "^0.85.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@mozilla/readability": "^0.6.0",
@@ -46,7 +45,6 @@
     "ink": "^7.1.1",
     "jsdom": "^30.0.1",
     "marked": "^18.0.12",
-    "openai": "^7.10.0",
     "react": "^19.2.8",
     "smol-toml": "^1.8.0",
     "string-width": "^8.2.2",

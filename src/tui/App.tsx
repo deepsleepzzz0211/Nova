@@ -8,7 +8,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionStore } from '../agent/session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
-import type { ThinkingLevel } from '../llm/compat.js';
+import type { ThinkingLevel } from '../llm/types.js';
 import type { ModelCost } from '../llm/catalog.js';
 import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';

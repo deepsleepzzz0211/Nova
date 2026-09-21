@@ -94,10 +94,31 @@ nova --model llama3 --base-url http://localhost:11434
 
 ## 自定义提供商
 
-你可以注册自定义提供商：
+迁移到 pi-ai 引擎后，新增 provider 不再手写 `LLMProvider` 类、也没有 registry。
+两种常见方式：
+
+1. **在 `~/.nova/models.json` 声明一个 OpenAI/Anthropic 兼容端点**（无需改代码）：
+
+```json
+{
+  "providers": {
+    "myprovider": {
+      "baseUrl": "https://my.provider/v1",
+      "api": "openai-completions",
+      "apiKey": "$MY_PROVIDER_KEY",
+      "models": [{ "id": "my-model", "contextWindow": 128000 }]
+    }
+  }
+}
+```
+
+`apiKey` 走 secrets DSL（`$ENV` / `!command`）。运行时 `index.tsx` 的 `createProvider`
+工厂会把它接成 `PiProvider`，经 `--model myprovider/my-model` 或 `/model` 切换。
+
+2. **实现 Nova 的 provider 接口并交给引擎**（仅当需要非 pi-ai 内置的 wire 协议时）：
 
 ```typescript
-import { providerRegistry } from './llm/registry.js';
+import type { LLMProvider } from './llm/provider.js';
 
 class CustomProvider implements LLMProvider {
   name = 'custom';
@@ -108,16 +129,14 @@ class CustomProvider implements LLMProvider {
     maxContextLength: 4096,
     models: ['custom-model'],
   };
-  
+
   async *chat(messages, options) {
-    // 实现自定义逻辑
     yield { type: 'text_delta', content: 'Custom response' };
   }
 }
-
-// 注册自定义提供商
-providerRegistry.register('custom', CustomProvider);
 ```
+
+绝大多数场景用方式 1 即可，方式 2 保留了 `LLMProvider` 接口作为抽象边界。
 
 ## 故障排除
 

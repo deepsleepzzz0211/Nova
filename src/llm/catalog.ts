@@ -1,16 +1,39 @@
 import * as fs from 'fs';
-import type {
-  ApiId,
-  CompatFlags,
-  NormalizedCompat,
-  ThinkingLevel,
-  ThinkingLevelMap,
-} from './compat.js';
-import { normalizeCompat } from './compat.js';
+import type { ThinkingLevel, ThinkingLevelMap } from './types.js';
 import { resolveSecretValue } from './secrets.js';
 import { PiaiEngine, type UserProviderSpec } from './piai-engine.js';
 
-export type { ThinkingLevel, ThinkingLevelMap } from './compat.js';
+export type { ThinkingLevel, ThinkingLevelMap } from './types.js';
+
+/** Wire-protocol identifiers (pi-style: API adapters are decoupled from vendors). */
+export type ApiId = 'openai-completions' | 'anthropic-messages' | 'ollama';
+
+/**
+ * Compatibility flags for third-party endpoints that imitate a wire protocol
+ * but deviate in details. Parsed from models.json and carried on the resolved
+ * model; the pi-ai engine owns the actual wire behavior.
+ */
+export interface CompatFlags {
+  supportsDeveloperRole?: boolean;
+  streamUsage?: boolean;
+  /** Deprecated alias of streamUsage. */
+  promptCache?: boolean;
+}
+
+/** Normalized compat flags with defaults applied. */
+export interface NormalizedCompat {
+  supportsDeveloperRole: boolean;
+  streamUsage: boolean;
+}
+
+function normalizeCompat(flags?: CompatFlags): NormalizedCompat {
+  return {
+    supportsDeveloperRole: flags?.supportsDeveloperRole === true,
+    streamUsage:
+      flags?.streamUsage === true ||
+      (flags?.streamUsage === undefined && flags?.promptCache === true),
+  };
+}
 
 /**
  * Data-driven model catalog (pi-style): providers are data, wire protocols
@@ -95,7 +118,7 @@ export interface ModelCatalog {
   providers: Record<string, ProviderCatalogEntry>;
 }
 
-/** Fully resolved model info handed to the adapter layer. */
+/** Fully resolved model info handed to the provider layer (PiProvider). */
 export interface ResolvedModelInfo {
   id: string;
   name: string;
@@ -115,7 +138,7 @@ export interface ResolvedModel {
   name: string;
   /** Wire API to use. */
   api: ApiId;
-  /** Effective base URL (undefined = adapter/SDK default). */
+  /** Effective base URL (undefined = the provider/engine default). */
   baseUrl?: string;
   /** Effective API key. */
   apiKey?: string;
