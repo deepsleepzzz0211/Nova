@@ -23,24 +23,39 @@ describe('PermissionDialog options list (tui-refactor 04)', () => {
     const { lastFrame, rerender } = render(
       <PermissionDialog pending={null} displayKind={displayKind} />,
     );
-    expect(lastFrame()).not.toContain('Permission Required');
+    expect(lastFrame()).not.toContain('Approval —');
 
     rerender(<PermissionDialog pending={pending} displayKind={displayKind} />);
-    expect(lastFrame()).toContain('Permission Required');
+    expect(lastFrame()).toContain('Approval —');
     expect(lastFrame()).toContain('bash');
 
     rerender(<PermissionDialog pending={null} displayKind={displayKind} />);
-    expect(lastFrame()).not.toContain('Permission Required');
+    expect(lastFrame()).not.toContain('Approval —');
   });
 
   it('shows the three numbered options and a typed description (no raw JSON)', () => {
     const pending = makePending('bash', JSON.stringify({ command: 'npm test' }));
     const { lastFrame } = render(<PermissionDialog pending={pending} displayKind={displayKind} />);
-    expect(lastFrame()).toContain('1. No');
-    expect(lastFrame()).toContain('2. Yes');
-    expect(lastFrame()).toContain('3. Yes, always (this session)');
+    expect(lastFrame()).toContain('1. Deny');
+    expect(lastFrame()).toContain('2. Allow once');
+    expect(lastFrame()).toContain('3. Allow always (this session)');
     expect(lastFrame()).toContain('npm test'); // typed description
     expect(lastFrame()).not.toContain('{"command"');
+  });
+
+  it('borders the panel with an Approval title and shows reason + key hints', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'npm test' }));
+    const frame = render(<PermissionDialog pending={pending} displayKind={displayKind} />).lastFrame() ?? '';
+    expect(frame).toContain('╭─ ⚠ Approval — bash');
+    expect(frame).toContain('needs your confirmation');
+    expect(frame).toContain('Enter confirm · Esc deny');
+    expect(frame).toContain('> 1. Deny'); // default selection stays the safe option
+  });
+
+  it('dangerous calls mark the title with the block sign', () => {
+    const pending = makePending('bash', JSON.stringify({ command: 'rm -rf /tmp/x' }));
+    const frame = render(<PermissionDialog pending={pending} displayKind={displayKind} />).lastFrame() ?? '';
+    expect(frame).toContain('╭─ ⛔ Approval — bash');
   });
 
   it('number keys pick directly: 2=allow, 1=deny, 3=always', async () => {
@@ -68,7 +83,7 @@ describe('PermissionDialog options list (tui-refactor 04)', () => {
   it('arrows + Enter pick the highlighted option', async () => {
     const pending = makePending('bash', JSON.stringify({ command: 'ls' }));
     const { stdin } = render(<PermissionDialog pending={pending} displayKind={displayKind} />);
-    stdin.write('\x1b[B'); // down: second option (Yes)
+    stdin.write('\x1b[B'); // down: second option (Allow once)
     stdin.write('\r');
     await new Promise((r) => setTimeout(r, 30));
     expect(pending.resolve).toHaveBeenCalledWith('allow');
@@ -97,7 +112,7 @@ describe('PermissionDialog options list (tui-refactor 04)', () => {
     expect(pending.resolve).not.toHaveBeenCalled();
 
     instance.rerender(<PermissionDialog pending={pending} displayKind={displayKind} />);
-    expect(instance.lastFrame()).toContain('Permission Required');
+    expect(instance.lastFrame()).toContain('Approval —');
     instance.unmount();
   });
 });
@@ -107,9 +122,9 @@ describe('PermissionDialog safety (review fixes)', () => {
     const pending = makePending('bash', JSON.stringify({ command: 'rm -rf /tmp/x' }));
     const { lastFrame } = render(<PermissionDialog pending={pending} displayKind={displayKind} />);
     expect(lastFrame()).toContain('Recursive file deletion');
-    expect(lastFrame()).toContain('1. No');
-    expect(lastFrame()).toContain('2. Yes');
-    expect(lastFrame()).not.toContain('3. Yes, always');
+    expect(lastFrame()).toContain('1. Deny');
+    expect(lastFrame()).toContain('2. Allow once');
+    expect(lastFrame()).not.toContain('3. Allow always');
   });
 
   it('selection resets when a new request arrives (no stale always)', async () => {
@@ -121,7 +136,7 @@ describe('PermissionDialog safety (review fixes)', () => {
     stdin.write('\x1b[B'); // down -> option 2
     stdin.write('\x1b[B'); // down -> option 3 (always)
     rerender(<PermissionDialog pending={second} displayKind={displayKind} />); // new request
-    stdin.write('\r'); // Enter must hit option 1 (No), NOT always
+    stdin.write('\r'); // Enter must hit option 1 (Deny), NOT always
     await new Promise((r) => setTimeout(r, 30));
     expect(second.resolve).toHaveBeenCalledWith('deny');
   });
@@ -141,7 +156,7 @@ describe('PermissionDialog safety (review fixes)', () => {
     stdin.write('\x1b[B');
     stdin.write('\r');
     await new Promise((r) => setTimeout(r, 30));
-    // Only No/Yes are visible: Enter resolves allow, never always.
+    // Only Deny/Allow-once are visible: Enter resolves allow, never always.
     expect(pending.resolve).toHaveBeenCalledWith('allow');
   });
 });
