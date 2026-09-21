@@ -1,53 +1,58 @@
 /**
- * Startup header (tui-refactor ticket 10): printed once before the TUI takes
- * over, so it lands in the terminal scrollback and costs nothing afterwards.
- * Pure formatting — the caller supplies what was actually loaded.
+ * Welcome card (tui-redesign ticket 06): replaces the old plain-text startup
+ * header that was printed before Ink took over. The card renders inside the
+ * transcript's static region once — logo, session meta line (carrying the
+ * info the retired top StatusBar used to pin) and one rotating tip. Pure
+ * formatting here; the component just draws it.
  */
-export interface StartupHeaderInfo {
+
+/** Session facts shown on the card's meta line. */
+export interface WelcomeInfo {
   version: string;
   model: string;
   provider?: string;
-  thinkingLevel?: string;
-  /** Context files that were loaded (AGENTS.md, MEMORY.md, …). */
-  contextFiles: string[];
-  /** Loaded skills. */
-  skillNames: string[];
-  /** Configured MCP servers (names only). */
-  mcpServers: string[];
-  /** Working directory. */
   cwd: string;
+  branch?: string | null;
+  mcpCount: number;
 }
 
-/** Key bindings actually implemented by the editor/modal handlers. */
-const HOTKEYS = [
-  'esc interrupt',
-  'ctrl+o tools',
-  'ctrl+c clear/exit',
-  'shift+enter newline',
-  '@ file completion',
-  '/ commands',
-].join(' · ');
+/** What the view needs: logo rows + two muted lines. */
+export interface WelcomeCard {
+  logo: readonly string[];
+  meta: string;
+  tip: string;
+}
 
-/** Render the header as plain lines (no ANSI) for scrollback. */
-export function formatStartupHeader(info: StartupHeaderInfo): string {
-  const lines: string[] = [];
+/** Block-letter NOVA mark (ZCode-style ASCII logo). */
+export const NOVA_LOGO: readonly string[] = [
+  '███╗   ██╗ ██████╗ ██╗   ██╗ █████╗',
+  '████╗  ██║██╔═══██╗██║   ██║██╔══██╗',
+  '██╔██╗ ██║██║   ██║██║   ██║███████║',
+  '██║╚██╗██║██║   ██║╚██╗ ██╔╝██╔══██║',
+  '██║ ╚████║╚██████╔╝ ╚████╔╝ ██║  ██║',
+  '╚═╝  ╚═══╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝',
+];
 
-  const identity = [info.provider ? `${info.provider}/${info.model}` : info.model, info.thinkingLevel ? `thinking ${info.thinkingLevel}` : null]
-    .filter((part): part is string => part !== null && part !== '')
-    .join(' · ');
-  lines.push(`nova ${info.version}${identity ? ` · ${identity}` : ''}`);
-  lines.push(HOTKEYS);
-  lines.push(`cwd ${info.cwd}`);
+/** Tips double as the migrated hotkey documentation (ticket 06). */
+const TIPS: readonly string[] = [
+  'esc interrupts the response · ctrl+o expands the latest tool block',
+  '@ references files · / lists commands · shift+enter adds a newline',
+  '/model switches models · /status shows session info · /undo reverts turns',
+  'ctrl+c clears the input; a second ctrl+c exits',
+];
 
-  if (info.contextFiles.length > 0) {
-    lines.push(`context: ${info.contextFiles.join(', ')}`);
-  }
-  if (info.skillNames.length > 0) {
-    lines.push(`skills (${info.skillNames.length}): ${info.skillNames.join(', ')}`);
-  }
-  if (info.mcpServers.length > 0) {
-    lines.push(`mcp: ${info.mcpServers.join(', ')}`);
-  }
-
-  return lines.join('\n');
+/** Build the card. `seed` rotates the tip deterministically (test seam). */
+export function formatWelcomeCard(info: WelcomeInfo, seed = 0): WelcomeCard {
+  const parts = [
+    `v${info.version}`,
+    info.provider && info.provider !== '' ? `${info.provider}/${info.model}` : info.model,
+    info.branch ? `${info.cwd} (${info.branch})` : info.cwd,
+  ];
+  if (info.mcpCount > 0) parts.push(`${info.mcpCount} MCP`);
+  const tips = TIPS.length;
+  return {
+    logo: NOVA_LOGO,
+    meta: parts.filter((p) => p !== '').join(' · '),
+    tip: TIPS[((seed % tips) + tips) % tips],
+  };
 }

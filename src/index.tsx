@@ -15,7 +15,7 @@ import { loadModelCatalogWithEngine, resolveModel, describeModels, parseModelSpe
 import { PiaiEngine } from './llm/piai-engine.js';
 import { PiProvider } from './llm/providers/piai.js';
 import { readGitBranch } from './tui/git-branch.js';
-import { formatStartupHeader } from './tui/header.js';
+import { formatWelcomeCard } from './tui/header.js';
 import type { LLMProvider } from './llm/provider.js';
 import type { Message } from './llm/types.js';
 import { ToolRegistry } from './tools/registry.js';
@@ -430,27 +430,38 @@ async function main(): Promise<void> {
     }
   }
 
-  // Startup header: printed ONCE before Ink takes over, so it lands in the
-  // terminal scrollback and never costs a re-render (ticket 10). Disabled by
-  // --no-header; print mode has no header.
-  if (values['no-header'] !== true) {
-    const skills = skillRegistry.findAll().map((skill) => skill.name);
-    const contextFiles: string[] = [];
-    if (projectInstructions !== undefined) contextFiles.push('AGENTS.md');
-    if (memory !== undefined && memory.trim() !== '') contextFiles.push('MEMORY.md');
-    process.stdout.write(
-      formatStartupHeader({
-        version: __NOVA_VERSION__,
-        model: resolution.model.id,
-        provider: resolution.name,
-        thinkingLevel: config.agent.thinkingLevel,
-        contextFiles,
-        skillNames: skills,
-        mcpServers: config.mcpServers.map((server) => server.name),
-        cwd: projectDir,
-      }) + '\n\n',
-    );
+  // Welcome card (tui-redesign 06): rendered INSIDE the transcript (first
+  // static item) instead of the old pre-Ink stdout header. Diagnostics about
+  // what was loaded go to stderr (stdout is UI-owned now). --no-header hides
+  // the card too.
+  const skills = skillRegistry.findAll().map((skill) => skill.name);
+  const contextFiles: string[] = [];
+  if (projectInstructions !== undefined) contextFiles.push('AGENTS.md');
+  if (memory !== undefined && memory.trim() !== '') contextFiles.push('MEMORY.md');
+  {
+    const loaded = [
+      contextFiles.length > 0 ? `context: ${contextFiles.join(', ')}` : null,
+      skills.length > 0 ? `skills (${skills.length}): ${skills.join(', ')}` : null,
+      config.mcpServers.length > 0
+        ? `mcp: ${config.mcpServers.map((server) => server.name).join(', ')}`
+        : null,
+    ].filter((line): line is string => line !== null);
+    if (loaded.length > 0) process.stderr.write(`[session] ${loaded.join(' · ')}\n`);
   }
+  const welcome =
+    values['no-header'] === true
+      ? undefined
+      : formatWelcomeCard(
+          {
+            version: __NOVA_VERSION__,
+            model: resolution.model.id,
+            provider: resolution.name,
+            cwd: projectDir,
+            branch: readGitBranch(projectDir),
+            mcpCount: mcpConnectionCount,
+          },
+          Math.floor(Date.now() / 60_000),
+        );
 
   // Render TUI. Ink disables interactive mode when it detects CI (see
   // is-in-ci) or a non-TTY stdout, which is right for real users but makes
@@ -504,6 +515,7 @@ async function main(): Promise<void> {
       todoState={todoState}
       mcpConnectionCount={mcpConnectionCount}
       gitBranch={readGitBranch(process.cwd())}
+      welcome={welcome}
       fullscreen={fullscreen}
     />,
     fullscreen

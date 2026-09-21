@@ -7,6 +7,7 @@ import { partitionMessages } from './message-partition.js';
 import { viewportSlice } from './viewport.js';
 import { findMatches } from './fullscreen-input.js';
 import { theme } from './theme.js';
+import type { WelcomeCard } from './header.js';
 
 /** Props for the ChatView component. */
 export interface ChatViewProps {
@@ -39,6 +40,12 @@ export interface ChatViewProps {
    * and a header reports the current hit.
    */
   search?: { query: string; index: number };
+  /**
+   * Welcome card (tui-redesign 06): printed once as the first static item,
+   * scrolling into history like any completed message. In fullscreen (which
+   * windows the transcript instead) it shows while the conversation is empty.
+   */
+  welcome?: WelcomeCard;
 }
 
 /**
@@ -55,6 +62,7 @@ export function ChatView({
   renderProbe,
   viewport,
   search,
+  welcome,
 }: ChatViewProps): React.ReactElement {
   // Search narrows the transcript to matching messages (ticket 13).
   const searchMatches = search !== undefined ? findMatches(messages, search.query) : [];
@@ -79,7 +87,13 @@ export function ChatView({
         })
       : null;
   const visibleMessages = windowed?.messages ?? baseMessages;
-  const { staticItems, liveItems } = partitionMessages(visibleMessages);
+  const { staticItems: staticMessages, liveItems } = partitionMessages(visibleMessages);
+  // Static list is a small union so the welcome card can lead it.
+  type StaticItem = { kind: 'msg'; message: DisplayMessage } | { kind: 'welcome'; card: WelcomeCard };
+  const staticItems: StaticItem[] = [
+    ...(welcome !== undefined ? [{ kind: 'welcome', card: welcome } as const] : []),
+    ...staticMessages.map((message) => ({ kind: 'msg', message }) as const),
+  ];
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -101,14 +115,18 @@ export function ChatView({
       )}
       {/* Fullscreen windows the conversation itself, so Static (append-only)
           is skipped there; the regular mode still writes each completed
-          message once. */}
+          message once. The welcome card leads the static list so it scrolls
+          into history as the transcript grows (tui-redesign 06). */}
       <Static key={staticEpoch} items={windowed !== null ? [] : staticItems}>
         {(msg, index) => {
-          renderProbe?.('static', msg);
+          if (msg.kind === 'welcome') {
+            return <WelcomeCardView key="welcome" card={msg.card} />;
+          }
+          renderProbe?.('static', msg.message);
           return (
             <MessageBubble
               key={index}
-              message={msg}
+              message={msg.message}
               expandedToolIds={expandedToolIds}
               displayKind={displayKind}
             />
@@ -126,7 +144,12 @@ export function ChatView({
           />
         );
       })}
-      {messages.length === 0 && (
+      {/* Fullscreen has no static region: the card shows in the empty state
+          and disappears once the conversation starts (ZCode behaviour). */}
+      {windowed !== null && messages.length === 0 && welcome !== undefined && (
+        <WelcomeCardView card={welcome} />
+      )}
+      {messages.length === 0 && welcome === undefined && (
         <Box paddingY={1}>
           <Box paddingLeft={2}>
             <Text color={theme.muted} dimColor>
@@ -135,6 +158,19 @@ export function ChatView({
           </Box>
         </Box>
       )}
+    </Box>
+  );
+}
+
+/** Logo + meta + tip lines of the welcome card (tui-redesign ticket 06). */
+function WelcomeCardView({ card }: { card: WelcomeCard }): React.ReactElement {
+  return (
+    <Box flexDirection="column" paddingBottom={1}>
+      {card.logo.map((row, i) => (
+        <Text key={i} color={theme.primary}>{row}</Text>
+      ))}
+      <Text color={theme.muted} dimColor>{card.meta}</Text>
+      <Text color={theme.muted} dimColor>{`Tip: ${card.tip}`}</Text>
     </Box>
   );
 }

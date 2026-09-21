@@ -109,6 +109,21 @@ describe('ChatView static partition (tui-refactor 08)', () => {
     expect(instance.lastFrame()).toContain('Welcome to Nova');
     instance.unmount();
   });
+
+  it('welcome card leads the transcript and survives the first message (tui-redesign 06)', () => {
+    const welcome = { logo: ['NOVA', 'LOGO'], meta: 'v9.9.9 · p/m · /w', tip: 'esc interrupts' };
+    const instance = render(<ChatView messages={[]} displayKind={staticKind} welcome={welcome} />);
+    expect(instance.lastFrame()).toContain('NOVA');
+    expect(instance.lastFrame()).toContain('v9.9.9 · p/m · /w');
+    expect(instance.lastFrame()).toContain('Tip: esc interrupts');
+    expect(instance.lastFrame()).not.toContain('Welcome to Nova');
+
+    instance.rerender(<ChatView messages={[user('hi')]} displayKind={staticKind} welcome={welcome} />);
+    // The card is part of the static region: still present, above the chat.
+    const frame = instance.lastFrame() ?? '';
+    expect(frame.indexOf('NOVA')).toBeLessThan(frame.indexOf('hi'));
+    instance.unmount();
+  });
 });
 
 describe('memoised presentation components (tui-refactor 08)', () => {

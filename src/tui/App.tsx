@@ -24,6 +24,7 @@ import {
 } from './fullscreen-input.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
 import { StatusLine } from './StatusLine.js';
+import type { WelcomeCard } from './header.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
 import { PermissionDialog } from './PermissionDialog.js';
@@ -45,8 +46,10 @@ export interface AppProps {
   fullscreen?: boolean;
   /** Shared todo state maintained by the todo_write tool (UI view). */
   todoState?: TodoState;
+  /** Welcome card drawn as the first transcript item (tui-redesign 06). */
+  welcome?: WelcomeCard;
 }
-export function App({ agent, fullscreen, todoState }: AppProps): React.ReactElement {
+export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
   const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
 
@@ -177,6 +180,7 @@ export function App({ agent, fullscreen, todoState }: AppProps): React.ReactElem
             : undefined
         }
         search={search === null ? undefined : { query: search.query, index: search.index }}
+        welcome={welcome}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
