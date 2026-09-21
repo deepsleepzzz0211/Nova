@@ -1,4 +1,5 @@
 import type { ToolDisplay } from '../tools/types.js';
+import { truncateToWidth } from './text-measure.js';
 /**
  * Pure helpers for tool-call display (tui-refactor ticket 05): spinner
  * frames, typed one-line summaries, and output folding. No Ink/React.
@@ -78,9 +79,9 @@ export function formatArgs(argsJson: string, parsed: Record<string, unknown> | n
   return parsed === null ? argsJson : JSON.stringify(parsed, null, 2);
 }
 
-/** Cap a display string (shared with permission-display). */
+/** Cap a display string at SUMMARY_CAP TERMINAL COLUMNS (shared with permission-display). */
 export function cap(s: string): string {
-  return s.length > SUMMARY_CAP ? s.slice(0, SUMMARY_CAP) + '...' : s;
+  return truncateToWidth(s, SUMMARY_CAP, '...');
 }
 
 export interface FoldedLines {

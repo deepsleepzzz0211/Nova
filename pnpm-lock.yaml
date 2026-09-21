@@ -44,6 +44,9 @@ importers:
       smol-toml:
         specifier: ^1.8.0
         version: 1.8.0
+      string-width:
+        specifier: ^8.2.2
+        version: 8.2.2
       tiktoken:
         specifier: ^1.0.22
         version: 1.0.22

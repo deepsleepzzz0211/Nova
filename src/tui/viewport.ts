@@ -1,4 +1,5 @@
 import type { DisplayMessage } from './display-types.js';
+import { wrappedLineCount } from './text-measure.js';
 
 /**
  * Fullscreen viewport (tui-refactor ticket 12): which slice of the
@@ -42,10 +43,11 @@ export function estimateMessageLines(
   let lines = 0;
 
   if (message.thinking !== undefined && message.thinking !== '') {
-    lines += Math.ceil(message.thinking.length / width) + 1; // + dim marker line
+    // + dim marker line; wrapped counts display columns (CJK/emoji = 2)
+    lines += wrappedLineCount(message.thinking, width) + 1;
   }
   if (message.content !== '') {
-    lines += Math.max(1, Math.ceil(message.content.length / width));
+    lines += wrappedLineCount(message.content, width);
   }
   for (const call of message.toolCalls ?? []) {
     lines += 1; // summary line
