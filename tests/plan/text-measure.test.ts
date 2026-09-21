@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { displayWidth, wrappedLineCount, truncateToWidth } from '../../src/tui/text-measure.js';
-import { estimateMessageLines } from '../../src/tui/viewport.js';
+import { displayWidth, wrappedLineCount, truncateToWidth, padToWidth } from '../../src/tui/text-measure.js';
+import { estimateMessageLines, viewportSlice } from '../../src/tui/viewport.js';
+import { getCachedBlocks } from '../../src/tui/markdown.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
 
 /**
@@ -9,6 +10,10 @@ import type { DisplayMessage } from '../../src/tui/display-types.js';
  * making the fullscreen transcript jitter between estimated and rendered
  * heights.
  */
+
+function msg(content: string, over: Partial<DisplayMessage> = {}): DisplayMessage {
+  return { role: 'assistant', content, ...over } as DisplayMessage;
+}
 
 describe('displayWidth', () => {
   it('counts ascii as one column, CJK as two', () => {
@@ -56,12 +61,6 @@ describe('truncateToWidth', () => {
 });
 
 describe('viewport estimation uses display columns', () => {
-  const msg = (content: string, over: Partial<DisplayMessage> = {}): DisplayMessage => ({
-    id: 'm1',
-    role: 'assistant',
-    content,
-    ...over,
-  } as DisplayMessage);
 
   it('CJK-heavy messages estimate MORE lines than naive char/width math', () => {
     const cjk = '你'.repeat(24); // 48 columns
@@ -79,5 +78,62 @@ describe('viewport estimation uses display columns', () => {
     const lines = estimateMessageLines(m, { width: 80 });
     // thinking: 3 wrapped lines + 1 marker line; content: 1
     expect(lines).toBe(5);
+  });
+});
+
+describe('layout consumes real terminal width', () => {
+  it('a narrow viewport yields MORE estimated lines than the 80-col default', () => {
+    const body = 'word '.repeat(60); // 300 latin chars
+    const m = msg(body);
+    const wide = estimateMessageLines(m, { width: 100 });
+    const narrow = estimateMessageLines(m, { width: 40 });
+    expect(narrow).toBeGreaterThan(wide);
+  });
+
+  it('viewportSlice honors the width option when choosing the window', () => {
+    const body = '你'.repeat(120); // 240 columns of CJK
+    const messages = [msg(body), msg('second'), msg('third')];
+    const wide = viewportSlice(messages, { rows: 4, offset: 0, width: 120 });
+    const narrow = viewportSlice(messages, { rows: 4, offset: 0, width: 30 });
+    // Same row budget: the narrow terminal fits fewer messages.
+    expect(narrow.messages.length).toBeLessThanOrEqual(wide.messages.length);
+    expect(narrow.hiddenAbove).toBeGreaterThanOrEqual(wide.hiddenAbove);
+  });
+});
+
+describe('markdown tables align by display columns', () => {
+  it('CJK cells pad to equal display width so the | borders line up', () => {
+    const md = [
+      '| 名称 | 数量 |',
+      '| --- | --- |',
+      '| 你好世界 | 3 |',
+      '| ab | 10 |',
+    ].join('\n');
+    const blocks = getCachedBlocks(md);
+    const table = blocks.find((b): b is { kind: 'table'; rows: string[][] } => b.kind === 'table');
+    expect(table).toBeDefined();
+    const rows = table!.rows;
+    // Every row's first column is the same number of terminal columns.
+    const firstColWidths = rows.map((r) => displayWidth(r[0] ?? ''));
+    expect(new Set(firstColWidths).size).toBe(1);
+  });
+});
+
+describe('grapheme safety', () => {
+  it('does not split an emoji ZWJ sequence when truncating', () => {
+    const cluster = '👩‍💻'; // one grapheme (person + ZWJ + laptop)
+    const cut = truncateToWidth(`${cluster}${cluster} tail`, 4);
+    // Whatever survives must be whole clusters, never a lone half-cluster
+    // (a trailing ZWJ or isolated surrogate).
+    expect(displayWidth(cut)).toBeLessThanOrEqual(4);
+    const kept = cut.endsWith('…') ? cut.slice(0, -1) : cut;
+    // The kept prefix, with every whole cluster removed, must be empty —
+    // proving no partial cluster (dangling ZWJ / lone surrogate) leaked in.
+    expect(kept.split(cluster).join('')).toBe('');
+  });
+
+  it('padToWidth reaches the target columns exactly', () => {
+    expect(displayWidth(padToWidth('你好', 8))).toBe(8);
+    expect(padToWidth('already long enough', 5)).toBe('already long enough');
   });
 });

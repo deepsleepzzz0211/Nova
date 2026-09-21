@@ -52,7 +52,8 @@ export function estimateMessageLines(
   for (const call of message.toolCalls ?? []) {
     lines += 1; // summary line
     if (options.expanded === true && call.result !== undefined) {
-      const resultLines = call.result.split('\n').length;
+      // Wrapped row count of the result body (same column math as the rest).
+      const resultLines = wrappedLineCount(call.result, width);
       lines += 1 + Math.min(resultLines, 20); // + "Result:" and its fold cap
     }
   }

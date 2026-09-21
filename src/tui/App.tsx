@@ -185,7 +185,15 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
         expandedToolIds={expandedToolIds}
         displayKind={displayKind}
         staticEpoch={staticEpoch}
-        viewport={fullscreen ? { scrollOffset, terminalRows: process.stdout.rows ?? 30 } : undefined}
+        viewport={
+          fullscreen
+            ? {
+                scrollOffset,
+                terminalRows: process.stdout.rows ?? 30,
+                terminalWidth: process.stdout.columns,
+              }
+            : undefined
+        }
         search={search === null ? undefined : { query: search.query, index: search.index }}
       />
 
