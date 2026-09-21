@@ -175,17 +175,9 @@ function padColumns(rows: string[][]): string[][] {
   return rows.map((row) => widths.map((w, c) => padToWidth(row[c] ?? '', w)));
 }
 
-/** Inline markdown markers stripped to plain text for terminal display. */
-export function inlineText(raw: string): string {
-  return raw
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
-    .replace(/(^|\s)_([^_]+)_/g, '$1$2')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '');
-}
+/** Inline marker stripping + code-span parts live in markdown-inline.js
+ * (tui-redesign 07); re-exported so existing imports keep working. */
+export { inlineText, inlineParts, type InlinePart } from './markdown-inline.js';
 
 /** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {

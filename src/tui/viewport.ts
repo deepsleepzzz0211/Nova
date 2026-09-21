@@ -42,12 +42,18 @@ export function estimateMessageLines(
   const width = options.width ?? DEFAULT_WIDTH;
   let lines = 0;
 
-  if (message.thinking !== undefined && message.thinking !== '') {
-    // + dim marker line; wrapped counts display columns (CJK/emoji = 2)
-    lines += wrappedLineCount(message.thinking, width) + 1;
-  }
-  if (message.content !== '') {
-    lines += wrappedLineCount(message.content, width);
+  if (message.role === 'user') {
+    // Band (tui-redesign 07): paddingX 1 narrows the wrap, paddingY adds a
+    // blank row above and below.
+    lines += wrappedLineCount(message.content, Math.max(8, width - 2)) + 2;
+  } else {
+    if (message.thinking !== undefined && message.thinking !== '') {
+      // + dim marker line; wrapped counts display columns (CJK/emoji = 2)
+      lines += wrappedLineCount(message.thinking, width) + 1;
+    }
+    if (message.content !== '') {
+      lines += wrappedLineCount(message.content, width);
+    }
   }
   for (const call of message.toolCalls ?? []) {
     lines += 1; // summary line

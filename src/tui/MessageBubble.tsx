@@ -1,9 +1,10 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import type { DisplayMessage } from './display-types.js';
 import { MarkdownText } from './MarkdownText.js';
 import type { DisplayKindResolver } from './tool-summary.js';
 import { groupToolCalls } from './tool-summary.js';
+import { decoratedContextNotice } from './notice-line.js';
 import { ToolCallView, ToolGroupRow } from './ToolCallView.js';
 import { theme } from './theme.js';
 
@@ -20,25 +21,33 @@ export interface MessageBubbleProps {
 /**
  * Renders a single chat message.
  *
- * - User messages: blue, prefixed with "> "
+ * - User messages: full-width background band (tui-redesign 07)
  * - Assistant messages: white, rendered with MarkdownText
  * - Tool calls: embedded ToolCallView components
  */
 function MessageBubbleImpl({ message, expandedToolIds, displayKind }: MessageBubbleProps): React.ReactElement {
+  const { stdout } = useStdout();
   if (message.role === 'user') {
+    // Full-width background band, no "> " prefix (tui-redesign 07).
     return (
       <Box flexDirection="column" marginY={0}>
-        <Box>
-          <Text color={theme.userMessage} bold>{'> '}</Text>
+        <Box width="100%" backgroundColor={theme.userBand} paddingX={1} paddingY={1}>
           <Text color={theme.userMessage}>{message.content}</Text>
         </Box>
       </Box>
     );
   }
 
-  // Reasoning stream (dim, italic, above the visible content)
   // System notices (compaction, etc.)
   if (message.role === 'system') {
+    const rule = decoratedContextNotice(message.content, stdout.columns ?? 80);
+    if (rule !== null) {
+      return (
+        <Box marginY={0}>
+          <Text color={theme.systemNotice} dimColor>{rule}</Text>
+        </Box>
+      );
+    }
     return (
       <Box marginY={0} paddingLeft={2}>
         <Text color={theme.systemNotice} dimColor italic>{message.content}</Text>
