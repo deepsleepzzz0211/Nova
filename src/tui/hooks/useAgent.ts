@@ -17,6 +17,9 @@ import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../pe
 import { parseToolArgs } from '../tool-summary.js';
 import { findCommand } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
+import { formatStatusReport } from '../status-format.js';
+import { modeGate, nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
+import { toolVerb } from '../tool-summary.js';
 
 // UI display types live in a neutral module so the command/context layers
 // can use them without importing React hooks (tui-refactor ticket 15 fixes).
@@ -24,9 +27,10 @@ import type {
   DisplayMessage,
   DisplayToolCall,
   DisplayModelInfo,
+  CacheStatsView,
 } from '../display-types.js';
 
-export type { DisplayMessage, DisplayToolCall, DisplayModelInfo } from '../display-types.js';
+export type { DisplayMessage, DisplayToolCall, DisplayModelInfo, CacheStatsView } from '../display-types.js';
 
 /** Pending permission request awaiting user decision. */
 export interface PendingPermission {
@@ -76,6 +80,8 @@ export interface UseAgentConfig {
   streamIdleTimeoutMs?: number;
   /** Unified thinking level for reasoning-capable models. */
   thinkingLevel?: ThinkingLevel;
+  /** Extra pre-rendered lines for the /status report (cwd/branch, MCP count). */
+  statusExtras?: () => string[];
   /** List models for the /model command (returns display text). */
   listModels?: () => string;
   /** Resolve a /model <spec> switch (loop application happens here). */
@@ -90,21 +96,7 @@ export interface UseAgentConfig {
   maxToolRounds: number;
 }
 
-/** Cache usage summary shown in the status bar (pi-style R/W/CH). */
-export interface CacheStatsView {
-  hitRate: number;
-  latestHitRate: number;
-  totalCachedTokens: number;
-  totalCacheWriteTokens: number;
-  /** Total prompt tokens seen this session (footer ↑). */
-  totalInputTokens: number;
-  /** Total completion tokens seen this session (footer ↓). */
-  totalOutputTokens: number;
-  /** Real context size in tokens (from the context manager). */
-  contextTokens: number;
-  /** Token budget at which automatic compaction triggers. */
-  contextTriggerTokens?: number;
-}
+// CacheStatsView moved to display-types (tui-redesign review: break formatter cycle)
 
 /** Return type of the useAgent hook. */
 export interface UseAgentResult {
@@ -112,6 +104,9 @@ export interface UseAgentResult {
   isStreaming: boolean;
   /** Whether the model is emitting reasoning (thinking) deltas. */
   isThinking: boolean;
+  /** Shift+Tab approval mode + its cycle entry point (tui-redesign 10). */
+  approvalMode: ApprovalModeId;
+  cycleApprovalMode: () => ApprovalModeId;
   /** Conversation epoch for the static region (bumped on wholesale replace). */
   staticEpoch: number;
   sendMessage: (input: string) => void;
@@ -160,11 +155,45 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
 
   // Ref to track the current assistant message being built during streaming
   const [isThinking, setIsThinking] = useState(false);
+  // Shift+Tab approval mode (tui-redesign 10): state for the badge, ref for
+  // the async permission callback which must read the LATEST value.
+  const [approvalMode, setApprovalMode] = useState<ApprovalModeId>('default');
+  const approvalModeRef = useRef<ApprovalModeId>('default');
+  const cycleApprovalMode = (): ApprovalModeId => {
+    const next = nextApprovalMode(approvalModeRef.current);
+    approvalModeRef.current = next;
+    setApprovalMode(next);
+    return next;
+  };
   // Bumped whenever the displayed conversation is replaced wholesale (/undo):
   // Ink's static region is append-only and must be remounted to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
-  const currentAssistantRef = useRef<{ content: string; toolCalls: DisplayToolCall[]; thinking: string } | null>(null);
+  const currentAssistantRef = useRef<{
+    content: string;
+    toolCalls: DisplayToolCall[];
+    thinking: string;
+    /** Thought timing for the `– Thought 4.2s` header (tui-redesign 09). */
+    thinkingStartedAtMs?: number;
+    thinkingEndedAtMs?: number;
+  } | null>(null);
   const loopRef = useRef<AgentLoop | null>(null);
+
+  /** One assistant-message snapshot (shared by batcher and event paths). */
+  const assistantSnapshot = (
+    cur: NonNullable<typeof currentAssistantRef.current>,
+  ): DisplayMessage => {
+    let thinkingSeconds: number | undefined;
+    if (cur.thinking !== '' && cur.thinkingStartedAtMs !== undefined && cur.thinkingEndedAtMs !== undefined) {
+      thinkingSeconds = Math.max(0, (cur.thinkingEndedAtMs - cur.thinkingStartedAtMs) / 1000);
+    }
+    return {
+      role: 'assistant' as const,
+      content: cur.content,
+      toolCalls: [...cur.toolCalls],
+      thinking: cur.thinking || undefined,
+      ...(thinkingSeconds === undefined ? {} : { thinkingSeconds }),
+    };
+  };
 
   // Token coalescing (streaming ticket 06): stream deltas mutate the ref;
   // at most one setState per window keeps long sessions from degrading.
@@ -176,12 +205,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // ref reset to null (crash: reading 'content' of null).
       const cur = currentAssistantRef.current;
       if (cur === null) return;
-      const snap: DisplayMessage = {
-        role: 'assistant',
-        content: cur.content,
-        toolCalls: [...cur.toolCalls],
-        thinking: cur.thinking || undefined,
-      };
+      const snap: DisplayMessage = assistantSnapshot(cur);
       setMessages((prev) => withAssistantSnapshot(prev, snap));
     }, 32);
   }
@@ -190,12 +214,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   // Create the AgentLoop once
   if (loopRef.current === null) {
     /** Immutable snapshot of the in-flight assistant message. */
-    const snapshot = (): DisplayMessage => ({
-      role: 'assistant' as const,
-      content: currentAssistantRef.current!.content,
-      toolCalls: [...currentAssistantRef.current!.toolCalls],
-      thinking: currentAssistantRef.current!.thinking || undefined,
-    });
+    const snapshot = (): DisplayMessage => assistantSnapshot(currentAssistantRef.current!);
 
     /**
      * Replace the trailing assistant message with `snap`. The snapshot is
@@ -211,6 +230,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
+      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
+        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
+      }
       currentAssistantRef.current.content += token;
       batcher.schedule();
     };
@@ -220,6 +242,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
+      if (currentAssistantRef.current.thinkingStartedAtMs === undefined) {
+        currentAssistantRef.current.thinkingStartedAtMs = Date.now();
+      }
       currentAssistantRef.current.thinking += delta;
       batcher.schedule();
     };
@@ -228,11 +253,15 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       if (!currentAssistantRef.current) {
         currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
       }
+      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
+        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
+      }
       const displayCall: DisplayToolCall = {
         id: call.id,
         name: call.function.name,
         arguments: call.function.arguments,
         status: 'running',
+        startedAtMs: Date.now(),
       };
       currentAssistantRef.current.toolCalls.push(displayCall);
       commitAssistant(snapshot());
@@ -260,6 +289,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           ...calls[index],
           status: result.isError ? 'error' : 'done',
           result: result.content,
+          endedAtMs: Date.now(),
         };
       }
       commitAssistant(snapshot());
@@ -280,7 +310,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     };
 
     const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
-      patchToolCall(callId, { status });
+      // A run that starts (or restarts after a permission wait) re-baselines
+      // its start time, so the row duration never counts user think-time.
+      patchToolCall(callId, status === 'running' ? { status, startedAtMs: Date.now() } : { status });
     };
 
     // Session-scoped always-allow rules (ticket 04): matching calls are
@@ -294,9 +326,29 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       // Ticket 05: show the awaiting-permission state on the tool block.
       setToolCallStatus(call.id, 'pending');
       const args = parseToolArgs(call.function.arguments);
+      const dangerous = dangerReason(call.function.name, args, kindOf) !== null;
+      // Shift+Tab approval modes (tui-redesign 10): acceptEdits lets plain
+      // file edits through, plan denies every writing tool. Dangerous calls
+      // always reach a human either way.
+      const gate = modeGate(approvalModeRef.current, toolClassOf(kindOf(call.function.name)), dangerous);
+      if (gate === 'allow') {
+        setToolCallStatus(call.id, 'running');
+        return Promise.resolve(true);
+      }
+      if (gate === 'deny') {
+        setToolCallStatus(call.id, 'running');
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system' as const,
+            content: `[plan mode] ${toolVerb(call.function.name)} blocked — shift+tab switches approval modes`,
+          },
+        ]);
+        return Promise.resolve(false);
+      }
       // Dangerous calls are never session-whitelisted: always-rules must
       // not short-circuit the dialog for them (review finding).
-      if (dangerReason(call.function.name, args, kindOf) === null && alwaysRules.matches(call.function.name, args, kindOf)) {
+      if (!dangerous && alwaysRules.matches(call.function.name, args, kindOf)) {
         setToolCallStatus(call.id, 'running');
         return Promise.resolve(true);
       }
@@ -304,7 +356,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setPendingPermission({
           call,
           resolve: (decision: PermissionDecision) => {
-            if (decision === 'always' && dangerReason(call.function.name, args, kindOf) === null) {
+            if (decision === 'always' && !dangerous) {
               alwaysRules.add(call.function.name, args, kindOf);
             }
             setToolCallStatus(call.id, 'running');
@@ -385,7 +437,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   }
 
   // Wire the subagent progress sink once mounted (index.tsx feeds events
-  // from the spawner): tool activity → a live StatusBar line, start/end →
+  // from the spawner): tool activity → a live StatusLine line, start/end →
   // system messages.
   const [subagentActivity, setSubagentActivity] = useState<string | null>(null);
   useEffect(() => {
@@ -445,6 +497,17 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         onConversationReplaced: () => setStaticEpoch((n) => n + 1),
         setModelInfo,
         runUpdate: runNpmUpdate,
+        buildStatusReport: () =>
+          formatStatusReport({
+            providerName: modelInfo.providerName,
+            model: modelInfo.model,
+            thinkingLevel: config.thinkingLevel,
+            contextWindow: modelInfo.contextWindow,
+            contextStrategy: config.contextStrategy,
+            cacheStats,
+            modelCost: modelInfo.cost,
+            extras: config.statusExtras?.(),
+          }),
       });
       const echoLine =
         found.args === '' ? `/${found.command.name}` : `/${found.command.name} ${found.args}`;
@@ -498,6 +561,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     messages,
     isStreaming,
     isThinking,
+    approvalMode,
+    cycleApprovalMode,
     staticEpoch,
     sendMessage,
     interrupt: () => loopRef.current?.interrupt(),

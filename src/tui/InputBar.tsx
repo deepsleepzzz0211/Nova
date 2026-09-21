@@ -30,6 +30,8 @@ import {
   type CompletionItem,
 } from './completion-controller.js';
 import { theme } from './theme.js';
+import { workingBorderColor } from './status-format.js';
+import { TitledFrame } from './TitledFrame.js';
 
 /** Props for the InputBar component. */
 export interface InputBarProps {
@@ -53,6 +55,8 @@ export interface InputBarProps {
   onExit?: () => void;
   /** Root directory for @ file completions (defaults to cwd; test seam). */
   fileIndexRoot?: string;
+  /** Model info for the inner status row (tui-redesign ticket 03). */
+  modelInfo?: { providerName?: string; model: string; thinkingLevel?: string };
 }
 
 /**
@@ -74,6 +78,7 @@ export function InputBar({
   disabled,
   onExit,
   fileIndexRoot,
+  modelInfo,
 }: InputBarProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>(createEditorState);
   // Mirror of the editor state, updated synchronously by `update`. Handlers
@@ -203,7 +208,8 @@ export function InputBar({
       update(deleteForward);
       return;
     }
-    if (key.tab) {
+    // Shift+Tab belongs to the approval-mode cycle (App), not to accept.
+    if (key.tab && !key.shift) {
       if (completionController.current !== undefined) acceptCompletion();
       return;
     }
@@ -242,6 +248,7 @@ export function InputBar({
       editor={editor}
       workingState={workingState ?? (isStreaming ? 'streaming' : 'idle')}
       completion={completion}
+      modelInfo={modelInfo}
       onSelect={(i) => completionController.select(i)}
     />
   );
@@ -252,28 +259,27 @@ function EditorView({
   editor,
   workingState,
   completion,
+  modelInfo,
   onSelect,
 }: {
   editor: EditorState;
   workingState: 'idle' | 'streaming' | 'thinking';
   completion: ActiveCompletion | undefined;
+  modelInfo?: { providerName?: string; model: string; thinkingLevel?: string };
   onSelect: (index: number) => void;
 }): React.ReactElement {
   const lines = editor.text.split('\n');
   const cursorRow = cursorLine(editor);
   const cursorCol = cursorColumn(editor);
   // Working indicator: the editor border doubles as the activity light
-  // (tui-refactor ticket 09, pi-style).
-  const borderColor =
-    workingState === 'thinking' ? 'magenta' : workingState === 'streaming' ? 'yellow' : 'cyan';
+  // (tui-refactor ticket 09, pi-style; single source: workingBorderColor).
+  const borderColor = workingBorderColor(workingState);
 
   return (
-    <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column">
+    <TitledFrame title="Input" color={borderColor}>
       {editor.text.length === 0 ? (
         <Text color={theme.muted} dimColor>
-          {workingState !== 'idle'
-            ? '(working… — you can still type)'
-            : 'Type a message... (Shift+Enter for newline)'}
+          {workingState !== 'idle' ? '(working… — you can still type)' : 'Type a prompt'}
         </Text>
       ) : (
         lines.map((line, row) => {
@@ -298,13 +304,29 @@ function EditorView({
         <Box flexDirection="column" marginTop={0}>
           {completion.items.map((item: CompletionItem, i: number) => (
             <Box key={item.label} paddingLeft={1}>
-              <Text inverse={i === completion.index} color={i === completion.index ? theme.primary : theme.muted}>
-                {item.label}
+              <Text
+                inverse={i === completion.index}
+                color={i === completion.index ? theme.primary : theme.muted}
+              >
+                {`${i === completion.index ? '> ' : '  '}${item.label}`}
               </Text>
             </Box>
           ))}
         </Box>
       )}
-    </Box>
+      {modelInfo && (
+        <Box justifyContent="space-between">
+          <Text color={theme.muted} dimColor>
+            {modelInfo.providerName ? `${modelInfo.providerName}/${modelInfo.model}` : modelInfo.model}
+          </Text>
+          {modelInfo.thinkingLevel && (
+            <Text>
+              <Text color={theme.muted} dimColor>{'thought: '}</Text>
+              <Text color={theme.warning}>{modelInfo.thinkingLevel}</Text>
+            </Text>
+          )}
+        </Box>
+      )}
+    </TitledFrame>
   );
 }

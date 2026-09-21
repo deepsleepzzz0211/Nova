@@ -73,11 +73,12 @@ describe('viewport estimation uses display columns', () => {
     expect(latinLines).toBe(2);
   });
 
-  it('multiline thinking contributes its own rows', () => {
+  it('thinking counts one collapsed header row, plus its body when expanded', () => {
     const m = msg('answer', { thinking: 'think\nthink\nthink' });
-    const lines = estimateMessageLines(m, { width: 80 });
-    // thinking: 3 wrapped lines + 1 marker line; content: 1
-    expect(lines).toBe(5);
+    // Collapsed (tui-redesign 09 default): 1 header + 1 content.
+    expect(estimateMessageLines(m, { width: 80 })).toBe(2);
+    // Expanded: 3 wrapped thinking rows + header + content.
+    expect(estimateMessageLines(m, { width: 80, thinkingExpanded: true })).toBe(5);
   });
 });
 

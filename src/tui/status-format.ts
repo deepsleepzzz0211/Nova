@@ -1,5 +1,6 @@
 import { theme } from './theme.js';
 import type { ModelCost } from '../llm/catalog.js';
+import type { CacheStatsView } from './display-types.js';
 
 /**
  * Pure formatting helpers for the status footer (tui-refactor ticket 09):
@@ -54,14 +55,14 @@ export function estimateCostUsd(usage: UsageTotals, cost: ModelCost | undefined)
   );
 }
 
-/** Context-usage percentage plus its warning color. */
+/** Context-usage percentage plus its warning color (theme token). */
 export function contextUsage(
   tokens: number,
   contextWindow: number,
-): { percent: number; color: 'gray' | 'yellow' | 'red' } {
-  if (contextWindow <= 0) return { percent: 0, color: 'gray' };
+): { percent: number; color: string } {
+  if (contextWindow <= 0) return { percent: 0, color: theme.muted };
   const percent = Math.min(100, Math.max(0, Math.round((tokens / contextWindow) * 100)));
-  const color = percent >= 85 ? 'red' : percent >= 60 ? 'yellow' : 'gray';
+  const color = percent >= 85 ? theme.error : percent >= 60 ? theme.warning : theme.muted;
   return { percent, color };
 }
 
@@ -69,4 +70,51 @@ export function contextUsage(
 export function workingBorderColor(state: 'idle' | 'streaming' | 'thinking'): string {
   // Single source: the theme's working palette (ticket 11).
   return theme.working[state];
+}
+
+/** Input for `/status` report composition (tui-redesign ticket 02). */
+export interface StatusReportInput {
+  providerName: string;
+  model: string;
+  thinkingLevel?: string;
+  contextWindow?: number;
+  contextStrategy?: 'truncate' | 'compact';
+  cacheStats?: CacheStatsView;
+  modelCost?: ModelCost;
+  /** Extra pre-rendered lines (cwd/branch, MCP count, …). */
+  extras?: string[];
+}
+
+/**
+ * Compose the `/status` report: the info the retired top StatusBar used to
+ * carry, as transcript text. One line per concern; usage line shows a
+ * placeholder until the first request records tokens.
+ */
+export function formatStatusReport(input: StatusReportInput): string {
+  const { providerName, model, thinkingLevel, contextWindow, contextStrategy, cacheStats, modelCost, extras } = input;
+  const head =
+    `${providerName}/${model} · thinking ${thinkingLevel ?? 'off'}` +
+    (contextWindow ? ` · ctx ${contextWindow.toLocaleString('en-US')}` : '') +
+    (contextStrategy ? ` (${contextStrategy})` : '');
+  const hasUsage = (cacheStats?.totalInputTokens ?? 0) > 0 || (cacheStats?.totalOutputTokens ?? 0) > 0;
+  let usage = 'usage: no requests recorded yet';
+  if (cacheStats && hasUsage) {
+    const cost = estimateCostUsd(
+      {
+        inputTokens: cacheStats.totalInputTokens,
+        outputTokens: cacheStats.totalOutputTokens,
+        cachedInputTokens: cacheStats.totalCachedTokens,
+        cacheWriteTokens: cacheStats.totalCacheWriteTokens,
+      },
+      modelCost,
+    );
+    const cache =
+      cacheStats.totalCachedTokens + cacheStats.totalCacheWriteTokens > 0
+        ? ` · R${fmtTokens(cacheStats.totalCachedTokens)} W${fmtTokens(cacheStats.totalCacheWriteTokens)} CH${Math.round(cacheStats.latestHitRate * 100)}%`
+        : '';
+    usage =
+      `usage: ↑${fmtTokens(cacheStats.totalInputTokens)} ↓${fmtTokens(cacheStats.totalOutputTokens)}${cache}` +
+      ` · ${cost === null ? '—' : `$${cost.toFixed(4)}`}`;
+  }
+  return [head, ...(extras ?? []), usage].join('\n');
 }

@@ -15,13 +15,14 @@ function makeCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
     undoTurns: vi.fn(() => ({ undone: true, undoneTurns: 1, restored: [] })),
     compact: vi.fn(async () => ({ compacted: true, note: 'compacted' })),
     update: vi.fn(async () => ({ message: 'update ok' })),
+    statusReport: vi.fn(() => 'status report'),
     ...overrides,
   };
 }
 
 describe('slash commands registry (tui-refactor 15)', () => {
-  it('declares the four built-in commands with descriptions', () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(['model', 'undo', 'compact', 'update']);
+  it('declares the built-in commands with descriptions', () => {
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(['model', 'undo', 'compact', 'update', 'status']);
     for (const c of SLASH_COMMANDS) expect(c.description.length).toBeGreaterThan(0);
   });
 
@@ -98,6 +99,13 @@ describe('slash commands registry (tui-refactor 15)', () => {
       await findCommand('/update')!.command.run(ctx, '');
       expect(ctx.update).toHaveBeenCalled();
       expect(ctx.appendSystemMessage).toHaveBeenCalledWith('update ok');
+    });
+
+    it('/status appends the composed status report', async () => {
+      const ctx = makeCtx();
+      await findCommand('/status')!.command.run(ctx, '');
+      expect(ctx.statusReport).toHaveBeenCalled();
+      expect(ctx.appendSystemMessage).toHaveBeenCalledWith('status report');
     });
   });
 });

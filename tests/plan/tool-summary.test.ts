@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { theme } from '../../src/tui/theme.js';
 import {
   STATUS_STYLE,
   formatArgs,
@@ -37,12 +38,12 @@ describe('tool-summary (tui-refactor 05)', () => {
       expect(summarizeCall('read_file', JSON.stringify({ path: 'c.txt' }), kindOf)).toBe('c.txt');
     });
 
-    it('falls back to compact JSON capped at 200 chars (review: approval visibility)', () => {
+    it('renders non-primary args as key: value with long payloads bracketed and capped (tui-redesign 05)', () => {
       const long = 'x'.repeat(400);
       const r = summarizeCall('other', JSON.stringify({ a: long }), kindOf);
-      expect(r.length).toBeLessThanOrEqual(203); // 200 + ellipsis
-      expect(r.startsWith('{"a":"xxx')).toBe(true);
-      expect(r.endsWith('...')).toBe(true);
+      expect(r.startsWith('a: [400 chars]')).toBe(true);
+      expect(r.length).toBeLessThanOrEqual(203); // cap still applies
+      expect(r).not.toContain('{');
     });
 
     it('handles unparseable args by echoing raw (capped)', () => {
@@ -69,10 +70,10 @@ describe('tool-summary (tui-refactor 05)', () => {
 
 describe('status style table and arg formatting (review fixes)', () => {
   it('exposes one icon/color per status', () => {
-    expect(STATUS_STYLE.pending).toEqual({ icon: '⚠', color: 'yellow' });
-    expect(STATUS_STYLE.done).toEqual({ icon: '✓', color: 'green' });
-    expect(STATUS_STYLE.error).toEqual({ icon: '✗', color: 'red' });
-    expect(STATUS_STYLE.running.color).toBe('yellow');
+    expect(STATUS_STYLE.pending).toEqual({ icon: '⚠', color: theme.toolPending });
+    expect(STATUS_STYLE.done).toEqual({ icon: '✓', color: theme.toolSuccess });
+    expect(STATUS_STYLE.error).toEqual({ icon: '✗', color: theme.toolError });
+    expect(STATUS_STYLE.running.color).toBe(theme.primary); // accent while working (tui-redesign 05)
   });
 
   it('formats parsed args pretty-printed and falls back to raw', () => {

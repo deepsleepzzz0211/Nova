@@ -13,8 +13,7 @@ import type { ModelCost } from '../llm/catalog.js';
 import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
-import { latestToolId } from './message-partition.js';
-import { startBranchRefresh } from './git-branch.js';
+import { latestExpandableId } from './message-partition.js';
 import {
   MOUSE_DISABLE,
   MOUSE_ENABLE,
@@ -24,7 +23,9 @@ import {
   stepMatch,
 } from './fullscreen-input.js';
 import { useUpdateNotice } from './hooks/useUpdateNotice.js';
-import { StatusBar } from './StatusBar.js';
+import { StatusLine } from './StatusLine.js';
+import { modeBadge } from './approval-mode.js';
+import type { WelcomeCard } from './header.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
 import { PermissionDialog } from './PermissionDialog.js';
@@ -38,18 +39,27 @@ export interface AppProps {
    * be kept in sync with UseAgentConfig.
    */
   agent: UseAgentConfig;
-  /** Number of active MCP server connections (footer). */
-  mcpConnectionCount: number;
-  /** Git branch shown in the footer (refreshed periodically). */
-  gitBranch?: string | null;
   /** Fullscreen (alternate-screen) mode: transcript gets a fixed viewport. */
   fullscreen?: boolean;
   /** Shared todo state maintained by the todo_write tool (UI view). */
   todoState?: TodoState;
+  /** Welcome card drawn as the first transcript item (tui-redesign 06). */
+  welcome?: WelcomeCard;
 }
-export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoState }: AppProps): React.ReactElement {
+export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity } = useAgent(agent);
+  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity, approvalMode, cycleApprovalMode } = useAgent(agent);
+
+  // Shift+Tab approval-mode cycling (tui-redesign 10): the badge lives on
+  // the bottom status line; a switch briefly toasts the new mode instead.
+  const [modeToast, setModeToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (modeToast === null) return undefined;
+    const timer = setTimeout(() => setModeToast(null), 1500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [modeToast]);
 
   // Wheel/click reporting is only enabled in fullscreen, and always turned
   // off again so a crash cannot leave the terminal in mouse mode.
@@ -81,10 +91,8 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
   // Fullscreen search (ticket 13): Ctrl+F opens an inline query, n/N step
   // through matches, Esc closes.
   const [search, setSearch] = useState<{ query: string; index: number } | null>(null);
-  // The branch can change during a session (checkout in another terminal), so
-  // refresh it on a slow timer instead of reading once at startup (#23).
-  const [branch, setBranch] = useState<string | null>(gitBranch ?? null);
-  useEffect(() => startBranchRefresh(setBranch), []);
+  // The git branch used to be refreshed here for the top StatusBar; it now
+  // lives in the /status report (tui-redesign ticket 02).
   // Tool display kinds come from the registry (ticket 14); stable identity
   // so memoised message bubbles are not invalidated every render (ticket 08).
   const displayKind = useCallback(
@@ -92,8 +100,15 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
     [agent.toolRegistry],
   );
   useInput((inputChar, key) => {
+    // Shift+Tab (bare Tab must still reach the editor's completion accept).
+    // Yield to open modals and search, same ownership rule as Esc.
+    if (key.tab && key.shift && pendingPermission === null && search === null) {
+      const nextMode = cycleApprovalMode();
+      setModeToast(`${modeBadge(nextMode).symbol} ${modeBadge(nextMode).label}`);
+      return;
+    }
     if (key.ctrl && inputChar === 'o') {
-      const toolId = latestToolId(messages);
+      const toolId = latestExpandableId(messages);
       setExpandedToolIds((prev) => {
         if (toolId === null) return prev;
         const next = new Set(prev);
@@ -163,21 +178,6 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
 
   return (
     <Box flexDirection="column" width="100%" height="100%">
-      <StatusBar
-        model={modelInfo.model}
-        workingDirectory={process.cwd()}
-        gitBranch={branch}
-        providerName={modelInfo.providerName}
-        thinkingLevel={agent.thinkingLevel}
-        contextWindow={modelInfo.contextWindow}
-        contextStrategy={agent.contextStrategy}
-        modelCost={modelInfo.cost}
-        mcpConnectionCount={mcpConnectionCount}
-        cacheStats={cacheStats}
-        updateNotice={updateNotice ?? undefined}
-        subagentActivity={subagentActivity}
-      />
-
       {todoState && <TodoView todoState={todoState} />}
 
       <ChatView
@@ -195,18 +195,40 @@ export function App({ agent, mcpConnectionCount, gitBranch, fullscreen, todoStat
             : undefined
         }
         search={search === null ? undefined : { query: search.query, index: search.index }}
+        welcome={welcome}
+        thinkingActive={isThinking}
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
 
       <InputBar
-        onSubmit={sendMessage}
+        onSubmit={(text) => {
+          // Submitting dismisses the mode toast; the badge returns (ticket 10).
+          setModeToast(null);
+          sendMessage(text);
+        }}
         isStreaming={isStreaming}
         workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}
         modalOpen={pendingPermission !== null}
         disabled={search !== null}
         onExit={() => process.exit(0)}
+        modelInfo={{
+          providerName: modelInfo.providerName,
+          model: modelInfo.model,
+          thinkingLevel: agent.thinkingLevel,
+        }}
+      />
+
+      <StatusLine
+        working={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
+        cacheStats={cacheStats}
+        modelCost={modelInfo.cost}
+        contextWindow={modelInfo.contextWindow}
+        updateNotice={updateNotice ?? undefined}
+        subagentActivity={subagentActivity}
+        approvalMode={approvalMode}
+        modeToast={modeToast}
       />
     </Box>
   );

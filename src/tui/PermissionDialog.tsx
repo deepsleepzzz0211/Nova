@@ -4,7 +4,9 @@ import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
 import { describeCall, dangerReason } from './permission-display.js';
 import { parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
+import { truncateToWidth } from './text-measure.js';
 import { theme } from './theme.js';
+import { TitledFrame } from './TitledFrame.js';
 
 /** Props for the PermissionDialog component. */
 export interface PermissionDialogProps {
@@ -16,9 +18,9 @@ export interface PermissionDialogProps {
 
 /** Options shown, in display order (option 3 is excluded for dangerous calls). */
 const OPTIONS: Array<{ key: '1' | '2' | '3'; label: string; decision: PermissionDecision }> = [
-  { key: '1', label: 'No', decision: 'deny' },
-  { key: '2', label: 'Yes', decision: 'allow' },
-  { key: '3', label: "Yes, always (this session)", decision: 'always' },
+  { key: '1', label: 'Deny', decision: 'deny' },
+  { key: '2', label: 'Allow once', decision: 'allow' },
+  { key: '3', label: 'Allow always (this session)', decision: 'always' },
 ];
 
 /**
@@ -93,25 +95,21 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
   const effectiveSelected = Math.min(selected, options.length - 1);
 
   return (
-    <Box
-      flexDirection="column"
-      borderStyle="double"
-      borderColor={warning !== null ? theme.error : theme.warning}
-      paddingX={1}
+    <TitledFrame
+      title={`${warning !== null ? '⛔' : '⚠'} Approval — ${pending.call.function.name}`}
+      color={warning !== null ? theme.error : theme.warning}
       marginY={1}
     >
-      <Text bold color={warning !== null ? theme.error : theme.warning}>Permission Required</Text>
+      {/* Reason first: why the agent is blocked right here (dangerReason for
+          dangerous calls, generic explanation otherwise). */}
+      <Text color={warning !== null ? theme.error : theme.muted} dimColor={warning === null} bold={warning !== null}>
+        {warning ?? 'this action needs your confirmation before running'}
+      </Text>
 
-      <Box marginTop={1}>
+      <Box>
         <Text bold color={theme.primary}>{pending.call.function.name}</Text>
-        <Text color={theme.assistantMessage}> {description}</Text>
+        <Text color={theme.muted} dimColor>{' '}{truncateToWidth(description, 120, '...')}</Text>
       </Box>
-
-      {warning !== null && (
-        <Box marginTop={0}>
-          <Text color={theme.error} bold>Warning: {warning}</Text>
-        </Box>
-      )}
 
       <Box marginTop={1} flexDirection="column">
         {options.map((opt, i) => (
@@ -121,11 +119,12 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
               color={opt.decision === 'deny' ? theme.error : opt.decision === 'always' ? theme.warning : theme.success}
               bold={i === effectiveSelected}
             >
-              {opt.key}. {opt.label}
+              {`${i === effectiveSelected ? '> ' : '  '}${opt.key}. ${opt.label}`}
             </Text>
           </Box>
         ))}
       </Box>
-    </Box>
+      <Text color={theme.muted} dimColor>{'1/2/3 or ↑/↓ · Enter confirm · Esc deny'}</Text>
+    </TitledFrame>
   );
 }

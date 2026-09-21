@@ -1,4 +1,5 @@
 import { marked, type Tokens } from 'marked';
+import { theme } from './theme.js';
 import hljs from 'highlight.js/lib/core';
 import bash from 'highlight.js/lib/languages/bash';
 import css from 'highlight.js/lib/languages/css';
@@ -174,27 +175,19 @@ function padColumns(rows: string[][]): string[][] {
   return rows.map((row) => widths.map((w, c) => padToWidth(row[c] ?? '', w)));
 }
 
-/** Inline markdown markers stripped to plain text for terminal display. */
-export function inlineText(raw: string): string {
-  return raw
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
-    .replace(/(^|\s)_([^_]+)_/g, '$1$2')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '');
-}
+/** Inline marker stripping + code-span parts live in markdown-inline.js
+ * (tui-redesign 07); re-exported so existing imports keep working. */
+export { inlineText, inlineParts, type InlinePart } from './markdown-inline.js';
 
-/** hljs class name → terminal color (theme tokens arrive with ticket 11). */
+/** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {
   if (className === null) return undefined;
   const rules: Array<{ match: RegExp; color: string }> = [
-    { match: /keyword|built_in|literal|type|class/, color: 'magenta' },
-    { match: /string|regexp|char/, color: 'green' },
-    { match: /comment|quote/, color: 'gray' },
-    { match: /number|attr|variable/, color: 'yellow' },
-    { match: /title|function|name/, color: 'cyan' },
+    { match: /keyword|built_in|literal|type|class/, color: theme.syntax.keyword },
+    { match: /string|regexp|char/, color: theme.syntax.string },
+    { match: /comment|quote/, color: theme.syntax.comment },
+    { match: /number|attr|variable/, color: theme.syntax.number },
+    { match: /title|function|name/, color: theme.syntax.title },
   ];
   return rules.find((rule) => rule.match.test(className))?.color;
 }

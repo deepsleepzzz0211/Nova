@@ -33,8 +33,10 @@ describe('InputBar completions (tui-refactor 03, component)', () => {
     expect(instance.lastFrame()).toContain('/undo');
 
     instance.stdin.write('\t'); // Tab accepts the first match
+    await settle(); // no key coalescing (lessons #19)
+    instance.stdin.write('x'); // trailing space must land between (frame trims it)
     await settle();
-    expect(instance.lastFrame()).toContain('/model ');
+    expect(instance.lastFrame()).toContain('/model x');
     expect(instance.lastFrame()).not.toContain('/undo —');
     instance.unmount();
   });
@@ -52,7 +54,10 @@ describe('InputBar completions (tui-refactor 03, component)', () => {
     instance.stdin.write('\x1b[B'); // down: second item
     instance.stdin.write('\r'); // Enter accepts (does not submit)
     await settle();
-    expect(instance.lastFrame()).toContain('/update ');
+    // /update takes no args, so the accept inserts it bare; the popup must
+    // be gone and Enter must not have submitted (the discriminating part).
+    expect(instance.lastFrame()).toContain('/update');
+    expect(instance.lastFrame()).not.toContain('/undo');
     expect(onSubmit).not.toHaveBeenCalled();
     instance.unmount();
   });
@@ -147,9 +152,11 @@ describe('Enter semantics with an open completion (E2E finding)', () => {
     instance.stdin.write('/mod');
     await settle();
     instance.stdin.write('\r');
+    await settle(); // no key coalescing (lessons #19)
+    instance.stdin.write('x'); // trailing space discriminator
     await settle();
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(instance.lastFrame()).toContain('/model ');
+    expect(instance.lastFrame()).toContain('/model x');
     instance.unmount();
   });
 });

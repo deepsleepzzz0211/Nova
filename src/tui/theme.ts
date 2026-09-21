@@ -1,64 +1,81 @@
 /**
- * Theme tokens (tui-refactor ticket 11): every colour the TUI uses is named
- * here, so a component never hardcodes one and a future theme switcher only
- * touches this file. Names follow the pi-style vocabulary (border, muted,
- * toolDiffAdded, mdHeading, …).
+ * Theme tokens (tui-refactor ticket 11; hex palette from tui-redesign 01):
+ * every colour the TUI uses is named here, so a component never hardcodes one
+ * and a theme switcher only touches this file.
  *
- * Values are Ink colour names/hex strings, so they can be swapped for a
- * light/dark palette without touching components.
+ * Values are truecolor hex (ZCode-style): foreground tokens are named by
+ * role, and surface tokens (bg/panel/element/userBand/diff*Bgs) back the
+ * background-coloured elements — user-message bands, diff lines, panels.
+ * Ink renders these with ANSI-24bit; dim emphasis stays `dimColor`, never a
+ * colour token.
  */
 export const theme = {
   /** Brand accent: headings, model name, active selection. */
-  primary: 'cyan',
+  primary: '#7dd3fc',
   /** Secondary accent: subagent activity, thinking emphasis. */
-  secondary: 'magenta',
+  secondary: '#c4b5fd',
 
-  border: 'gray',
-  borderAccent: 'cyan',
+  /** Foreground default text colour. */
+  text: '#e5e7eb',
+  /** App background (panels sit one step brighter). */
+  bg: '#0f1419',
+  /** Bordered chrome surfaces: input box, approval panel, popups. */
+  panel: '#161b22',
+  /** Raised elements inside a panel: code blocks, inline code. */
+  element: '#1f2937',
+  /** Background band behind user messages. */
+  userBand: '#30363d',
 
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
+  border: '#3b4450',
+  borderActive: '#7dd3fc',
+  borderSubtle: '#26313d',
+
+  success: '#86efac',
+  error: '#fca5a5',
+  warning: '#fbbf24',
   /** Dim/secondary text: hints, metadata, status labels. */
-  muted: 'gray',
+  muted: '#94a3b8',
 
-  userMessage: 'blue',
-  assistantMessage: 'white',
+  userMessage: '#e5e7eb',
+  assistantMessage: '#e5e7eb',
   /** Reasoning stream (dim italic in the renderer). */
-  thinking: 'gray',
-  systemNotice: 'gray',
+  thinking: '#94a3b8',
+  systemNotice: '#94a3b8',
 
-  toolTitle: 'yellow',
-  toolOutput: 'white',
-  toolPending: 'yellow',
-  toolSuccess: 'green',
-  toolError: 'red',
+  toolTitle: '#7dd3fc',
+  toolOutput: '#e5e7eb',
+  toolPending: '#fbbf24',
+  toolSuccess: '#86efac',
+  toolError: '#fca5a5',
 
-  diffAdded: 'green',
-  diffRemoved: 'red',
-  diffContext: 'gray',
-  diffHeader: 'gray',
+  diffAdded: '#86efac',
+  diffRemoved: '#fca5a5',
+  diffContext: '#94a3b8',
+  diffHeader: '#94a3b8',
+  /** Full-line backgrounds for added/removed diff rows. */
+  diffAddedBg: '#12351e',
+  diffRemovedBg: '#3b1d17',
 
-  mdHeading: 'cyan',
-  mdCode: 'gray',
-  mdListBullet: 'gray',
-  mdQuote: 'gray',
-  mdTableHeader: 'cyan',
+  mdHeading: '#7dd3fc',
+  mdCode: '#94a3b8',
+  mdListBullet: '#7dd3fc',
+  mdQuote: '#94a3b8',
+  mdTableHeader: '#7dd3fc',
 
   /** Editor border doubles as the working indicator. */
   working: {
-    idle: 'cyan',
-    streaming: 'yellow',
-    thinking: 'magenta',
+    idle: '#7dd3fc',
+    streaming: '#fbbf24',
+    thinking: '#c4b5fd',
   },
 
   /** highlight.js class groups → colour. */
   syntax: {
-    keyword: 'magenta',
-    string: 'green',
-    comment: 'gray',
-    number: 'yellow',
-    title: 'cyan',
+    keyword: '#c4b5fd',
+    string: '#86efac',
+    comment: '#94a3b8',
+    number: '#fbbf24',
+    title: '#7dd3fc',
   },
 } as const;
 

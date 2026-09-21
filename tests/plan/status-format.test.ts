@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { fmtTokens, estimateCostUsd, contextUsage, workingBorderColor } from '../../src/tui/status-format.js';
+import { theme } from '../../src/tui/theme.js';
 
 describe('status-format (tui-refactor 09)', () => {
   describe('fmtTokens', () => {
@@ -45,24 +46,25 @@ describe('status-format (tui-refactor 09)', () => {
   });
 
   describe('contextUsage', () => {
+    // tui-redesign 01: colors are theme tokens (hex palette), not ANSI names.
     it('computes the percentage and color thresholds', () => {
-      expect(contextUsage(0, 100_000)).toEqual({ percent: 0, color: 'gray' });
+      expect(contextUsage(0, 100_000)).toEqual({ percent: 0, color: theme.muted });
       expect(contextUsage(50_000, 100_000).percent).toBe(50);
-      expect(contextUsage(50_000, 100_000).color).toBe('gray');
-      expect(contextUsage(750_000, 1_000_000).color).toBe('yellow');
-      expect(contextUsage(900_000, 1_000_000).color).toBe('red');
+      expect(contextUsage(50_000, 100_000).color).toBe(theme.muted);
+      expect(contextUsage(750_000, 1_000_000).color).toBe(theme.warning);
+      expect(contextUsage(900_000, 1_000_000).color).toBe(theme.error);
     });
 
     it('handles a zero window without dividing by zero', () => {
-      expect(contextUsage(100, 0)).toEqual({ percent: 0, color: 'gray' });
+      expect(contextUsage(100, 0)).toEqual({ percent: 0, color: theme.muted });
     });
   });
 
   describe('workingBorderColor', () => {
     it('maps the working states to distinct colors', () => {
-      expect(workingBorderColor('idle')).toBe('cyan');
-      expect(workingBorderColor('streaming')).toBe('yellow');
-      expect(workingBorderColor('thinking')).toBe('magenta');
+      const colors = [workingBorderColor('idle'), workingBorderColor('streaming'), workingBorderColor('thinking')];
+      expect(new Set(colors).size).toBe(3);
+      for (const c of colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
     });
   });
 });

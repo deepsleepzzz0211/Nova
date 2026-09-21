@@ -5,10 +5,28 @@ import {
   highlightedLines,
   highlightColor,
   inlineText,
+  inlineParts,
   type MdBlock,
   type HighlightSegment,
 } from './markdown.js';
 import { theme } from './theme.js';
+
+/** Paragraph text with code spans styled (green on panel), rest stripped. */
+function InlineText({ raw }: { raw: string }): React.ReactElement {
+  return (
+    <Text>
+      {inlineParts(raw).map((part, i) =>
+        part.code ? (
+          <Text key={i} color={theme.success} backgroundColor={theme.panel}>
+            {part.text}
+          </Text>
+        ) : (
+          <Text key={i}>{part.text}</Text>
+        ),
+      )}
+    </Text>
+  );
+}
 
 /** Props for the MarkdownText component. */
 export interface MarkdownTextProps {
@@ -87,7 +105,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     default:
       return (
         <Box>
-          <Text>{inlineText(block.text)}</Text>
+          <InlineText raw={block.text} />
         </Box>
       );
   }

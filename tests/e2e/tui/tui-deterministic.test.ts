@@ -21,7 +21,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     const terminal = await launchTui(cwd, { cols: 100, rows: 30 });
     try {
       await terminal.resize(78, 24);
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
 
       const head = 'HEAD-marker-';
       const tail = '-TAIL-marker';
@@ -77,6 +77,23 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     }
   });
 
+  it('shift+tab cycles the approval mode badge (tui-redesign 10)', async () => {
+    const cwd = makeWorkspace({ stubKey: true });
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.getByText('Type a prompt').expect({ timeout: 60_000 });
+      await terminal.getByText('default', { regex: true }).expect();
+      await terminal.keyboard.press('Shift+Tab');
+      await terminal.getByText('accept edits', { regex: true }).expect({ timeout: 10_000 });
+      await terminal.keyboard.press('Shift+Tab');
+      await terminal.getByText('plan', { regex: true }).expect({ timeout: 10_000 });
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+    }
+  });
+
   it('--resume loads a previous session from disk and shows it', async () => {
     // Deterministic: the session file is written by hand, so no LLM is needed.
     // NOVA_HOME/sessions is where the store appends one JSON object per line.
@@ -124,17 +141,19 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     }
   });
 
-  it('prints the startup header once, before the TUI takes over', async () => {
+  it('shows the welcome card as the transcript opener (tui-redesign 06)', async () => {
     const cwd = makeWorkspace({ stubKey: true });
     const terminal = await launchTui(cwd);
     try {
-      // The identity line lands in scrollback before Ink owns the frame (on a
-      // 30-row terminal Ink's first paint scrolls the remaining header lines
-      // out of the buffer; their formatting is unit-tested separately).
+      await terminal.getByText('Type a prompt').expect({ timeout: 60_000 });
+      // The card lives INSIDE the frame now: logo, meta line with version
+      // and provider/model, and a tip; the old stdout header is gone.
       const full = await terminal.text({ full: true });
-      expect(full).toContain('nova ');
-      expect(full).toContain('e2e/');
-      expect(full.match(/nova \d+\.\d+\.\d+/)).not.toBeNull();
+      expect(full).toContain('███╗');
+      expect(full).toMatch(/v\d+\.\d+\.\d+ · e2e\//);
+      expect(full).toContain('Tip:');
+      // Rendered exactly once (not reprinted on repaint).
+      expect(full.split('Tip:').length - 1).toBe(1);
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();
@@ -172,7 +191,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       expect(scrolled).not.toContain('HISTORY-ANSWER-30');
       expect(scrolled).toMatch(/HISTORY-(ANSWER|USER)-\d+/);
       // The editor stays usable in fullscreen.
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();

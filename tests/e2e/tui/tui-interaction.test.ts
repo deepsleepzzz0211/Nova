@@ -32,9 +32,9 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       if (await skipIfThrottled(terminal, skip)) return;
 
       // Structural: the dialog lists three numbered options.
-      await terminal.getByText('Permission Required').expect({ timeout: 60_000 });
-      await terminal.getByText('1. No').expect();
-      await terminal.getByText('3. Yes, always (this session)').expect();
+      await terminal.getByText('Approval —').expect({ timeout: 60_000 });
+      await terminal.getByText('1. Deny').expect();
+      await terminal.getByText('3. Allow always (this session)').expect();
 
       await terminal.keyboard.press('2'); // Yes
       // The collapsed block shows the command once the call is ready, but the
@@ -62,14 +62,14 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.submit('Use the bash tool to run exactly: rm -rf /tmp/nova-e2e-does-not-exist');
       if (await skipIfThrottled(terminal, skip)) return;
 
-      await terminal.getByText('Permission Required').expect({ timeout: 60_000 });
+      await terminal.getByText('Approval —').expect({ timeout: 60_000 });
       await terminal.getByText('Recursive file deletion').expect();
-      expect(await terminal.text()).not.toContain('3. Yes, always');
+      expect(await terminal.text()).not.toContain('3. Allow always');
 
       // Esc = No. Wait for the dialog to close before the next keystroke:
       // back-to-back writes would be parsed as one escape sequence.
       await terminal.keyboard.press('Escape');
-      await terminal.getByText('Permission Required').wait({ state: 'hidden', timeout: 30_000 });
+      await terminal.getByText('Approval —').wait({ state: 'hidden', timeout: 30_000 });
       await terminal.keyboard.press('Ctrl+O');
       await terminal.getByText('Permission denied').expect({ timeout: 30_000 });
     } finally {
@@ -92,7 +92,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
 
       await terminal.keyboard.press('Escape');
       await terminal.getByText('[interrupted]').expect({ timeout: 30_000 });
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();
@@ -113,7 +113,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('READY', { regex: true }).expect({ timeout: 60_000 });
 
       // Wait for the turn to end: Enter is intentionally ignored while streaming.
-      await terminal.getByText('Type a message', { regex: true }).expect({ timeout: 60_000 });
+      await terminal.getByText('Type a prompt', { regex: true }).expect({ timeout: 60_000 });
       await terminal.submit('/undo');
       await terminal.getByText('undone 1 turn', { regex: true }).expect({ timeout: 30_000 });
     } finally {
@@ -133,7 +133,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
     try {
       await terminal.submit('Use the bash tool to run exactly: seq 1 40');
       if (await skipIfThrottled(terminal, skip)) return;
-      await terminal.getByText('Permission Required').expect({ timeout: 60_000 });
+      await terminal.getByText('Approval —').expect({ timeout: 60_000 });
       await terminal.keyboard.press('2');
       await terminal.getByText('seq 1 40').expect({ timeout: 60_000 });
       await terminal.keyboard.press('Ctrl+O');
@@ -163,7 +163,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       let delegated = false;
       try {
         await terminal
-          .getByText('Permission Required', { regex: false })
+          .getByText('Approval —', { regex: false })
           .wait({ state: 'visible', timeout: 60_000 });
         delegated = true;
       } catch {

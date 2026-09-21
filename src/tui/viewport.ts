@@ -37,17 +37,27 @@ const DEFAULT_WIDTH = 80;
 /** Estimated display lines for one message (approximation, see above). */
 export function estimateMessageLines(
   message: DisplayMessage,
-  options: { width?: number; expanded?: boolean } = {},
+  options: { width?: number; expanded?: boolean; thinkingExpanded?: boolean } = {},
 ): number {
   const width = options.width ?? DEFAULT_WIDTH;
   let lines = 0;
 
-  if (message.thinking !== undefined && message.thinking !== '') {
-    // + dim marker line; wrapped counts display columns (CJK/emoji = 2)
-    lines += wrappedLineCount(message.thinking, width) + 1;
-  }
-  if (message.content !== '') {
-    lines += wrappedLineCount(message.content, width);
+  if (message.role === 'user') {
+    // Band (tui-redesign 07): paddingX 1 narrows the wrap, paddingY adds a
+    // blank row above and below.
+    lines += wrappedLineCount(message.content, Math.max(8, width - 2)) + 2;
+  } else {
+    if (message.thinking !== undefined && message.thinking !== '') {
+      // Collapsed by default: just the `+ Thought` header row (ticket 09);
+      // the body only counts when expanded.
+      lines += 1;
+      if (options.thinkingExpanded === true) {
+        lines += wrappedLineCount(message.thinking, width);
+      }
+    }
+    if (message.content !== '') {
+      lines += wrappedLineCount(message.content, width);
+    }
   }
   for (const call of message.toolCalls ?? []) {
     lines += 1; // summary line
@@ -88,10 +98,11 @@ export function viewportSlice(messages: DisplayMessage[], options: ViewportOptio
   }
 
   const lineBudget = Math.max(1, rows);
-  const lineCount = (message: DisplayMessage): number =>
+  const lineCount = (message: DisplayMessage, index: number): number =>
     estimateMessageLines(message, {
       width,
       expanded: message.toolCalls?.some((call) => expandedToolIds?.has(call.id) === true),
+      thinkingExpanded: expandedToolIds?.has(`msg:${index}`) === true,
     });
 
   /** Window ending just before `end`, walking backwards within the budget. */
@@ -99,7 +110,7 @@ export function viewportSlice(messages: DisplayMessage[], options: ViewportOptio
     let used = 0;
     let start = end;
     while (start > 0) {
-      const lines = lineCount(messages[start - 1]);
+      const lines = lineCount(messages[start - 1], start - 1);
       // Always keep at least one message, even if it alone exceeds the budget.
       if (used + lines > lineBudget && start < end) break;
       used += lines;

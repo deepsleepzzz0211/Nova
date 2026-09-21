@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { SessionSummary } from '../agent/session.js';
+import { theme } from './theme.js';
 
 /**
  * Pure formatter for `--list` output (stable, script-consumable):
@@ -50,7 +51,7 @@ export function SessionPicker({
       <Box flexDirection="column" marginTop={1}>
         {sessions.map((s, i) => (
           <Box key={s.file}>
-            <Text color={i === index ? 'cyan' : undefined} bold={i === index}>
+            <Text color={i === index ? theme.primary : undefined} bold={i === index}>
               {i === index ? '❯ ' : '  '}
               {formatSessionList([s])}
             </Text>

@@ -9,6 +9,10 @@ export type DiffLineKind = 'add' | 'del' | 'meta';
 export interface DiffLine {
   kind: DiffLineKind;
   text: string;
+  /** 1-based line number inside the old block (del rows, tui-redesign 08). */
+  oldNo?: number;
+  /** 1-based line number inside the new block (add rows, tui-redesign 08). */
+  newNo?: number;
 }
 
 export interface DiffView {
@@ -45,8 +49,8 @@ export function buildDiffView(
   if (oldLines.length === 0 && newLines.length === 0) return null;
 
   const lines: DiffLine[] = [
-    ...oldLines.map((text): DiffLine => ({ kind: 'del', text })),
-    ...newLines.map((text): DiffLine => ({ kind: 'add', text })),
+    ...oldLines.map((text, i): DiffLine => ({ kind: 'del', text, oldNo: i + 1 })),
+    ...newLines.map((text, i): DiffLine => ({ kind: 'add', text, newNo: i + 1 })),
   ];
 
   const verb = mode === 'edit' ? 'edit' : args.mode === 'append' ? 'append' : 'write';
