@@ -24,6 +24,7 @@ import { SessionStore, SESSION_RETENTION_DAYS } from './agent/session.js';
 import type { SessionSummary } from './agent/session.js';
 import { SessionPicker, formatSessionList } from './tui/SessionPicker.js';
 import { gatherEnvironment, loadProjectInstructions } from './agent/environment.js';
+import { replaySessionFile, replaySessionsDir } from './agent/shadow-replay.js';
 import { SkillRegistry } from './skills/registry.js';
 import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from './skills/skill-lock.js';
 import { SubagentSpawner } from './subagent/spawner.js';
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
       'pin-skills': { type: 'string' },
+      'replay-sessions': { type: 'boolean' },
     },
     strict: false,
   });
@@ -171,6 +173,37 @@ async function main(): Promise<void> {
     const sessions = SessionStore.listSummaries(sessionsDir);
     console.log(formatSessionList(sessions));
     process.exit(0);
+  }
+  // Shadow-replay conservation gate (zcode-borrow 06): replay every stored
+  // session offline through the deterministic context pipeline and assert no
+  // silent message loss. Read-only; exits non-zero on any violation so it can
+  // gate a release.
+  if (values['replay-sessions']) {
+    const positional = Array.isArray(values._) ? values._[0] : undefined;
+    const target = typeof positional === 'string'
+      ? path.resolve(projectDir, positional)
+      : sessionsDir;
+    const isFile = fs.existsSync(target) && fs.statSync(target).isFile();
+    const reports = isFile ? [replaySessionFile(target)] : replaySessionsDir(target);
+    if (reports.length === 0) {
+      console.log(`no sessions to replay in ${target}`);
+      process.exit(0);
+    }
+    let violations = 0;
+    for (const report of reports) {
+      const name = path.basename(report.file);
+      if (report.conserved) {
+        console.log(
+          `OK   ${name}: ${report.loaded} msgs -> ${report.final} msgs ` +
+            `(cleared ${report.clearedToolResults} tool results, dropped ${report.droppedMessages})`,
+        );
+      } else {
+        violations++;
+        console.log(`FAIL ${name}: ${report.error ?? 'conservation violated'}`);
+      }
+    }
+    console.error(`\n${reports.length - violations}/${reports.length} sessions conserved`);
+    process.exit(violations > 0 ? 1 : 0);
   }
   if (values.resume) {
     const sessions = SessionStore.listSummaries(sessionsDir);
