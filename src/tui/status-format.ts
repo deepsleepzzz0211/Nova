@@ -54,14 +54,14 @@ export function estimateCostUsd(usage: UsageTotals, cost: ModelCost | undefined)
   );
 }
 
-/** Context-usage percentage plus its warning color. */
+/** Context-usage percentage plus its warning color (theme token). */
 export function contextUsage(
   tokens: number,
   contextWindow: number,
-): { percent: number; color: 'gray' | 'yellow' | 'red' } {
-  if (contextWindow <= 0) return { percent: 0, color: 'gray' };
+): { percent: number; color: string } {
+  if (contextWindow <= 0) return { percent: 0, color: theme.muted };
   const percent = Math.min(100, Math.max(0, Math.round((tokens / contextWindow) * 100)));
-  const color = percent >= 85 ? 'red' : percent >= 60 ? 'yellow' : 'gray';
+  const color = percent >= 85 ? theme.error : percent >= 60 ? theme.warning : theme.muted;
   return { percent, color };
 }
 

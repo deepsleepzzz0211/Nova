@@ -1,5 +1,6 @@
 import type { ToolDisplay } from '../tools/types.js';
 import { truncateToWidth } from './text-measure.js';
+import { theme } from './theme.js';
 /**
  * Pure helpers for tool-call display (tui-refactor ticket 05): spinner
  * frames, typed one-line summaries, and output folding. No Ink/React.
@@ -68,10 +69,10 @@ export const STATUS_STYLE: Record<
   'pending' | 'running' | 'done' | 'error',
   { icon: string; color: string }
 > = {
-  pending: { icon: '⚠', color: 'yellow' },
-  running: { icon: '⠋', color: 'yellow' }, // running uses the animated spinner
-  done: { icon: '✓', color: 'green' },
-  error: { icon: '✗', color: 'red' },
+  pending: { icon: '⚠', color: theme.toolPending },
+  running: { icon: '⠋', color: theme.toolPending }, // running uses the animated spinner
+  done: { icon: '✓', color: theme.toolSuccess },
+  error: { icon: '✗', color: theme.toolError },
 };
 
 /** Pretty-print tool arguments for the expanded view (fallback: raw). */

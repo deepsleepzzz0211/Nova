@@ -30,6 +30,7 @@ import {
   type CompletionItem,
 } from './completion-controller.js';
 import { theme } from './theme.js';
+import { workingBorderColor } from './status-format.js';
 
 /** Props for the InputBar component. */
 export interface InputBarProps {
@@ -263,9 +264,8 @@ function EditorView({
   const cursorRow = cursorLine(editor);
   const cursorCol = cursorColumn(editor);
   // Working indicator: the editor border doubles as the activity light
-  // (tui-refactor ticket 09, pi-style).
-  const borderColor =
-    workingState === 'thinking' ? 'magenta' : workingState === 'streaming' ? 'yellow' : 'cyan';
+  // (tui-refactor ticket 09, pi-style; single source: workingBorderColor).
+  const borderColor = workingBorderColor(workingState);
 
   return (
     <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column">

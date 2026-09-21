@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { theme } from '../../src/tui/theme.js';
 import {
   STATUS_STYLE,
   formatArgs,
@@ -69,10 +70,10 @@ describe('tool-summary (tui-refactor 05)', () => {
 
 describe('status style table and arg formatting (review fixes)', () => {
   it('exposes one icon/color per status', () => {
-    expect(STATUS_STYLE.pending).toEqual({ icon: '⚠', color: 'yellow' });
-    expect(STATUS_STYLE.done).toEqual({ icon: '✓', color: 'green' });
-    expect(STATUS_STYLE.error).toEqual({ icon: '✗', color: 'red' });
-    expect(STATUS_STYLE.running.color).toBe('yellow');
+    expect(STATUS_STYLE.pending).toEqual({ icon: '⚠', color: theme.toolPending });
+    expect(STATUS_STYLE.done).toEqual({ icon: '✓', color: theme.toolSuccess });
+    expect(STATUS_STYLE.error).toEqual({ icon: '✗', color: theme.toolError });
+    expect(STATUS_STYLE.running.color).toBe(theme.toolPending);
   });
 
   it('formats parsed args pretty-printed and falls back to raw', () => {

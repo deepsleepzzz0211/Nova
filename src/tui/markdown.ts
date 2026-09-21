@@ -1,4 +1,5 @@
 import { marked, type Tokens } from 'marked';
+import { theme } from './theme.js';
 import hljs from 'highlight.js/lib/core';
 import bash from 'highlight.js/lib/languages/bash';
 import css from 'highlight.js/lib/languages/css';
@@ -186,15 +187,15 @@ export function inlineText(raw: string): string {
     .replace(/<[^>]+>/g, '');
 }
 
-/** hljs class name → terminal color (theme tokens arrive with ticket 11). */
+/** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {
   if (className === null) return undefined;
   const rules: Array<{ match: RegExp; color: string }> = [
-    { match: /keyword|built_in|literal|type|class/, color: 'magenta' },
-    { match: /string|regexp|char/, color: 'green' },
-    { match: /comment|quote/, color: 'gray' },
-    { match: /number|attr|variable/, color: 'yellow' },
-    { match: /title|function|name/, color: 'cyan' },
+    { match: /keyword|built_in|literal|type|class/, color: theme.syntax.keyword },
+    { match: /string|regexp|char/, color: theme.syntax.string },
+    { match: /comment|quote/, color: theme.syntax.comment },
+    { match: /number|attr|variable/, color: theme.syntax.number },
+    { match: /title|function|name/, color: theme.syntax.title },
   ];
   return rules.find((rule) => rule.match.test(className))?.color;
 }
