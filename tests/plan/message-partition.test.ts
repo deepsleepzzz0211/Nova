@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partitionMessages, latestToolId } from '../../src/tui/message-partition.js';
+import { partitionMessages, latestExpandableId } from '../../src/tui/message-partition.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
 
 const user = (content: string): DisplayMessage => ({ role: 'user', content });
@@ -76,7 +76,7 @@ describe('partitionMessages (tui-refactor 08)', () => {
   });
 });
 
-describe('latestToolId', () => {
+describe('latestExpandableId (supersedes latestToolId, tui-redesign 09)', () => {
   it('returns the last tool call id, scanning from the newest message', () => {
     const messages: DisplayMessage[] = [
       { role: 'assistant', content: 'x', toolCalls: [{ id: 'old', name: 'bash', arguments: '{}', status: 'done' }] },
@@ -90,11 +90,11 @@ describe('latestToolId', () => {
         ],
       },
     ];
-    expect(latestToolId(messages)).toBe('c2');
+    expect(latestExpandableId(messages)).toBe('c2');
   });
 
-  it('returns null when there are no tool calls', () => {
-    expect(latestToolId([user('q'), assistant('a')])).toBeNull();
-    expect(latestToolId([])).toBeNull();
+  it('returns null when there is nothing expandable', () => {
+    expect(latestExpandableId([user('q'), assistant('a')])).toBeNull();
+    expect(latestExpandableId([])).toBeNull();
   });
 });

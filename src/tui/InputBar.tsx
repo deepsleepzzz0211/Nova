@@ -320,7 +320,10 @@ function EditorView({
             {modelInfo.providerName ? `${modelInfo.providerName}/${modelInfo.model}` : modelInfo.model}
           </Text>
           {modelInfo.thinkingLevel && (
-            <Text color={theme.muted} dimColor>{`thought: ${modelInfo.thinkingLevel}`}</Text>
+            <Text>
+              <Text color={theme.muted} dimColor>{'thought: '}</Text>
+              <Text color={theme.warning}>{modelInfo.thinkingLevel}</Text>
+            </Text>
           )}
         </Box>
       )}

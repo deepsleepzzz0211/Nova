@@ -4,7 +4,7 @@ import { theme } from './theme.js';
 import { spinnerFrame } from './tool-summary.js';
 import { fmtTokens, estimateCostUsd, contextUsage, type ModelCost } from './status-format.js';
 import { modeBadge, type ApprovalModeId } from './approval-mode.js';
-import type { CacheStatsView } from './hooks/useAgent.js';
+import type { CacheStatsView } from './display-types.js';
 
 /** Props for the StatusLine component (tui-redesign ticket 02). */
 export interface StatusLineProps {

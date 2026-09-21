@@ -1,6 +1,6 @@
 import { theme } from './theme.js';
 import type { ModelCost } from '../llm/catalog.js';
-import type { CacheStatsView } from './hooks/useAgent.js';
+import type { CacheStatsView } from './display-types.js';
 
 /**
  * Pure formatting helpers for the status footer (tui-refactor ticket 09):

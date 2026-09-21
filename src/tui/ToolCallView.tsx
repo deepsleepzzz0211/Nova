@@ -39,9 +39,9 @@ export interface ToolCallViewProps {
 function ToolCallViewImpl({ toolCall, expanded, displayKind }: ToolCallViewProps): React.ReactElement {
   const tick = useSpinnerTick(toolCall.status === 'running');
   // Diff rows must fit the terminal minus the block's left padding
-  // (tui-redesign 08: no overflow past the last column).
+  // (row 2 + diff box 3 = 5; tui-redesign 08 review fix).
   const { stdout } = useStdout();
-  const diffRowWidth = Math.max(20, (stdout.columns ?? 80) - 3);
+  const diffRowWidth = Math.max(20, (stdout.columns ?? 80) - 5);
 
   const statusStyle = STATUS_STYLE[toolCall.status];
   const statusIcon = toolCall.status === 'running' ? spinnerFrame(tick) : statusStyle.icon;

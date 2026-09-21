@@ -27,9 +27,10 @@ import type {
   DisplayMessage,
   DisplayToolCall,
   DisplayModelInfo,
+  CacheStatsView,
 } from '../display-types.js';
 
-export type { DisplayMessage, DisplayToolCall, DisplayModelInfo } from '../display-types.js';
+export type { DisplayMessage, DisplayToolCall, DisplayModelInfo, CacheStatsView } from '../display-types.js';
 
 /** Pending permission request awaiting user decision. */
 export interface PendingPermission {
@@ -95,21 +96,7 @@ export interface UseAgentConfig {
   maxToolRounds: number;
 }
 
-/** Cache usage summary shown in the status bar (pi-style R/W/CH). */
-export interface CacheStatsView {
-  hitRate: number;
-  latestHitRate: number;
-  totalCachedTokens: number;
-  totalCacheWriteTokens: number;
-  /** Total prompt tokens seen this session (footer ↑). */
-  totalInputTokens: number;
-  /** Total completion tokens seen this session (footer ↓). */
-  totalOutputTokens: number;
-  /** Real context size in tokens (from the context manager). */
-  contextTokens: number;
-  /** Token budget at which automatic compaction triggers. */
-  contextTriggerTokens?: number;
-}
+// CacheStatsView moved to display-types (tui-redesign review: break formatter cycle)
 
 /** Return type of the useAgent hook. */
 export interface UseAgentResult {

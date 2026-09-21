@@ -39,10 +39,6 @@ export interface AppProps {
    * be kept in sync with UseAgentConfig.
    */
   agent: UseAgentConfig;
-  /** Number of active MCP server connections (footer). */
-  mcpConnectionCount: number;
-  /** Git branch shown in the footer (refreshed periodically). */
-  gitBranch?: string | null;
   /** Fullscreen (alternate-screen) mode: transcript gets a fixed viewport. */
   fullscreen?: boolean;
   /** Shared todo state maintained by the todo_write tool (UI view). */
@@ -105,7 +101,8 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
   );
   useInput((inputChar, key) => {
     // Shift+Tab (bare Tab must still reach the editor's completion accept).
-    if (key.tab && key.shift) {
+    // Yield to open modals and search, same ownership rule as Esc.
+    if (key.tab && key.shift && pendingPermission === null && search === null) {
       const nextMode = cycleApprovalMode();
       setModeToast(`${modeBadge(nextMode).symbol} ${modeBadge(nextMode).label}`);
       return;
@@ -205,7 +202,11 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
 
       <InputBar
-        onSubmit={sendMessage}
+        onSubmit={(text) => {
+          // Submitting dismisses the mode toast; the badge returns (ticket 10).
+          setModeToast(null);
+          sendMessage(text);
+        }}
         isStreaming={isStreaming}
         workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}

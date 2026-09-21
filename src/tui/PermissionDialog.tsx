@@ -4,6 +4,7 @@ import type { PendingPermission } from './hooks/useAgent.js';
 import type { PermissionDecision } from './permission-display.js';
 import { describeCall, dangerReason } from './permission-display.js';
 import { parseToolArgs, type DisplayKindResolver } from './tool-summary.js';
+import { truncateToWidth } from './text-measure.js';
 import { theme } from './theme.js';
 import { TitledFrame } from './TitledFrame.js';
 
@@ -107,7 +108,7 @@ export function PermissionDialog({ pending, displayKind }: PermissionDialogProps
 
       <Box>
         <Text bold color={theme.primary}>{pending.call.function.name}</Text>
-        <Text color={theme.assistantMessage}> {description}</Text>
+        <Text color={theme.muted} dimColor>{' '}{truncateToWidth(description, 120, '...')}</Text>
       </Box>
 
       <Box marginTop={1} flexDirection="column">

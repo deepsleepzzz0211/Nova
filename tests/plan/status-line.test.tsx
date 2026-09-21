@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { StatusLine } from '../../src/tui/StatusLine.js';
-import type { CacheStatsView } from '../../src/tui/hooks/useAgent.js';
+import type { CacheStatsView } from '../../src/tui/display-types.js';
 
 // tui-redesign 02: the top StatusBar is retired; one bottom line under the
 // input carries the working indicator and usage badges. The cache hit-rate

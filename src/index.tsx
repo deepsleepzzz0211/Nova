@@ -513,8 +513,6 @@ async function main(): Promise<void> {
     <App
       agent={agentConfig}
       todoState={todoState}
-      mcpConnectionCount={mcpConnectionCount}
-      gitBranch={readGitBranch(process.cwd())}
       welcome={welcome}
       fullscreen={fullscreen}
     />,
