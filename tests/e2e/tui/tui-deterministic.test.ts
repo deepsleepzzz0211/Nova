@@ -124,17 +124,19 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     }
   });
 
-  it('prints the startup header once, before the TUI takes over', async () => {
+  it('shows the welcome card as the transcript opener (tui-redesign 06)', async () => {
     const cwd = makeWorkspace({ stubKey: true });
     const terminal = await launchTui(cwd);
     try {
-      // The identity line lands in scrollback before Ink owns the frame (on a
-      // 30-row terminal Ink's first paint scrolls the remaining header lines
-      // out of the buffer; their formatting is unit-tested separately).
+      await terminal.getByText('Type a prompt').expect({ timeout: 60_000 });
+      // The card lives INSIDE the frame now: logo, meta line with version
+      // and provider/model, and a tip; the old stdout header is gone.
       const full = await terminal.text({ full: true });
-      expect(full).toContain('nova ');
-      expect(full).toContain('e2e/');
-      expect(full.match(/nova \d+\.\d+\.\d+/)).not.toBeNull();
+      expect(full).toContain('███╗');
+      expect(full).toMatch(/v\d+\.\d+\.\d+ · e2e\//);
+      expect(full).toContain('Tip:');
+      // Rendered exactly once (not reprinted on repaint).
+      expect(full.split('Tip:').length - 1).toBe(1);
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();
