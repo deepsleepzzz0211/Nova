@@ -23,7 +23,7 @@ describe('InputBar multi-line editor (tui-refactor 02, component)', () => {
     instance.stdin.write('\r'); // Enter submits
     await settle();
     expect(onSubmit).toHaveBeenCalledWith('hello');
-    expect(instance.lastFrame()).toContain('Type a message');
+    expect(instance.lastFrame()).toContain('Type a prompt');
     instance.unmount();
   });
 
@@ -97,7 +97,7 @@ describe('InputBar multi-line editor (tui-refactor 02, component)', () => {
     typeText(instance.stdin, 'draft');
     instance.stdin.write('\x03'); // Ctrl+C
     await settle(100);
-    expect(instance.lastFrame()).toContain('Type a message');
+    expect(instance.lastFrame()).toContain('Type a prompt');
     expect(exitSpy).not.toHaveBeenCalled();
     exitSpy.mockRestore();
     instance.unmount();
@@ -148,7 +148,7 @@ describe('InputBar working indicator (tui-refactor 09)', () => {
     const instance = render(
       <InputBar onSubmit={() => {}} isStreaming={false} workingState="idle" />,
     );
-    expect(instance.lastFrame()).toContain('Type a message');
+    expect(instance.lastFrame()).toContain('Type a prompt');
     instance.unmount();
   });
 
@@ -167,7 +167,7 @@ describe('coalesced input chunks (E2E finding)', () => {
     instance.stdin.write('prompt delivered with the enter key' + CR);
     await settle();
     expect(onSubmit).toHaveBeenCalledWith('prompt delivered with the enter key');
-    expect(instance.lastFrame()).toContain('Type a message');
+    expect(instance.lastFrame()).toContain('Type a prompt');
     instance.unmount();
   });
 

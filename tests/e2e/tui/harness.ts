@@ -124,7 +124,7 @@ export async function launchTui(
     rows: options.rows ?? 32,
   });
   // The editor placeholder proves the TUI finished its first render.
-  await terminal.getByText('Type a message', { regex: true }).expect();
+  await terminal.getByText('Type a prompt', { regex: true }).expect();
   return terminal;
 }
 

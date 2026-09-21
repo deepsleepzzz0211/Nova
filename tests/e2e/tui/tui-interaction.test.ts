@@ -92,7 +92,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
 
       await terminal.keyboard.press('Escape');
       await terminal.getByText('[interrupted]').expect({ timeout: 30_000 });
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();
@@ -113,7 +113,7 @@ describe('TUI interactions (real LLM, real PTY)', () => {
       await terminal.getByText('READY', { regex: true }).expect({ timeout: 60_000 });
 
       // Wait for the turn to end: Enter is intentionally ignored while streaming.
-      await terminal.getByText('Type a message', { regex: true }).expect({ timeout: 60_000 });
+      await terminal.getByText('Type a prompt', { regex: true }).expect({ timeout: 60_000 });
       await terminal.submit('/undo');
       await terminal.getByText('undone 1 turn', { regex: true }).expect({ timeout: 30_000 });
     } finally {

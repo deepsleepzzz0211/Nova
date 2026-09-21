@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useStdout } from 'ink';
 import {
   createEditorState,
   insertText,
@@ -54,6 +54,8 @@ export interface InputBarProps {
   onExit?: () => void;
   /** Root directory for @ file completions (defaults to cwd; test seam). */
   fileIndexRoot?: string;
+  /** Model info for the inner status row (tui-redesign ticket 03). */
+  modelInfo?: { providerName?: string; model: string; thinkingLevel?: string };
 }
 
 /**
@@ -75,6 +77,7 @@ export function InputBar({
   disabled,
   onExit,
   fileIndexRoot,
+  modelInfo,
 }: InputBarProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>(createEditorState);
   // Mirror of the editor state, updated synchronously by `update`. Handlers
@@ -243,6 +246,7 @@ export function InputBar({
       editor={editor}
       workingState={workingState ?? (isStreaming ? 'streaming' : 'idle')}
       completion={completion}
+      modelInfo={modelInfo}
       onSelect={(i) => completionController.select(i)}
     />
   );
@@ -253,11 +257,13 @@ function EditorView({
   editor,
   workingState,
   completion,
+  modelInfo,
   onSelect,
 }: {
   editor: EditorState;
   workingState: 'idle' | 'streaming' | 'thinking';
   completion: ActiveCompletion | undefined;
+  modelInfo?: { providerName?: string; model: string; thinkingLevel?: string };
   onSelect: (index: number) => void;
 }): React.ReactElement {
   const lines = editor.text.split('\n');
@@ -266,45 +272,67 @@ function EditorView({
   // Working indicator: the editor border doubles as the activity light
   // (tui-refactor ticket 09, pi-style; single source: workingBorderColor).
   const borderColor = workingBorderColor(workingState);
+  // Hand-drawn rounded frame (tui-redesign ticket 03): the top edge embeds
+  // the ` Input ` title, which Ink's built-in border cannot do.
+  const { stdout } = useStdout();
+  const cols = stdout.columns ?? 80;
+  const head = '╭─ Input ';
+  const top = head + '─'.repeat(Math.max(2, cols - head.length - 1)) + '╮';
+  const bottom = '╰' + '─'.repeat(Math.max(2, cols - 2)) + '╯';
 
   return (
-    <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column">
-      {editor.text.length === 0 ? (
-        <Text color={theme.muted} dimColor>
-          {workingState !== 'idle'
-            ? '(working… — you can still type)'
-            : 'Type a message... (Shift+Enter for newline)'}
-        </Text>
-      ) : (
-        lines.map((line, row) => {
-          if (row === cursorRow) {
-            const at = line[cursorCol] ?? ' ';
+    <Box flexDirection="column">
+      <Text color={borderColor}>{top}</Text>
+      <Box flexDirection="column" paddingX={1}>
+        {editor.text.length === 0 ? (
+          <Text color={theme.muted} dimColor>
+            {workingState !== 'idle' ? '(working… — you can still type)' : 'Type a prompt'}
+          </Text>
+        ) : (
+          lines.map((line, row) => {
+            if (row === cursorRow) {
+              const at = line[cursorCol] ?? ' ';
+              return (
+                <Box key={row}>
+                  <Text color={theme.assistantMessage}>{line.slice(0, cursorCol)}</Text>
+                  <Text inverse color={theme.assistantMessage}>{at}</Text>
+                  <Text color={theme.assistantMessage}>{line.slice(cursorCol + 1)}</Text>
+                </Box>
+              );
+            }
             return (
               <Box key={row}>
-                <Text color={theme.assistantMessage}>{line.slice(0, cursorCol)}</Text>
-                <Text inverse color={theme.assistantMessage}>{at}</Text>
-                <Text color={theme.assistantMessage}>{line.slice(cursorCol + 1)}</Text>
+                <Text color={theme.assistantMessage}>{line}</Text>
               </Box>
             );
-          }
-          return (
-            <Box key={row}>
-              <Text color={theme.assistantMessage}>{line}</Text>
-            </Box>
-          );
-        })
-      )}
-      {completion !== undefined && (
-        <Box flexDirection="column" marginTop={0}>
-          {completion.items.map((item: CompletionItem, i: number) => (
-            <Box key={item.label} paddingLeft={1}>
-              <Text inverse={i === completion.index} color={i === completion.index ? theme.primary : theme.muted}>
-                {item.label}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      )}
+          })
+        )}
+        {completion !== undefined && (
+          <Box flexDirection="column" marginTop={0}>
+            {completion.items.map((item: CompletionItem, i: number) => (
+              <Box key={item.label} paddingLeft={1}>
+                <Text
+                  inverse={i === completion.index}
+                  color={i === completion.index ? theme.primary : theme.muted}
+                >
+                  {`${i === completion.index ? '> ' : '  '}${item.label}`}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        )}
+        {modelInfo && (
+          <Box justifyContent="space-between">
+            <Text color={theme.muted} dimColor>
+              {modelInfo.providerName ? `${modelInfo.providerName}/${modelInfo.model}` : modelInfo.model}
+            </Text>
+            {modelInfo.thinkingLevel && (
+              <Text color={theme.muted} dimColor>{`thought: ${modelInfo.thinkingLevel}`}</Text>
+            )}
+          </Box>
+        )}
+      </Box>
+      <Text color={borderColor}>{bottom}</Text>
     </Box>
   );
 }

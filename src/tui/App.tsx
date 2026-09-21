@@ -189,6 +189,11 @@ export function App({ agent, fullscreen, todoState }: AppProps): React.ReactElem
         modalOpen={pendingPermission !== null}
         disabled={search !== null}
         onExit={() => process.exit(0)}
+        modelInfo={{
+          providerName: modelInfo.providerName,
+          model: modelInfo.model,
+          thinkingLevel: agent.thinkingLevel,
+        }}
       />
 
       <StatusLine

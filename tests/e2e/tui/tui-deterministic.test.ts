@@ -21,7 +21,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     const terminal = await launchTui(cwd, { cols: 100, rows: 30 });
     try {
       await terminal.resize(78, 24);
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
 
       const head = 'HEAD-marker-';
       const tail = '-TAIL-marker';
@@ -172,7 +172,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       expect(scrolled).not.toContain('HISTORY-ANSWER-30');
       expect(scrolled).toMatch(/HISTORY-(ANSWER|USER)-\d+/);
       // The editor stays usable in fullscreen.
-      await terminal.getByText('Type a message', { regex: true }).expect();
+      await terminal.getByText('Type a prompt', { regex: true }).expect();
     } finally {
       await exitTui(terminal).catch(() => terminal.closeQuiet());
       announceArtifacts();
