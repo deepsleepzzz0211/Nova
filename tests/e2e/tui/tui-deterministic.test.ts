@@ -230,7 +230,7 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
       // and provider/model, and a tip; the old stdout header is gone.
       const full = await terminal.text({ full: true });
       expect(full).toContain('███╗');
-      expect(full).toMatch(/v\d+\.\d+\.\d+ · e2e\//);
+      expect(full).toMatch(/v\d+\.\d+\.\d+(?:-[0-9a-z.]+)? · e2e\//);
       expect(full).toContain('Tip:');
       // Rendered exactly once (not reprinted on repaint).
       expect(full.split('Tip:').length - 1).toBe(1);
