@@ -71,12 +71,19 @@ function textOfTokens(tokens: MinimalToken[] | undefined): string {
     if (trimmed !== '' && !parts.includes(trimmed)) parts.push(trimmed);
   };
   for (const token of tokens) {
-    if (typeof token.text === 'string') push(token.text);
+    const own = typeof token.text === 'string' ? token.text.trim() : '';
+    if (own !== '') {
+      // token.text is the RAW source of this token's inline children —
+      // descending into .tokens here used to duplicate the content
+      // (md-structured-inline 04 acceptance).
+      push(own);
+      continue;
+    }
     // Nested lists carry their children in `items`, other containers in
-    // `tokens` (leaf tokens already contributed their `text` above).
+    // `tokens` (only when the container itself has no text).
     if (Array.isArray(token.items)) {
       for (const item of token.items) push(textOfTokens(item.tokens));
-    } else if (Array.isArray(token.tokens) && token.type !== 'text') {
+    } else if (Array.isArray(token.tokens)) {
       push(textOfTokens(token.tokens));
     }
   }

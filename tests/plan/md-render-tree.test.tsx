@@ -44,6 +44,14 @@ describe('tree renderer (md-structured-inline 02)', () => {
     expect(frame).not.toContain('**');
     expect(frame).not.toContain('`');
   });
+
+  it('quote with inline formatting renders its text exactly once', () => {
+    // textOfTokens used to push token.text AND descend into token.tokens,
+    // duplicating the content (found in the md-structured-inline 04 run).
+    const frame = render(<MarkdownText>{'> 引用里的 **粗体** 与 `代码`'}</MarkdownText>).lastFrame() ?? '';
+    expect(frame).toContain('引用里的 粗体 与 代码');
+    expect(frame.split('引用里的').length - 1).toBe(1);
+  });
 });
 
 describe('style table (md-structured-inline 02)', () => {
