@@ -13,7 +13,8 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
-import { displayWidth, padToWidth } from './text-measure.js';
+import { displayWidth } from './text-measure.js';
+import { parseInlineNodes, flattenInline } from './markdown-inline.js';
 
 // Only the languages we render are registered: highlightAuto (unknown
 // fences) then scans a short list instead of the full ~190-language build.
@@ -183,19 +184,26 @@ export function parseBlocksWithRaw(text: string): { blocks: MdBlock[]; rawLen: n
   return { blocks, rawLen };
 }
 
-/** Pad table cells so columns line up when joined with ' | '. */
+/** Pad table cells so columns line up when joined with ' | '.
+ * Widths count the VISIBLE text (inline markers are consumed by the tree
+ * parser, so raw lengths would misalign — md-structured-inline review). */
 function padColumns(rows: string[][]): string[][] {
   const width = Math.max(...rows.map((r) => r.length));
-  // Measure TERMINAL COLUMNS, not code units, so CJK/emoji cells align.
-  const widths = Array.from({ length: width }, (_, c) =>
-    Math.max(...rows.map((r) => displayWidth(r[c] ?? ''))),
+  const visible = rows.map((r) =>
+    Array.from({ length: width }, (_, c) => displayWidth(flattenInline(parseInlineNodes(r[c] ?? '')))),
   );
-  return rows.map((row) => widths.map((w, c) => padToWidth(row[c] ?? '', w)));
+  const widths = Array.from({ length: width }, (_, c) => Math.max(...visible.map((r) => r[c])));
+  return rows.map((row, r) =>
+    widths.map((w, c) => {
+      const cell = row[c] ?? '';
+      return cell + ' '.repeat(Math.max(0, w - visible[r][c]));
+    }),
+  );
 }
 
 /** Inline marker stripping + code-span parts live in markdown-inline.js
  * (tui-redesign 07); re-exported so existing imports keep working. */
-export { inlineText, inlineParts, parseInlineNodes, INLINE_STYLE, flattenInline, type InlinePart, type InlineNode, type InlineStyle } from './markdown-inline.js';
+export { parseInlineNodes, INLINE_STYLE, flattenInline, type InlineNode, type InlineStyle } from './markdown-inline.js';
 
 /** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {

@@ -45,6 +45,22 @@ describe('tree renderer (md-structured-inline 02)', () => {
     expect(frame).not.toContain('`');
   });
 
+  it('table cells go through the tree and align by VISIBLE width', () => {
+    // Raw markers must not count into column width (ticket 02 checkbox:
+    // 表格单元格 through the tree).
+    const frame =
+      render(<MarkdownText>{'| h1 | **h2** |\n| --- | --- |\n| `a` | bb |'}</MarkdownText>).lastFrame() ?? '';
+    expect(frame).not.toContain('**');
+    expect(frame).not.toContain('`');
+    expect(frame).toContain('h1');
+    expect(frame).toContain('h2');
+    expect(frame).toContain('a');
+    // Column alignment: both rows' second column start at the same offset.
+    const lines = frame.split('\n').filter((l) => l.includes('h1') || l.includes('bb'));
+    const col2 = lines.map((l) => l.indexOf('h2') >= 0 ? l.indexOf('h2') : l.indexOf('bb'));
+    expect(col2[0]).toBe(col2[1]);
+  });
+
   it('quote with inline formatting renders its text exactly once', () => {
     // textOfTokens used to push token.text AND descend into token.tokens,
     // duplicating the content (found in the md-structured-inline 04 run).

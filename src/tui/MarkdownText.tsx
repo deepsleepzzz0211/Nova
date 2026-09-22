@@ -17,7 +17,7 @@ import { theme } from './theme.js';
  * INLINE_STYLE table (md-structured-inline 02). Markers are never emitted:
  * they are consumed by the parser, so malformed nesting cannot leak.
  */
-function InlineNodes({ nodes }: { nodes: InlineNode[] }): React.ReactElement {
+function InlineNodes({ nodes }: { nodes: readonly InlineNode[] }): React.ReactElement {
   return (
     <Text>
       {nodes.map((node, i) => {
@@ -114,9 +114,16 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
         <Box flexDirection="column">
           {block.rows.map((row, i) => (
             <Box key={i}>
-              <Text bold={i === 0} color={i === 0 ? theme.mdTableHeader : undefined}>
-                {row.join(' | ')}
-              </Text>
+              {row.map((cell, c) => (
+                <React.Fragment key={c}>
+                  {c > 0 && (
+                    <Text bold={i === 0} color={i === 0 ? theme.mdTableHeader : undefined}>{' | '}</Text>
+                  )}
+                  <Text bold={i === 0} color={i === 0 ? theme.mdTableHeader : undefined}>
+                    <InlineNodes nodes={parseInlineNodes(cell)} />
+                  </Text>
+                </React.Fragment>
+              ))}
             </Box>
           ))}
         </Box>

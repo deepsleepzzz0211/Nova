@@ -1,16 +1,13 @@
 /**
- * Inline markdown handling for the terminal renderer.
- *
- * Two generations live here side by side during the migration:
- *  - inlineText/inlineParts: the legacy regex stripper (md-structured-inline
- *    02 removes it from the render path);
- *  - parseInlineNodes: a CommonMark inline TREE via marked's inline lexer
- *    (md-structured-inline 01, ZCode-style). The renderer walks this tree and
- *    never echoes markup characters, so malformed nesting cannot leak
- *    literal `**` / `` ` `` the way the regex path did.
+ * Inline markdown handling for the terminal renderer (md-structured-inline):
+ * ONE CommonMark path — parseInlineNodes builds a node tree from marked's
+ * inline lexer, and the renderer styles nodes via INLINE_STYLE. The old
+ * regex marker-stripper (inlineText/inlineParts) is gone: it leaked literal
+ * markers on malformed nesting and could not express bold/italic/links.
  */
 import { marked } from 'marked';
 import { theme } from './theme.js';
+import { StringLru } from './string-lru.js';
 
 /**
  * ONE declarative kind→style table (ZCode's capture→token model,
@@ -42,7 +39,7 @@ export interface InlineNode {
   kind: 'text' | 'strong' | 'em' | 'del' | 'codespan' | 'link' | 'br';
   text?: string;
   href?: string;
-  children?: InlineNode[];
+  children?: readonly InlineNode[];
 }
 
 interface RawInlineToken {
@@ -102,9 +99,10 @@ function convertTokens(tokens: RawInlineToken[]): InlineNode[] {
  * reads).
  */
 const INLINE_CACHE_CAP = 400;
+/** Total cached source characters; streaming deltas would otherwise retain
+ * up to INLINE_CACHE_CAP full copies of long answers. */
 const INLINE_CHAR_BUDGET = 256 * 1024;
-const inlineCache = new Map<string, InlineNode[]>();
-let inlineChars = 0;
+const inlineCache = new StringLru<readonly InlineNode[]>(INLINE_CACHE_CAP, INLINE_CHAR_BUDGET);
 const lexStats = { lexes: 0, hits: 0 };
 
 /** Observability seam for the streaming-cost tests. */
@@ -119,47 +117,41 @@ export function resetInlineLexStats(): void {
 
 export function clearInlineCache(): void {
   inlineCache.clear();
-  inlineChars = 0;
 }
 
-export function parseInlineNodes(raw: string): InlineNode[] {
+export function parseInlineNodes(raw: string): readonly InlineNode[] {
   const hit = inlineCache.get(raw);
   if (hit !== undefined) {
     lexStats.hits += 1;
-    inlineCache.delete(raw);
-    inlineCache.set(raw, hit);
     return hit;
   }
   const nodes = lexInline(raw);
   inlineCache.set(raw, nodes);
-  inlineChars += raw.length;
-  while (
-    inlineCache.size > INLINE_CACHE_CAP ||
-    (inlineChars > INLINE_CHAR_BUDGET && inlineCache.size > 1)
-  ) {
-    const oldest = inlineCache.keys().next().value;
-    if (oldest === undefined) break;
-    inlineCache.delete(oldest);
-    inlineChars -= oldest.length;
-  }
   return nodes;
 }
 
-function lexInline(raw: string): InlineNode[] {
+function lexInline(raw: string): readonly InlineNode[] {
   lexStats.lexes += 1;
-  if (raw === '') return [{ kind: 'text', text: '' }];
+  if (raw === '') return freezeNodes([{ kind: 'text', text: '' }]);
   try {
     const lexer = new marked.Lexer(marked.defaults);
     const tokens = lexer.inlineTokens(raw) as unknown as RawInlineToken[];
     const nodes = convertTokens(tokens);
-    return nodes.length > 0 ? nodes : [{ kind: 'text', text: raw }];
+    return freezeNodes(nodes.length > 0 ? nodes : [{ kind: 'text', text: raw }]);
   } catch {
-    return [{ kind: 'text', text: raw }];
+    return freezeNodes([{ kind: 'text', text: raw }]);
   }
 }
 
+/** Cached trees are shared by reference; freeze so a stray mutation cannot
+ * poison every later frame. */
+function freezeNodes(nodes: readonly InlineNode[]): readonly InlineNode[] {
+  for (const n of nodes) if (n.children !== undefined) freezeNodes(n.children);
+  return Object.freeze(nodes);
+}
+
 /** Concatenated visible text of a tree (no markers). */
-export function flattenInline(nodes: InlineNode[]): string {
+export function flattenInline(nodes: readonly InlineNode[]): string {
   let out = '';
   for (const n of nodes) {
     if (n.kind === 'br') out += '\n';
@@ -167,46 +159,4 @@ export function flattenInline(nodes: InlineNode[]): string {
     else out += n.text ?? '';
   }
   return out;
-}
-
-/** Inline markdown markers stripped to plain text for terminal display. */
-export function inlineText(raw: string): string {
-  return raw
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
-    .replace(/(^|\s)_([^_]+)_/g, '$1$2')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '');
-}
-
-/** One inline segment: plain text or a code span (tui-redesign 07). */
-export interface InlinePart {
-  text: string;
-  code: boolean;
-}
-
-/**
- * Split inline text into plain/code parts. Code spans keep their text and
- * get styled by the renderer (green on panel); every other marker keeps
- * being stripped exactly like inlineText does.
- */
-export function inlineParts(raw: string): InlinePart[] {
-  const parts: InlinePart[] = [];
-  const re = /`([^`]*)`/g;
-  let last = 0;
-  let pending = '';
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    pending += raw.slice(last, m.index);
-    const stripped = inlineText(pending);
-    if (stripped !== '') parts.push({ text: stripped, code: false });
-    parts.push({ text: m[1], code: true });
-    pending = '';
-    last = m.index + m[0].length;
-  }
-  const tail = inlineText(pending + raw.slice(last));
-  if (tail !== '' || parts.length === 0) parts.push({ text: tail, code: false });
-  return parts;
 }

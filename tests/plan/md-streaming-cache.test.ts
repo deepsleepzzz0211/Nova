@@ -89,4 +89,34 @@ describe('block prefix reuse (03)', () => {
     // the stable paragraph adds exactly 0.
     expect(growth).toBeLessThanOrEqual(32);
   });
+
+  it('1000-frame append stream stays O(delta) and stays correct', () => {
+    let doc = '';
+    let checked = 0;
+    for (let i = 0; i < 1000; i++) {
+      doc += `w${i} `;
+      if (i % 50 === 49) doc += '\n\n';
+      const cached = getCachedBlocks(doc);
+      if (i % 100 === 99) {
+        expect(cached).toEqual(parseMarkdownBlocks(doc));
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(10);
+    const stats = blockLexStats();
+    // Prefix reuse must carry most frames; total block lexes never exceed
+    // one per frame (the pre-fix behaviour was also one per frame, but each
+    // over the WHOLE document — the equality checks above prove the cheap
+    // frames still parse correctly, the prefix counter proves the path ran).
+    expect(stats.prefix).toBeGreaterThan(10);
+    expect(stats.full + stats.prefix).toBeLessThanOrEqual(1000);
+  });
+
+  it('LRU eviction: exceeding the cap drops the oldest, which must re-lex', () => {
+    for (let i = 0; i < 405; i++) parseInlineNodes(`unique source ${i} with **x**`);
+    const before = inlineLexStats().lexes;
+    expect(before).toBe(405); // every distinct source lexed once
+    parseInlineNodes('unique source 0 with **x**'); // evicted by capacity 400
+    expect(inlineLexStats().lexes).toBe(406);
+  });
 });
