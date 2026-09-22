@@ -60,9 +60,17 @@ async function main(): Promise<void> {
       thinking: { type: 'string' },
       'pin-skills': { type: 'string' },
       'replay-sessions': { type: 'boolean' },
+      version: { type: 'boolean', short: 'v' },
     },
     strict: false,
   });
+
+  // Version probe: print and exit before any session/provider work, so it
+  // works without a TTY, a key, or a config (CI smoke checks rely on this).
+  if (values.version === true) {
+    console.log(__NOVA_VERSION__);
+    process.exit(0);
+  }
 
   // Explicit integrity re-pin: hash every SKILL.md under the given repo dir
   // into a sibling lock file. Runs and exits before any session/model work.
