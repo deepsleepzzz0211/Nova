@@ -1,8 +1,96 @@
 /**
- * Inline markdown handling for the terminal renderer (tui-redesign 07):
- * markers are stripped to plain text, EXCEPT code spans, which survive as
- * typed parts the renderer styles (green on panel).
+ * Inline markdown handling for the terminal renderer.
+ *
+ * Two generations live here side by side during the migration:
+ *  - inlineText/inlineParts: the legacy regex stripper (md-structured-inline
+ *    02 removes it from the render path);
+ *  - parseInlineNodes: a CommonMark inline TREE via marked's inline lexer
+ *    (md-structured-inline 01, ZCode-style). The renderer walks this tree and
+ *    never echoes markup characters, so malformed nesting cannot leak
+ *    literal `**` / `` ` `` the way the regex path did.
  */
+import { marked } from 'marked';
+
+/** One inline node; `children` recurses for strong/em/del/link labels. */
+export interface InlineNode {
+  kind: 'text' | 'strong' | 'em' | 'del' | 'codespan' | 'link' | 'br';
+  text?: string;
+  href?: string;
+  children?: InlineNode[];
+}
+
+interface RawInlineToken {
+  type: string;
+  raw?: string;
+  text?: string;
+  href?: string;
+  tokens?: RawInlineToken[];
+}
+
+function convertTokens(tokens: RawInlineToken[]): InlineNode[] {
+  const out: InlineNode[] = [];
+  for (const t of tokens) {
+    switch (t.type) {
+      case 'strong':
+      case 'em':
+      case 'del':
+        out.push({ kind: t.type, children: convertTokens(t.tokens ?? [{ type: 'text', text: t.text ?? '' }]) });
+        break;
+      case 'link':
+        out.push({ kind: 'link', href: t.href ?? '', children: convertTokens(t.tokens ?? [{ type: 'text', text: t.text ?? '' }]) });
+        break;
+      case 'codespan':
+        out.push({ kind: 'codespan', text: t.text ?? '' });
+        break;
+      case 'br':
+        out.push({ kind: 'br' });
+        break;
+      case 'escape':
+        out.push({ kind: 'text', text: t.text ?? '' });
+        break;
+      case 'text': {
+        // Loose text tokens may carry nested inline tokens (marked quirk).
+        const nested = t.tokens ?? [];
+        if (nested.length > 0) out.push(...convertTokens(nested));
+        else out.push({ kind: 'text', text: t.text ?? t.raw ?? '' });
+        break;
+      }
+      default: {
+        const literal = t.raw ?? t.text ?? '';
+        if (literal !== '') out.push({ kind: 'text', text: literal });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Parse one inline span into a node tree. Never throws: any lexer failure
+ * (e.g. a half-streamed construct) degrades to a single text node so the
+ * transcript keeps rendering.
+ */
+export function parseInlineNodes(raw: string): InlineNode[] {
+  if (raw === '') return [{ kind: 'text', text: '' }];
+  try {
+    const lexer = new marked.Lexer(marked.defaults);
+    const tokens = lexer.inlineTokens(raw) as unknown as RawInlineToken[];
+    const nodes = convertTokens(tokens);
+    return nodes.length > 0 ? nodes : [{ kind: 'text', text: raw }];
+  } catch {
+    return [{ kind: 'text', text: raw }];
+  }
+}
+
+/** Concatenated visible text of a tree (no markers). */
+export function flattenInline(nodes: InlineNode[]): string {
+  let out = '';
+  for (const n of nodes) {
+    if (n.kind === 'br') out += '\n';
+    else if (n.children !== undefined) out += flattenInline(n.children);
+    else out += n.text ?? '';
+  }
+  return out;
+}
 
 /** Inline markdown markers stripped to plain text for terminal display. */
 export function inlineText(raw: string): string {
