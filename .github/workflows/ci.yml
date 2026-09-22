@@ -12,16 +12,14 @@ on:
   pull_request:
 
 jobs:
-  # Reduced matrix: both Node lines on Linux + the Windows job (path/shell
-  # semantics differ enough to be worth a standing check). Full 3 OS x 2
-  # Node runs on the release tag.
+  # Node 22 only — Node 20 hit EOL 2026-04-30 and its Windows ConPTY input
+  # path drops the Shift modifier (libuv#4979), making PTY suites unsatisfiable
+  # there. Full 3 OS runs on the release tag.
   test:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            node: 20
           - os: ubuntu-latest
             node: 22
           - os: windows-latest
