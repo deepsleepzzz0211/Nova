@@ -1,7 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import {
-  getCachedBlocks,
   highlightedLines,
   highlightColor,
   parseInlineNodes,
@@ -10,6 +9,7 @@ import {
   type MdBlock,
   type HighlightSegment,
 } from './markdown.js';
+import { getCachedBlocks } from './markdown-cache.js';
 import { theme } from './theme.js';
 
 /**

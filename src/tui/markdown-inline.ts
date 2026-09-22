@@ -94,8 +94,59 @@ function convertTokens(tokens: RawInlineToken[]): InlineNode[] {
  * Parse one inline span into a node tree. Never throws: any lexer failure
  * (e.g. a half-streamed construct) degrades to a single text node so the
  * transcript keeps rendering.
+ *
+ * Memoised per source string (md-structured-inline 03): streaming frames
+ * re-send every block's text, but only the growing tail block actually
+ * changes — stable blocks hit the cache and cost zero lexing. Cached arrays
+ * are shared and must be treated as immutable by callers (the renderer only
+ * reads).
  */
+const INLINE_CACHE_CAP = 400;
+const INLINE_CHAR_BUDGET = 256 * 1024;
+const inlineCache = new Map<string, InlineNode[]>();
+let inlineChars = 0;
+const lexStats = { lexes: 0, hits: 0 };
+
+/** Observability seam for the streaming-cost tests. */
+export function inlineLexStats(): { lexes: number; hits: number } {
+  return { ...lexStats };
+}
+
+export function resetInlineLexStats(): void {
+  lexStats.lexes = 0;
+  lexStats.hits = 0;
+}
+
+export function clearInlineCache(): void {
+  inlineCache.clear();
+  inlineChars = 0;
+}
+
 export function parseInlineNodes(raw: string): InlineNode[] {
+  const hit = inlineCache.get(raw);
+  if (hit !== undefined) {
+    lexStats.hits += 1;
+    inlineCache.delete(raw);
+    inlineCache.set(raw, hit);
+    return hit;
+  }
+  const nodes = lexInline(raw);
+  inlineCache.set(raw, nodes);
+  inlineChars += raw.length;
+  while (
+    inlineCache.size > INLINE_CACHE_CAP ||
+    (inlineChars > INLINE_CHAR_BUDGET && inlineCache.size > 1)
+  ) {
+    const oldest = inlineCache.keys().next().value;
+    if (oldest === undefined) break;
+    inlineCache.delete(oldest);
+    inlineChars -= oldest.length;
+  }
+  return nodes;
+}
+
+function lexInline(raw: string): InlineNode[] {
+  lexStats.lexes += 1;
   if (raw === '') return [{ kind: 'text', text: '' }];
   try {
     const lexer = new marked.Lexer(marked.defaults);
