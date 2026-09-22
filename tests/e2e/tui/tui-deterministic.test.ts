@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
 import {
   makeWorkspace,
   launchTui,
   exitTui,
   announceArtifacts,
   cleanup,
+  PROVIDER,
+  MODEL_ID,
 } from './harness.js';
 
 /**
@@ -16,6 +20,55 @@ import {
  * the terminal-level fixes found during the streaming/TUI work.
  */
 describe('TUI deterministic cases (real PTY, no LLM)', () => {
+  it('approval decision closes the dialog immediately and settles the tool row (approval-flow 01)', async () => {
+    // Fixture mock: turn 2 answers only after ~4s, so a dialog that hides
+    // before the turn ends can only have been closed BY the decision.
+    const port = 8793;
+    const server = spawn(
+      process.execPath,
+      [path.join(process.cwd(), 'tests', 'e2e', 'tui', 'fixtures', 'mock-approval.mjs')],
+      { env: { ...process.env, MOCK_PORT: String(port) }, stdio: 'ignore' },
+    );
+    await new Promise((r) => setTimeout(r, 600));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-approval-'));
+    fs.mkdirSync(path.join(cwd, '.nova'), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, '.nova', 'models.json'),
+      JSON.stringify({
+        providers: {
+          [PROVIDER]: {
+            baseUrl: `http://127.0.0.1:${port}/v1`,
+            api: 'openai-completions',
+            apiKey: 'mock-key',
+            models: [{ id: MODEL_ID, contextWindow: 32768, maxTokens: 4096 }],
+          },
+        },
+      }),
+      'utf8',
+    );
+    const terminal = await launchTui(cwd);
+    try {
+      await terminal.type('run the echo');
+      await terminal.keyboard.press('Enter');
+      await terminal.getByText('Approval — bash', { regex: true }).expect({ timeout: 60_000 });
+      await terminal.keyboard.press('2'); // Allow once
+      // THE discriminator: hidden within 2.5s proves the decision closed it
+      // (the mock's turn 2 — and thus turn end — lands at ~4s+).
+      await terminal.getByText('Approval —').wait({ state: 'hidden', timeout: 2_500 });
+      await terminal.getByText('APPROVAL-DONE', { regex: true }).expect({ timeout: 60_000 });
+      await terminal.waitIdle({ timeout: 20_000 }).catch(() => undefined);
+      const screen = await terminal.text({ full: true });
+      const bashLines = screen.split('\n').filter((l) => l.includes('Bash'));
+      expect(bashLines.some((l) => l.includes('✓ Bash'))).toBe(true);
+      expect(bashLines.some((l) => /[⠋⠙⠹⠸⠼⠴⠦⠏]/.test(l))).toBe(false);
+    } finally {
+      await exitTui(terminal).catch(() => terminal.closeQuiet());
+      announceArtifacts();
+      cleanup(cwd);
+      server.kill();
+    }
+  });
+
   it('narrow terminal (78 columns) wraps the editor instead of truncating', async () => {
     const cwd = makeWorkspace({ stubKey: true });
     const terminal = await launchTui(cwd, { cols: 100, rows: 30 });
