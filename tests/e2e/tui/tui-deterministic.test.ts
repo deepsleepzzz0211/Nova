@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as http from 'node:http';
 import { spawn } from 'node:child_process';
 import {
   makeWorkspace,
@@ -12,6 +13,30 @@ import {
   PROVIDER,
   MODEL_ID,
 } from './harness.js';
+
+/** Poll the fixture mock until it accepts connections (or timeout). */
+async function waitForMock(port: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const ok = await new Promise<boolean>((resolve) => {
+      const req = http.get(
+        `http://127.0.0.1:${port}/v1/noop`,
+        (res: { destroy(): void }) => {
+          res.destroy();
+          resolve(true);
+        },
+      );
+      req.on('error', () => resolve(false));
+      req.setTimeout(500, () => {
+        req.destroy();
+        resolve(false);
+      });
+    });
+    if (ok) return;
+    if (Date.now() > deadline) throw new Error(`mock server on ${port} not ready`);
+    await new Promise((r) => setTimeout(r, 150));
+  }
+}
 
 /**
  * Deterministic TUI E2E: real PTY, NO LLM calls and NO API key, so it runs in
@@ -27,9 +52,11 @@ describe('TUI deterministic cases (real PTY, no LLM)', () => {
     const server = spawn(
       process.execPath,
       [path.join(process.cwd(), 'tests', 'e2e', 'tui', 'fixtures', 'mock-approval.mjs')],
-      { env: { ...process.env, MOCK_PORT: String(port) }, stdio: 'ignore' },
+      { env: { ...process.env, MOCK_PORT: String(port) }, stdio: ['ignore', 'ignore', 'inherit'] },
     );
-    await new Promise((r) => setTimeout(r, 600));
+    // Poll readiness instead of a blind sleep: spawn failures surface via the
+    // fixture's stderr (inherited) plus this timeout.
+    await waitForMock(port, 5_000);
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-approval-'));
     fs.mkdirSync(path.join(cwd, '.nova'), { recursive: true });
     fs.writeFileSync(

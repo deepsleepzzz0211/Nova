@@ -44,9 +44,10 @@ export interface InputBarProps {
   /** Called when the user presses Escape while a response is streaming. */
   onInterrupt?: () => void;
   /**
-   * True while a modal (permission dialog) owns the keyboard. Escape must not
-   * interrupt the stream then: the dialog handles Escape as "No" and the
-   * interrupt path would otherwise leave the dialog dangling (E2E finding).
+   * True while a modal (permission dialog) owns the keyboard: the editor
+   * ignores EVERY key then (useInput is broadcast; the dialog's '2' used to
+   * leak into the buffer — approval-flow 02). The dialog handles its own
+   * keys, Escape = deny included.
    */
   modalOpen?: boolean;
   /** True while another view (fullscreen search) owns the keyboard. */

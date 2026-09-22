@@ -5,7 +5,7 @@
 import * as http from 'node:http';
 
 const PORT = Number(process.env.MOCK_PORT ?? 8793);
-const TURN2_DELAY_MS = Number(process.env.MOCK_TURN2_DELAY ?? 4000);
+const TURN2_DELAY_MS = Number(process.env.MOCK_TURN2_DELAY ?? 6000);
 
 function sse(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
@@ -23,6 +23,12 @@ function streamTurn(res, model, chunks, finishReason, usage) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.method !== 'POST') {
+    // Readiness probe target: answer without touching the JSON pipeline.
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+    return;
+  }
   let body = '';
   req.on('data', (d) => (body += d));
   req.on('end', () => {
@@ -43,4 +49,8 @@ const server = http.createServer((req, res) => {
   });
 });
 
+server.on('error', (err) => {
+  console.error(`[mock-approval] server error: ${String(err)}`);
+  process.exit(1);
+});
 server.listen(PORT, '127.0.0.1', () => console.error(`[mock-approval] on ${PORT}`));
