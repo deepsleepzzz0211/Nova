@@ -353,13 +353,22 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         return Promise.resolve(true);
       }
       return new Promise<boolean>((resolve) => {
+        // One-shot: the promise ignores a second settle, but the wrapper's
+        // side effects must not replay either — settleDanglingPermission and
+        // the unmount path call resolve() again on an already-answered
+        // request, which used to flip the finished tool row back to running
+        // and re-baseline its start time (approval-flow 01).
+        let settled = false;
         setPendingPermission({
           call,
           resolve: (decision: PermissionDecision) => {
+            if (settled) return;
+            settled = true;
             if (decision === 'always' && !dangerous) {
               alwaysRules.add(call.function.name, args, kindOf);
             }
             setToolCallStatus(call.id, 'running');
+            setPendingPermission(null);
             resolve(decision !== 'deny');
           },
         });
