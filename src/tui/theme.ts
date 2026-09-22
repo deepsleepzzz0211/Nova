@@ -61,6 +61,10 @@ export const theme = {
   mdListBullet: '#7dd3fc',
   mdQuote: '#94a3b8',
   mdTableHeader: '#7dd3fc',
+  /** Inline emphasis roles (md-structured-inline 02). */
+  mdStrong: '#e5e7eb',
+  mdEmph: '#e5e7eb',
+  mdLink: '#7dd3fc',
 
   /** Editor border doubles as the working indicator. */
   working: {

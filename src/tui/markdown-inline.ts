@@ -10,6 +10,32 @@
  *    literal `**` / `` ` `` the way the regex path did.
  */
 import { marked } from 'marked';
+import { theme } from './theme.js';
+
+/**
+ * ONE declarative kind→style table (ZCode's capture→token model,
+ * md-structured-inline 02): the renderer contains no per-kind decisions.
+ */
+export interface InlineStyle {
+  bold?: boolean;
+  italic?: boolean;
+  strikethrough?: boolean;
+  underline?: boolean;
+  color?: string;
+  backgroundColor?: string;
+  /** Links append the raw target as a muted tail (terminals can't click). */
+  hrefTail?: boolean;
+}
+
+export const INLINE_STYLE: Record<InlineNode['kind'], InlineStyle> = {
+  text: {},
+  strong: { bold: true, color: theme.mdStrong },
+  em: { italic: true, color: theme.mdEmph },
+  del: { strikethrough: true, color: theme.muted },
+  codespan: { color: theme.success, backgroundColor: theme.panel },
+  link: { underline: true, color: theme.mdLink, hrefTail: true },
+  br: {},
+};
 
 /** One inline node; `children` recurses for strong/em/del/link labels. */
 export interface InlineNode {

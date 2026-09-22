@@ -177,7 +177,7 @@ function padColumns(rows: string[][]): string[][] {
 
 /** Inline marker stripping + code-span parts live in markdown-inline.js
  * (tui-redesign 07); re-exported so existing imports keep working. */
-export { inlineText, inlineParts, type InlinePart } from './markdown-inline.js';
+export { inlineText, inlineParts, parseInlineNodes, INLINE_STYLE, flattenInline, type InlinePart, type InlineNode, type InlineStyle } from './markdown-inline.js';
 
 /** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {

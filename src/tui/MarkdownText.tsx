@@ -4,26 +4,46 @@ import {
   getCachedBlocks,
   highlightedLines,
   highlightColor,
-  inlineText,
-  inlineParts,
+  parseInlineNodes,
+  INLINE_STYLE,
+  type InlineNode,
   type MdBlock,
   type HighlightSegment,
 } from './markdown.js';
 import { theme } from './theme.js';
 
-/** Paragraph text with code spans styled (green on panel), rest stripped. */
-function InlineText({ raw }: { raw: string }): React.ReactElement {
+/**
+ * Render an inline token tree with styles coming from the single
+ * INLINE_STYLE table (md-structured-inline 02). Markers are never emitted:
+ * they are consumed by the parser, so malformed nesting cannot leak.
+ */
+function InlineNodes({ nodes }: { nodes: InlineNode[] }): React.ReactElement {
   return (
     <Text>
-      {inlineParts(raw).map((part, i) =>
-        part.code ? (
-          <Text key={i} color={theme.success} backgroundColor={theme.panel}>
-            {part.text}
-          </Text>
+      {nodes.map((node, i) => {
+        const style = INLINE_STYLE[node.kind];
+        const child = node.children !== undefined ? (
+          <InlineNodes nodes={node.children} />
         ) : (
-          <Text key={i}>{part.text}</Text>
-        ),
-      )}
+          node.kind === 'br' ? '\n' : node.text ?? ''
+        );
+        return (
+          <Text
+            key={i}
+            bold={style.bold}
+            italic={style.italic}
+            strikethrough={style.strikethrough}
+            underline={style.underline}
+            color={style.color}
+            backgroundColor={style.backgroundColor}
+          >
+            {child}
+            {style.hrefTail && node.href !== undefined && (
+              <Text color={theme.muted} dimColor>{` (${node.href})`}</Text>
+            )}
+          </Text>
+        );
+      })}
     </Text>
   );
 }
@@ -56,7 +76,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
       return (
         <Box marginY={0}>
           <Text bold color={theme.mdHeading}>
-            {inlineText(block.text)}
+            <InlineNodes nodes={parseInlineNodes(block.text)} />
           </Text>
         </Box>
       );
@@ -68,7 +88,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
               <Text color={theme.mdListBullet}>
                 {block.ordered === true ? `${(block.start ?? 1) + i}. ` : '• '}
               </Text>
-              <Text>{inlineText(item)}</Text>
+              <InlineNodes nodes={parseInlineNodes(item)} />
             </Box>
           ))}
         </Box>
@@ -77,7 +97,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
       return (
         <Box paddingLeft={2}>
           <Text color={theme.mdQuote} italic>
-            {inlineText(block.text)}
+            <InlineNodes nodes={parseInlineNodes(block.text)} />
           </Text>
         </Box>
       );
@@ -105,7 +125,7 @@ function Block({ block }: { block: MdBlock }): React.ReactElement {
     default:
       return (
         <Box>
-          <InlineText raw={block.text} />
+          <InlineNodes nodes={parseInlineNodes(block.text)} />
         </Box>
       );
   }
