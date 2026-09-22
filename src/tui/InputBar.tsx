@@ -120,12 +120,17 @@ export function InputBar({
   useInput((inputChar, key) => {
     // Another view owns the keyboard (e.g. the fullscreen search box).
     if (disabled === true) return;
+    // A modal (permission dialog) owns ALL keys while open: useInput is
+    // broadcast, and the dialog's '2' was leaking into the editor buffer
+    // (approval-flow 02, found in live acceptance).
+    if (modalOpen === true) return;
     if (key.escape && completionController.current !== undefined) {
       // Close the popup first; interrupt only when no popup is open.
       completionController.close();
       return;
     }
-    if (key.escape && isStreaming && modalOpen !== true) {
+    if (key.escape && isStreaming) {
+      // (modalOpen already short-circuited above: Esc belongs to the dialog)
       onInterrupt?.();
       return;
     }
