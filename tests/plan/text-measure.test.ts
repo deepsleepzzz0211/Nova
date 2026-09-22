@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { displayWidth, wrappedLineCount, truncateToWidth, padToWidth } from '../../src/tui/text-measure.js';
 import { estimateMessageLines, viewportSlice } from '../../src/tui/viewport.js';
-import { getCachedBlocks } from '../../src/tui/markdown.js';
+import { getCachedBlocks } from '../../src/tui/markdown-cache.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
 
 /**

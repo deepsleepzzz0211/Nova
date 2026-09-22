@@ -3,7 +3,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { MessageBubble } from '../../src/tui/MessageBubble.js';
 import { MarkdownText } from '../../src/tui/MarkdownText.js';
-import { inlineParts } from '../../src/tui/markdown.js';
+import { parseInlineNodes, flattenInline } from '../../src/tui/markdown.js';
 import { decoratedContextNotice } from '../../src/tui/notice-line.js';
 import { displayWidth } from '../../src/tui/text-measure.js';
 import type { DisplayMessage } from '../../src/tui/display-types.js';
@@ -26,20 +26,17 @@ describe('user message band (tui-redesign 07)', () => {
   });
 });
 
-describe('inline code parts (tui-redesign 07)', () => {
-  it('splits code spans out of the stripped text', () => {
-    expect(inlineParts('run `pnpm test` now')).toEqual([
-      { text: 'run ', code: false },
-      { text: 'pnpm test', code: true },
-      { text: ' now', code: false },
+describe('inline code parts (tui-redesign 07, tree API since md-structured-inline)', () => {
+  it('splits code spans out of the surrounding text', () => {
+    expect(parseInlineNodes('run `pnpm test` now').map((n) => n.kind)).toEqual([
+      'text',
+      'codespan',
+      'text',
     ]);
   });
 
-  it('still strips bold/link markers inside the parts', () => {
-    expect(inlineParts('**a** and `b`')).toEqual([
-      { text: 'a and ', code: false },
-      { text: 'b', code: true },
-    ]);
+  it('bold/link markers are consumed, text survives', () => {
+    expect(flattenInline(parseInlineNodes('**a** and `b`'))).toBe('a and b');
   });
 
   it('renders code spans into the paragraph flow without markers', () => {

@@ -13,7 +13,8 @@ import sql from 'highlight.js/lib/languages/sql';
 import typescript from 'highlight.js/lib/languages/typescript';
 import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
-import { displayWidth, padToWidth } from './text-measure.js';
+import { displayWidth } from './text-measure.js';
+import { parseInlineNodes, flattenInline } from './markdown-inline.js';
 
 // Only the languages we render are registered: highlightAuto (unknown
 // fences) then scans a short list instead of the full ~190-language build.
@@ -71,12 +72,19 @@ function textOfTokens(tokens: MinimalToken[] | undefined): string {
     if (trimmed !== '' && !parts.includes(trimmed)) parts.push(trimmed);
   };
   for (const token of tokens) {
-    if (typeof token.text === 'string') push(token.text);
+    const own = typeof token.text === 'string' ? token.text.trim() : '';
+    if (own !== '') {
+      // token.text is the RAW source of this token's inline children —
+      // descending into .tokens here used to duplicate the content
+      // (md-structured-inline 04 acceptance).
+      push(own);
+      continue;
+    }
     // Nested lists carry their children in `items`, other containers in
-    // `tokens` (leaf tokens already contributed their `text` above).
+    // `tokens` (only when the container itself has no text).
     if (Array.isArray(token.items)) {
       for (const item of token.items) push(textOfTokens(item.tokens));
-    } else if (Array.isArray(token.tokens) && token.type !== 'text') {
+    } else if (Array.isArray(token.tokens)) {
       push(textOfTokens(token.tokens));
     }
   }
@@ -85,16 +93,27 @@ function textOfTokens(tokens: MinimalToken[] | undefined): string {
 
 /** Marked lexer tokens → normalized blocks (streaming-tolerant). */
 export function parseMarkdownBlocks(text: string): MdBlock[] {
+  return parseBlocksWithRaw(text).blocks;
+}
+
+/**
+ * Same parse, additionally reporting how many source characters the tokens
+ * consumed (block tokens carry their raw text). The streaming cache uses
+ * `rawLen` to cut the reuse boundary and `blocks` to render (03).
+ */
+export function parseBlocksWithRaw(text: string): { blocks: MdBlock[]; rawLen: number } {
   let tokens: Tokens.Generic[];
   try {
     tokens = marked.lexer(text) as unknown as Tokens.Generic[];
   } catch {
     // Never let malformed partial input break the UI
-    return [{ kind: 'paragraph', text }];
+    return { blocks: [{ kind: 'paragraph', text }], rawLen: text.length };
   }
 
   const blocks: MdBlock[] = [];
+  let rawLen = 0;
   for (const token of tokens) {
+    rawLen += typeof token.raw === 'string' ? token.raw.length : 0;
     switch (token.type) {
       case 'heading':
         blocks.push({
@@ -162,22 +181,29 @@ export function parseMarkdownBlocks(text: string): MdBlock[] {
         }
     }
   }
-  return blocks;
+  return { blocks, rawLen };
 }
 
-/** Pad table cells so columns line up when joined with ' | '. */
+/** Pad table cells so columns line up when joined with ' | '.
+ * Widths count the VISIBLE text (inline markers are consumed by the tree
+ * parser, so raw lengths would misalign — md-structured-inline review). */
 function padColumns(rows: string[][]): string[][] {
   const width = Math.max(...rows.map((r) => r.length));
-  // Measure TERMINAL COLUMNS, not code units, so CJK/emoji cells align.
-  const widths = Array.from({ length: width }, (_, c) =>
-    Math.max(...rows.map((r) => displayWidth(r[c] ?? ''))),
+  const visible = rows.map((r) =>
+    Array.from({ length: width }, (_, c) => displayWidth(flattenInline(parseInlineNodes(r[c] ?? '')))),
   );
-  return rows.map((row) => widths.map((w, c) => padToWidth(row[c] ?? '', w)));
+  const widths = Array.from({ length: width }, (_, c) => Math.max(...visible.map((r) => r[c])));
+  return rows.map((row, r) =>
+    widths.map((w, c) => {
+      const cell = row[c] ?? '';
+      return cell + ' '.repeat(Math.max(0, w - visible[r][c]));
+    }),
+  );
 }
 
 /** Inline marker stripping + code-span parts live in markdown-inline.js
  * (tui-redesign 07); re-exported so existing imports keep working. */
-export { inlineText, inlineParts, type InlinePart } from './markdown-inline.js';
+export { parseInlineNodes, INLINE_STYLE, flattenInline, type InlineNode, type InlineStyle } from './markdown-inline.js';
 
 /** hljs class name → terminal color (theme.syntax, tui-redesign 01). */
 export function highlightColor(className: string | null): string | undefined {
@@ -320,38 +346,8 @@ export function highlightedLines(code: string, language: string | null): Highlig
   return lines;
 }
 
-/** Render cache cap (long sessions keep re-rendering the same messages). */
-const CACHE_CAP = 200;
-/** Total cached source characters; streaming deltas would otherwise retain
- * up to CACHE_CAP full message copies. */
-const CACHE_CHAR_BUDGET = 512 * 1024;
-const blockCache = new Map<string, MdBlock[]>();
-let cachedChars = 0;
-
-/** Cached parse: identical text returns the identical array (memoised). */
-export function getCachedBlocks(text: string): MdBlock[] {
-  const hit = blockCache.get(text);
-  if (hit !== undefined) {
-    // LRU touch
-    blockCache.delete(text);
-    blockCache.set(text, hit);
-    return hit;
-  }
-  const blocks = parseMarkdownBlocks(text);
-  blockCache.set(text, blocks);
-  cachedChars += text.length;
-  while (blockCache.size > CACHE_CAP || (cachedChars > CACHE_CHAR_BUDGET && blockCache.size > 1)) {
-    const oldest = blockCache.keys().next().value;
-    if (oldest === undefined) break;
-    blockCache.delete(oldest);
-    cachedChars -= oldest.length;
-  }
-  return blocks;
-}
-
-/** Test/theme hook: drop all cached renders. */
-export function clearBlockCache(): void {
-  blockCache.clear();
+/** Drop the highlight memo (the block cache lives in markdown-cache.js and
+ * calls this from its own clear — md-structured-inline 03 split). */
+export function clearHighlightCache(): void {
   highlightCache.clear();
-  cachedChars = 0;
 }

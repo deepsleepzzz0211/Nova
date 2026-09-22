@@ -3,8 +3,8 @@ import {
   parseMarkdownBlocks,
   highlightToSegments,
   highlightedLines,
-  clearBlockCache,
 } from '../../src/tui/markdown.js';
+import { clearBlockCache } from '../../src/tui/markdown-cache.js';
 
 describe('markdown review fixes (ticket 07)', () => {
   describe('entity decoding', () => {

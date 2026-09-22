@@ -3,9 +3,8 @@ import {
   parseMarkdownBlocks,
   highlightToSegments,
   languageOf,
-  getCachedBlocks,
-  clearBlockCache,
 } from '../../src/tui/markdown.js';
+import { getCachedBlocks, clearBlockCache } from '../../src/tui/markdown-cache.js';
 
 describe('markdown pipeline (tui-refactor 07)', () => {
   describe('parseMarkdownBlocks', () => {
