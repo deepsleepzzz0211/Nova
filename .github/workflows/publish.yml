@@ -60,10 +60,21 @@ jobs:
           exit ${PIPESTATUS[0]}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # A successful publish finalizes the artifact; the post-publish
-      # propagation check below must not be able to skip the Release
-      # (beta.2: a lagging npm view red-failed the job and the Release
-      # had to be created by hand).
+      # Propagation wait gates the Release (don't announce a version the
+      # registry cannot serve yet), but registry lag beyond this budget must
+      # not skip the Release of an artifact that published fine (beta.2:
+      # verify's old 90s budget red-failed the job and the Release had to
+      # be created by hand).
+      - name: Wait for registry propagation
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          for i in $(seq 1 20); do
+            npm view @posuiqianqiu/nova@$VERSION version >/dev/null 2>&1 && exit 0
+            echo "waiting for registry sync ($i/20)..."; sleep 15
+          done
+          echo "version still not visible after 5 minutes" >&2
+          exit 1
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -71,16 +82,10 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify published package (install from registry + boot)
+      - name: Verify installed package boots (headless smoke)
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          # Registry/CDN propagation can lag minutes after publish (beta.2
-          # verify failed at the old 90s budget while the tarball was up).
-          for i in $(seq 1 20); do
-            npm view @posuiqianqiu/nova@$VERSION version >/dev/null 2>&1 && break
-            echo "waiting for registry sync ($i/20)..."; sleep 15
-          done
           npm view @posuiqianqiu/nova@$VERSION version
           npm i -g @posuiqianqiu/nova@$VERSION
           # Headless TUI boot check: the bin must load, resolve deps and
