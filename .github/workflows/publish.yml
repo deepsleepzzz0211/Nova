@@ -60,6 +60,17 @@ jobs:
           exit ${PIPESTATUS[0]}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # A successful publish finalizes the artifact; the post-publish
+      # propagation check below must not be able to skip the Release
+      # (beta.2: a lagging npm view red-failed the job and the Release
+      # had to be created by hand).
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify published package (install from registry + boot)
         shell: bash
         run: |
@@ -81,14 +92,6 @@ jobs:
           cat /tmp/boot.log
           grep -q "Raw mode is not supported" /tmp/boot.log \
             && { echo "bin boot OK"; } || { echo "bin boot FAILED"; exit 1; }
-      - name: GitHub Release
-        if: success()
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Dump publish log on failure
         if: failure()
         shell: bash
