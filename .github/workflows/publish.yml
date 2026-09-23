@@ -11,14 +11,14 @@ on:
     tags: ["v*"]
 
 jobs:
-  # Full gate across 3 OS x 2 Node versions. Publishing happens only when
-  # every combination is green.
+  # Full gate across all three OS on the supported Node line. Publishing
+  # happens only when every combination is green.
   test:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: [20, 22]
+        node: [22]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
