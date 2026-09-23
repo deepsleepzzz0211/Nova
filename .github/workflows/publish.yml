@@ -64,10 +64,11 @@ jobs:
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          # Registry/CDN propagation can lag a few seconds after publish
-          for i in 1 2 3 4 5 6; do
+          # Registry/CDN propagation can lag minutes after publish (beta.2
+          # verify failed at the old 90s budget while the tarball was up).
+          for i in $(seq 1 20); do
             npm view @posuiqianqiu/nova@$VERSION version >/dev/null 2>&1 && break
-            echo "waiting for registry sync ($i/6)..."; sleep 15
+            echo "waiting for registry sync ($i/20)..."; sleep 15
           done
           npm view @posuiqianqiu/nova@$VERSION version
           npm i -g @posuiqianqiu/nova@$VERSION
