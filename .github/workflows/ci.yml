@@ -30,3 +30,16 @@ jobs:
       - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
+
+  # Single stable-name aggregate gate: branch protection requires ONLY this
+  # context, so adding or dropping matrix cells above never deadlocks merges
+  # (a matrix-expanded required check that stops being reported blocks every
+  # PR with "Expected — Waiting for status to be reported").
+  ci-ready:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every matrix leg succeeded
+        run: exit 1
+        if: ${{ needs.test.result != 'success' }}
