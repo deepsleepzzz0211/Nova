@@ -24,7 +24,7 @@ interface Captured {
   model?: Model<string>;
 }
 
-function setup(overrides?: { baseUrl?: string; reasoning?: boolean }): {
+function setup(overrides?: { baseUrl?: string; reasoning?: boolean; cacheRetention?: 'none' | 'short' | 'long' }): {
   engine: PiaiEngine;
   faux: FauxProviderHandle;
   capture: Captured;
@@ -47,6 +47,7 @@ function setup(overrides?: { baseUrl?: string; reasoning?: boolean }): {
     model: faux.models[0]!.id,
     apiKey: 'test-key',
     ...(overrides?.baseUrl !== undefined ? { baseUrl: overrides.baseUrl } : {}),
+    ...(overrides?.cacheRetention !== undefined ? { cacheRetention: overrides.cacheRetention } : {}),
   });
   return { engine, faux, capture, provider };
 }
@@ -241,5 +242,21 @@ describe('PiProvider surface parity', () => {
     expect(provider.capabilities.toolCalling).toBe(true);
     expect(provider.capabilities.maxContextLength).toBe(faux.models[0]!.contextWindow);
     expect(provider.capabilities.models).toContain(faux.models[0]!.id);
+  });
+});
+
+describe('cacheRetention pass-through (cache-hit 02)', () => {
+  it('forwards the configured retention to pi-ai stream options', async () => {
+    const { faux, capture, provider } = setup({ cacheRetention: 'long' });
+    faux.setResponses([captureStep(capture, 'ok')]);
+    await collect(provider, [{ role: 'user', content: 'hi' }], { model: faux.models[0]!.id });
+    expect((capture.options as { cacheRetention?: string }).cacheRetention).toBe('long');
+  });
+
+  it('omits the option entirely when unconfigured (pi-ai default applies)', async () => {
+    const { faux, capture, provider } = setup();
+    faux.setResponses([captureStep(capture, 'ok')]);
+    await collect(provider, [{ role: 'user', content: 'hi' }], { model: faux.models[0]!.id });
+    expect('cacheRetention' in (capture.options ?? {})).toBe(false);
   });
 });

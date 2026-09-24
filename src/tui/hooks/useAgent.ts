@@ -17,7 +17,7 @@ import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../pe
 import { parseToolArgs } from '../tool-summary.js';
 import { findCommand } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
-import { formatStatusReport } from '../status-format.js';
+import { formatStatusReport, type CompactionTotals } from '../status-format.js';
 import { modeGate, nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
 import { toolVerb } from '../tool-summary.js';
 
@@ -141,6 +141,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     contextTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
+  // Session compaction totals for /status (cache-hit ticket 05); read at
+  // report time, so no re-render is needed.
+  const compactionTotalsRef = useRef<CompactionTotals>({ events: 0, reclaimedTokens: 0 });
   const [modelInfo, setModelInfo] = useState<{
     model: string;
     contextWindow?: number;
@@ -417,6 +420,14 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         });
       },
       onCompaction: (info) => {
+        // Net accumulation: a pass that GROWS the context subtracts rather
+        // than being clamped to 0, which would hide regressions (review).
+        compactionTotalsRef.current = {
+          events: compactionTotalsRef.current.events + 1,
+          reclaimedTokens:
+            compactionTotalsRef.current.reclaimedTokens +
+            (info.beforeTokens - info.afterTokens),
+        };
         const label: Record<typeof info.strategy, string> = {
           compact: 'compacted',
           microcompact: 'micro-compacted',
@@ -515,6 +526,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
             contextStrategy: config.contextStrategy,
             cacheStats,
             modelCost: modelInfo.cost,
+            compaction: compactionTotalsRef.current,
             extras: config.statusExtras?.(),
           }),
       });

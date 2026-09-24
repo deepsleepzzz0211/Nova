@@ -11,6 +11,9 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhi
  */
 export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
 
+/** Prompt-cache retention levels forwarded to the provider layer verbatim. */
+export type CacheRetention = 'none' | 'short' | 'long';
+
 /** A tool call made by the assistant. */
 export interface ToolCall {
   id: string;

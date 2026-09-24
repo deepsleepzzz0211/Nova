@@ -5,7 +5,7 @@ import type {
 } from '@earendil-works/pi-ai';
 import type { ModelsSimpleStreamOptions } from '@earendil-works/pi-ai';
 import type { LLMProvider, ProviderCapabilities } from '../provider.js';
-import type { ChatOptions, Message, StreamChunk, ThinkingLevel } from '../types.js';
+import type { CacheRetention, ChatOptions, Message, StreamChunk, ThinkingLevel } from '../types.js';
 import type { PiaiEngine } from '../piai-engine.js';
 import { isContextOverflowError } from '../errors.js';
 import { toPiaiContext, createPiaiChunkTranslator } from '../piai-bridge.js';
@@ -29,6 +29,8 @@ export interface PiProviderConfig {
    * real text or a completed tool batch). Default 1; 0 disables retrying.
    */
   maxStreamRetries?: number;
+  /** Prompt-cache retention forwarded to pi-ai verbatim (cache-hit 02). */
+  cacheRetention?: CacheRetention;
 }
 
 /**
@@ -66,6 +68,7 @@ export class PiProvider implements LLMProvider {
   private readonly apiKey?: string;
   private readonly defaultHeaders?: Record<string, string>;
   private readonly maxStreamRetries: number;
+  private readonly cacheRetention?: CacheRetention;
 
   constructor(config: PiProviderConfig) {
     this.engine = config.engine;
@@ -79,6 +82,7 @@ export class PiProvider implements LLMProvider {
     this.apiKey = config.apiKey && config.apiKey.trim().length > 0 ? config.apiKey : undefined;
     this.defaultHeaders = config.defaultHeaders;
     this.maxStreamRetries = config.maxStreamRetries ?? 1;
+    this.cacheRetention = config.cacheRetention;
     this.name = config.provider;
     this.capabilities = this.buildCapabilities(config.model);
   }
@@ -137,6 +141,7 @@ export class PiProvider implements LLMProvider {
       ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(this.apiKey !== undefined ? { apiKey: this.apiKey } : {}),
+      ...(this.cacheRetention !== undefined ? { cacheRetention: this.cacheRetention } : {}),
       ...(this.defaultHeaders !== undefined ? { headers: this.defaultHeaders } : {}),
     };
 
