@@ -19,7 +19,7 @@ describe('ContextManager', () => {
       role: 'user' as const,
       content: `Message number ${i}: ${'x'.repeat(100)}`,
     }));
-    const truncated = cm.truncate(msgs);
+    const truncated = cm.truncateToTokens(msgs, 100);
     expect(truncated.length).toBeLessThan(msgs.length);
   });
 
@@ -29,7 +29,7 @@ describe('ContextManager', () => {
       { role: 'system' as const, content: 'You are a helpful assistant' },
       ...Array.from({ length: 20 }, (_, i) => ({ role: 'user' as const, content: `msg ${i} ${'x'.repeat(50)}` })),
     ];
-    const truncated = cm.truncate(msgs);
+    const truncated = cm.truncateToTokens(msgs, 100);
     expect(truncated[0].role).toBe('system');
   });
 
