@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Compactor, SUMMARY_MARKER } from '../../src/agent/compaction.js';
 import { MICROCOMPACT_MARKER } from '../../src/agent/microcompact.js';
 import type { LLMProvider, Message, StreamChunk, ChatOptions } from '../../src/llm/types.js';
@@ -282,7 +282,5 @@ ${[
     await compactor.compact(messages);
     expect(llm.chatCalls).toHaveLength(1);
     expect(llm.chatCalls[0].opts).toEqual({ model });
-    const spy = vi.fn();
-    spy(llm.chatCalls[0].opts);
   });
 });

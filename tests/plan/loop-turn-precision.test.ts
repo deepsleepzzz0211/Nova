@@ -777,7 +777,6 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
     // must not add a second (overflow-origin) compaction or retry.
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ reason: 'pressure' });
-    expect(llm).toBeDefined();
   });
 
   it('reactive overflow retry counts as the SAME round', async () => {
