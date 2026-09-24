@@ -249,10 +249,12 @@ export class ToolExecutionPipeline {
 
     // The tool-facing confirm keeps the boolean contract: an approval that
     // edited params is handled by the pipeline loop, not the tool itself.
-    const execConfirm = options?.confirm
-      ? async (name: string, p: Record<string, unknown>, msg?: string): Promise<boolean> =>
-          approvalAllowed(await options.confirm!(name, p, msg))
-      : undefined;
+    // (Return type lives on the variable, not the arrow: Stryker's babel TS
+    // parser rejects a return-type-annotated async arrow inside a ternary.)
+    const execConfirm: ((name: string, params: Record<string, unknown>, msg?: string) => Promise<boolean>) | undefined =
+      options?.confirm
+        ? async (name, p, msg) => approvalAllowed(await options.confirm!(name, p, msg))
+        : undefined;
 
     try {
       return await Promise.race([

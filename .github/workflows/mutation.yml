@@ -10,6 +10,10 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Ratchet semantics (test-effectiveness 01): stryker.config.json
+  # thresholds.break == 74 fails this job when the score drops below the
+  # recorded baseline (scripts/mutation-baseline.json). Improve -> raise BOTH
+  # numbers in the same PR; the baseline's topSurvived list drives ticket 03.
   mutation:
     runs-on: ubuntu-latest
     steps:

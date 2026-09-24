@@ -1,0 +1,16 @@
+{
+  "_comment": "Mutation ratchet: stryker.config.json thresholds.low gates the weekly run; raise both when the score improves. Snapshot taken 2026-09-24 (score 74.71 covered 79.42, killed 2595+40 timeout, survived 683, no-cov 209). topSurvived lists the ticket-03 hunt targets (survived+nocov per module).",
+  "scoreTotal": 74.71,
+  "scoreCovered": 79.42,
+  "thresholds": { "low": 74, "high": 76, "break": 74 },
+  "topSurvived": [
+    { "path": "src/agent/loop.ts", "survived": 99, "noCoverage": 25 },
+    { "path": "src/agent/compaction.ts", "survived": 52, "noCoverage": 4 },
+    { "path": "src/llm/catalog.ts", "survived": 44, "noCoverage": 7 },
+    { "path": "src/llm/piai-engine.ts", "survived": 41, "noCoverage": 17 },
+    { "path": "src/llm/providers/piai.ts", "survived": 37, "noCoverage": 10 },
+    { "path": "src/llm/piai-bridge.ts", "survived": 33, "noCoverage": 10 },
+    { "path": "src/tools/execution-pipeline.ts", "survived": 31, "noCoverage": 12 },
+    { "path": "src/tools/web-fetch.ts", "survived": 26, "noCoverage": 16 }
+  ]
+}

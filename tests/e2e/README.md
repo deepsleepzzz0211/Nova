@@ -9,7 +9,7 @@ pnpm build
 
 | Layer | Command | Needs an API key? | Runs in CI? |
 |---|---|---|---|
-| Smoke (in-process, full stack) | `pnpm test:smoke` | yes (`NOVA_SMOKE_API_KEY`) | no |
+| Smoke (in-process, full stack) | `pnpm test:smoke` | yes (`WEIXIN_API_KEY`) | no |
 | Print mode (subprocess, one turn) | `pnpm test:e2e` | only for the LLM cases | LLM cases skip |
 | TUI deterministic (real PTY, no LLM) | `pnpm test:e2e:deterministic` | **no** | **yes** (ubuntu + windows) |
 | TUI interaction (real PTY, real LLM) | `pnpm test:e2e:llm` | **yes** | no — local only |
