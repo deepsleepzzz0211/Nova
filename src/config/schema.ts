@@ -7,8 +7,13 @@ export interface LLMConfig {
   model: string;
   maxTokens: number;
   temperature: number;
-  /** Enable provider prompt caching + usage reporting (OpenAI: stream_options). */
-  promptCache: boolean;
+  /**
+   * Provider prompt-cache retention (pi-ai `cacheRetention`): "short" = the
+   * provider default (Anthropic ephemeral 5m), "long" = extended TTL where the
+   * model supports it, "none" = disable explicit caching. Unset = provider
+   * default path (pi-ai resolves "short").
+   */
+  cacheRetention?: 'none' | 'short' | 'long';
   /** LLM stream idle timeout: error out when no chunk arrives for this long (ms). */
   streamIdleTimeoutMs?: number;
   /**

@@ -151,6 +151,9 @@ async function main(): Promise<void> {
       apiKey: next.apiKey,
       defaultHeaders,
       maxStreamRetries: config.llm.streamMaxRetries,
+      ...(config.llm.cacheRetention !== undefined
+        ? { cacheRetention: config.llm.cacheRetention }
+        : {}),
     });
 
   // Initialize LLM provider by wire protocol (pi-style api layer)

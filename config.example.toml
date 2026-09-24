@@ -14,9 +14,11 @@ model = "gpt-4o"
 max_tokens = 4096
 # Temperature (0.0 - 2.0)
 temperature = 0.7
-# Enable provider prompt caching and usage reporting (OpenAI: stream_options).
-# Anthropic always uses prompt caching via cache_control markers.
-prompt_cache = false
+# Prompt-cache retention passed to the provider (pi-ai cacheRetention):
+# "short" = provider default (Anthropic ephemeral 5m), "long" = extended TTL
+# where the model supports it, "none" = disable explicit cache markers.
+# Unset behaves like "short".
+# cache_retention = "short"
 
 # Transparent retries when a stream dies before real content lands
 # (tool-call arguments half-streamed, no text yet). 0 disables. Default 1.

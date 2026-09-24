@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { loadConfig } from '../../src/config/loader.js';
+import { loadConfig, normalizeConfig } from '../../src/config/loader.js';
+import { DEFAULT_CONFIG } from '../../src/config/defaults.js';
+import type { AppConfig } from '../../src/config/schema.js';
 
 describe('Config Loader', () => {
   let tmpDir: string;
@@ -80,5 +82,23 @@ describe('Config Loader', () => {
     } finally {
       orig !== undefined ? (process.env.CODEAGENT_API_KEY = orig) : delete process.env.CODEAGENT_API_KEY;
     }
+  });
+});
+
+describe('llm.cache_retention validation (cache-hit 02)', () => {
+  const base = DEFAULT_CONFIG;
+  it('accepts a valid retention value verbatim', () => {
+    const { config, warnings } = normalizeConfig({
+      ...base, llm: { ...base.llm, cacheRetention: 'long' },
+    } as AppConfig);
+    expect(config.llm.cacheRetention).toBe('long');
+    expect(warnings).toEqual([]);
+  });
+  it('rejects an unknown value with a warning and drops it', () => {
+    const { config, warnings } = normalizeConfig({
+      ...base, llm: { ...base.llm, cacheRetention: 'forever' },
+    } as unknown as AppConfig);
+    expect(config.llm.cacheRetention).toBeUndefined();
+    expect(warnings.join(' ')).toMatch(/cache_retention/);
   });
 });
