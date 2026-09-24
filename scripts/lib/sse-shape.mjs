@@ -6,7 +6,12 @@
 
 /** Split a raw event-stream body into parsed JSON events. */
 export function parseSseEvents(raw) {
-  const lines = raw.split('\n').filter((l) => l.trim() !== '');
+  // SSE allows CRLF terminators and git checkout can rewrite fixtures —
+  // tolerate a trailing CR on every line (windows CI proved it real).
+  const lines = raw
+    .split('\n')
+    .map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
+    .filter((l) => l.trim() !== '');
   if (lines.length === 0) throw new Error('empty SSE body: no events');
   const events = [];
   for (const [i, line] of lines.entries()) {
