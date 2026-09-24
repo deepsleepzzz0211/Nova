@@ -4,19 +4,23 @@ name: Live probe
 # catches contract drift (renamed usage fields, broken SSE framing) before
 # users do. Fails until the WEIXIN_API_KEY repo secret is added — that is
 # deliberate: the probe must not silently no-op.
+#
+# Supply-chain hygiene for a job that holds a secret: actions are pinned by
+# full commit SHA (tags can be force-moved), no setup-node (the script is
+# dependency-free and the runner ships Node), and least-privilege token.
 on:
   schedule:
     - cron: "30 5 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Probe the live contract
         run: node scripts/live-probe.mjs
         env:
