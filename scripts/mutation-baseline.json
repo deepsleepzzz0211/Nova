@@ -2,7 +2,7 @@
   "_comment": "Mutation ratchet: stryker.config.json thresholds.low gates the weekly run; raise both when the score improves. Snapshot taken 2026-09-24 (score 74.71 covered 79.42, killed 2595+40 timeout, survived 683, no-cov 209). topSurvived lists the ticket-03 hunt targets (survived+nocov per module).",
   "scoreTotal": 74.71,
   "scoreCovered": 79.42,
-  "thresholds": { "low": 74, "high": 76 },
+  "thresholds": { "low": 74, "high": 76, "break": 74 },
   "topSurvived": [
     { "path": "src/agent/loop.ts", "survived": 99, "noCoverage": 25 },
     { "path": "src/agent/compaction.ts", "survived": 52, "noCoverage": 4 },

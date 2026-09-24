@@ -9,7 +9,9 @@ if (!KEY) {
   console.error('live-probe: WEIXIN_API_KEY not set — add the repo secret (Settings → Secrets → Actions)');
   process.exit(9);
 }
-const res = await fetch('https://chatapi.weixin.qq.com/openai/v1/chat/completions', {
+let res;
+try {
+  res = await fetch('https://chatapi.weixin.qq.com/openai/v1/chat/completions', {
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` },
   body: JSON.stringify({
@@ -19,11 +21,20 @@ const res = await fetch('https://chatapi.weixin.qq.com/openai/v1/chat/completion
     stream_usage: true,
     max_tokens: 16,
   }),
-  signal: AbortSignal.timeout(90_000),
-});
-if (!res.ok) { console.error(`live-probe: gateway http ${res.status}`); process.exit(1); }
+    signal: AbortSignal.timeout(90_000),
+  });
+} catch (err) {
+  console.error(`live-probe: NETWORK failure (not a contract verdict): ${String(err)}`);
+  process.exit(2);
+}
+if (!res.ok) { console.error(`live-probe: gateway http ${res.status}`); process.exit(2); }
 const buf = [];
-for await (const c of res.body) buf.push(Buffer.from(c));
+try {
+  for await (const c of res.body) buf.push(Buffer.from(c));
+} catch (err) {
+  console.error(`live-probe: NETWORK stream failure (not a contract verdict): ${String(err)}`);
+  process.exit(2);
+}
 const raw = Buffer.concat(buf).toString('utf-8');
 try {
   const { usage } = assertShape(raw);

@@ -11,7 +11,7 @@ on:
 
 jobs:
   # Ratchet semantics (test-effectiveness 01): stryker.config.json
-  # thresholds.low == 74 fails this job when the score drops below the
+  # thresholds.break == 74 fails this job when the score drops below the
   # recorded baseline (scripts/mutation-baseline.json). Improve -> raise BOTH
   # numbers in the same PR; the baseline's topSurvived list drives ticket 03.
   mutation:

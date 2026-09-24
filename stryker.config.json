@@ -6,7 +6,7 @@
     "@stryker-mutator/vitest-runner"
   ],
   "coverageAnalysis": "perTest",
-  "thresholds": { "high": 76, "low": 74 },
+  "thresholds": { "high": 76, "low": 74, "break": 74 },
   "concurrency": 8,
   "timeoutMS": 60000,
   "disableTypeChecks": true,

@@ -14,7 +14,7 @@ export function parseSseEvents(raw) {
       throw new Error(`line ${i}: expected "data: " prefix, got ${JSON.stringify(line.slice(0, 20))}`);
     }
     const payload = line.slice(6);
-    if (payload === '[DONE]') return { events, doneAt: i };
+    if (payload === '[DONE]') return { events };
     try {
       events.push(JSON.parse(payload));
     } catch {
