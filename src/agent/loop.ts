@@ -234,8 +234,10 @@ export class AgentLoop {
   /**
    * Guard bookkeeping for one summarization attempt, shared by the automatic
    * chain and the manual/overflow path: counts failures toward the circuit
-   * (announcing when the attempt OPENS it), records successes, and anchors
-   * the rapid-refill window on real compactions only.
+   * (announcing when the attempt OPENS it) and resets the failure streak on
+   * a wire-level success. The rapid-refill anchor is NOT set here — only
+   * where a pass is actually applied (a grown summary gets discarded below
+   * and must not count as an applied compaction).
    */
   private noteSummaryOutcome(
     result: CompactResult | null,
@@ -252,7 +254,6 @@ export class AgentLoop {
       return { outcome: 'nothing' };
     }
     this.compactionGuard.recordSuccess();
-    this.compactionGuard.noteCompactionApplied();
     return { outcome: 'applied', messages: result.messages };
   }
 
@@ -305,11 +306,19 @@ export class AgentLoop {
       }
     }
     if (after === null) {
-      after = this.contextManager.truncate(this.messages);
+      // Pressure watermark: trim to triggerTokens, not maxTokens — a pass
+      // targeting max reclaims nothing inside the [trigger, max) dead band
+      // and re-fires every round (truncate-idle 01). Matches the manual /
+      // overflow paths and shadow-replay, which already trim below trigger.
+      after = this.contextManager.truncateToTokens(this.messages, this.contextManager.triggerTokens);
     }
 
     const afterTokens = this.contextManager.countTokens(after);
+    // A pass that did not actually shrink the context rewrites nothing and
+    // reports nothing (the /status compaction counter stays honest).
+    if (afterTokens >= beforeTokens) return;
     this.messages = after;
+    this.compactionGuard.noteCompactionApplied();
     this.persistCompaction(after);
     this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens, reason: 'pressure' });
   }
@@ -769,6 +778,7 @@ export class AgentLoop {
       return { compacted: false, strategy: this.contextStrategy, beforeTokens };
     }
     this.messages = after;
+    this.compactionGuard.noteCompactionApplied();
     this.persistCompaction(after);
     this.onCompaction?.({
       strategy: this.contextStrategy,

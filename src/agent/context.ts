@@ -135,13 +135,4 @@ export class ContextManager {
 
     return [...systemMessages, ...kept];
   }
-
-  /**
-   * Truncate messages to fit within the token limit.
-   * Always preserves leading system messages and drops the oldest
-   * non-system messages first.
-   */
-  truncate(messages: Message[]): Message[] {
-    return this.truncateToTokens(messages, this.maxTokens);
-  }
 }

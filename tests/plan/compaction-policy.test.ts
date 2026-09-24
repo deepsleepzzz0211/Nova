@@ -169,11 +169,19 @@ describe('AgentLoop compaction policy', () => {
     const loop = makeLoop(llm, { onContextNote: (n) => notes.push(n) });
     loop.loadMessages(seedHistory());
 
-    for (let turn = 0; turn < 4; turn++) {
-      await loop.processUserInput('keep going ' + turn);
+    // Fat turns spaced by two light turns: an applied pass anchors the
+    // rapid-refill window (truncate-idle 01 made every applied pass anchor),
+    // so back-to-back pressure would exercise the refill suppression instead
+    // of the breaker. Spacing pressure > the 2-round window isolates the
+    // circuit-breaker path this test is about.
+    for (let turn = 0; turn < 7; turn++) {
+      if (turn % 3 === 0) loop.loadMessages(seedHistory());
+      await loop.processUserInput(
+        turn % 3 === 0 ? 'keep going ' + turn : 'short ' + turn,
+      );
     }
     expect(counts.summary).toBe(3); // breaker stopped further attempts
-    expect(counts.main).toBe(4); // the conversation itself kept working
+    expect(counts.main).toBe(7); // the conversation itself kept working
     expect(notes.some((n) => /circuit/i.test(n))).toBe(true);
   });
 
@@ -232,5 +240,31 @@ describe('AgentLoop compaction policy', () => {
     loop.loadMessages(seedHistory());
     await loop.compactNow();
     expect(events.some((e) => e.reason === 'manual')).toBe(true);
+  });
+});
+
+describe('grown summary is discarded (truncate-idle 01 review)', () => {
+  it('a summary larger than the context is never applied, persisted, or counted', async () => {
+    const events: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
+    const llm: LLMProvider = {
+      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (opts.systemPrompt === undefined) {
+          // "successful" summary that is bigger than everything it replaces.
+          yield { type: 'text_delta', content: fatBody(600) };
+          return;
+        }
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+    const loop = makeLoop(llm, { onCompaction: (i) => events.push(i) });
+    const seeded = seedHistory();
+    loop.loadMessages(seeded);
+    await loop.processUserInput('word '.repeat(300)); // push past the trigger
+    for (const e of events) {
+      expect(e.afterTokens).toBeLessThan(e.beforeTokens);
+    }
+    // The grown summary must not have replaced the seeded history.
+    const now = loop.getMessages();
+    expect(now.some((m) => typeof m.content === 'string' && m.content.includes('filler 599'))).toBe(false);
   });
 });
