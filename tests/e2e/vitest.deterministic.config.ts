@@ -7,7 +7,11 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
-    include: ['tests/e2e/tui/tui-deterministic.test.ts', 'tests/e2e/cli-flags.test.ts'],
+    include: [
+      'tests/e2e/tui/tui-deterministic.test.ts',
+      'tests/e2e/cli-flags.test.ts',
+      'tests/e2e/recorded-replay.test.ts',
+    ],
     testTimeout: 120_000,
     hookTimeout: 60_000,
     fileParallelism: false,

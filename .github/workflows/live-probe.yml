@@ -1,0 +1,23 @@
+name: Live probe
+
+# Daily contract probe against the real weixin gateway (test-effectiveness 02):
+# catches contract drift (renamed usage fields, broken SSE framing) before
+# users do. Fails until the WEIXIN_API_KEY repo secret is added — that is
+# deliberate: the probe must not silently no-op.
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe the live contract
+        run: node scripts/live-probe.mjs
+        env:
+          WEIXIN_API_KEY: ${{ secrets.WEIXIN_API_KEY }}
