@@ -60,3 +60,21 @@ describe('ContextManager', () => {
     expect(cm.triggerTokens).toBe(50);
   });
 });
+
+describe('truncate content integrity (truncate-idle 01)', () => {
+  it('drops whole messages and never rewrites content of a kept one', () => {
+    const cm = new ContextManager({ maxTokens: 100 });
+    const msgs: Message[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'x '.repeat(300) },
+      { role: 'assistant', content: 'y '.repeat(300) },
+      { role: 'user', content: 'keep me whole' },
+    ];
+    const out = cm.truncateToTokens(msgs, 50);
+    const byContent = new Map(msgs.map((m) => [m.content, m]));
+    for (const m of out) {
+      expect(byContent.has(m.content as string)).toBe(true);
+    }
+    expect(out[out.length - 1]?.content).toBe('keep me whole');
+  });
+});

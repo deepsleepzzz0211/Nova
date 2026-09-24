@@ -305,10 +305,17 @@ export class AgentLoop {
       }
     }
     if (after === null) {
-      after = this.contextManager.truncate(this.messages);
+      // Pressure watermark: trim to triggerTokens, not maxTokens — a pass
+      // targeting max reclaims nothing inside the [trigger, max) dead band
+      // and re-fires every round (truncate-idle 01). Matches the manual /
+      // overflow paths and shadow-replay, which already trim below trigger.
+      after = this.contextManager.truncateToTokens(this.messages, this.contextManager.triggerTokens);
     }
 
     const afterTokens = this.contextManager.countTokens(after);
+    // A pass that did not actually shrink the context rewrites nothing and
+    // reports nothing (the /status compaction counter stays honest).
+    if (afterTokens >= beforeTokens) return;
     this.messages = after;
     this.persistCompaction(after);
     this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens, reason: 'pressure' });

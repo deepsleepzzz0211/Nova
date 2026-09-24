@@ -194,12 +194,17 @@ describe('AgentLoop.compactNow', () => {
       onPermissionRequest: async () => true,
     });
 
-    // ~100 tokens per message: auto-truncation keeps history just under 150,
-    // manual compact targets triggerTokens/2 = 60 and must drop more
+    // Seed fat history directly: since truncate-idle 01 the automatic pass
+    // already holds the context at the trigger watermark, so the old "three
+    // auto turns keep it just under max" premise no longer holds. Manual
+    // compactNow targets triggerTokens/2 = 60 and must still drop more.
     const medium = 'word '.repeat(100);
-    await loop.processUserInput(medium);
-    await loop.processUserInput(medium);
-    await loop.processUserInput(medium);
+    loop.loadMessages([
+      { role: 'user', content: medium },
+      { role: 'assistant', content: medium },
+      { role: 'user', content: medium },
+      { role: 'assistant', content: medium },
+    ]);
 
     const result = await loop.compactNow();
     expect(result.compacted).toBe(true);
@@ -281,9 +286,14 @@ describe('AgentLoop.compactNow', () => {
       onPermissionRequest: async () => true,
     });
 
+    // Seed fat history directly (see the truncate-strategy test above for
+    // why the auto-turn premise is gone after truncate-idle 01).
     const medium = 'word '.repeat(100);
-    await loop.processUserInput(medium);
-    await loop.processUserInput(medium);
+    loop.loadMessages([
+      { role: 'user', content: medium },
+      { role: 'assistant', content: medium },
+      { role: 'user', content: medium },
+    ]);
 
     const result = await loop.compactNow();
     // Summary failed → degraded to aggressive truncate (triggerTokens/2 = 37,

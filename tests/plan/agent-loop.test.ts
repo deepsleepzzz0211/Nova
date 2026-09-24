@@ -1010,3 +1010,49 @@ describe('AgentLoop context reporting (ticket 22)', () => {
     expect(last.trigger).toBe(5_000);
   });
 });
+
+describe('truncate pressure-band (truncate-idle 01)', () => {
+  // Window 400 → trigger = 400 − min(reserve, 200) = 200 (half-window clamp).
+  // A ~250-token user turn lands the context in the dead band [200, 400):
+  // truncating to maxTokens reclaims nothing, and the old code still emitted
+  // a zero-reclaim event every round (live repro: 4x before==after).
+  function bandLoop(compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }>) {
+    const llm: LLMProvider = {
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'text_delta', content: 'ok' };
+      },
+    };
+    return new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: makePipeline(),
+      config: { maxToolRounds: 2, model: 'test' },
+      context: { maxTokens: 400, strategy: 'truncate' },
+      onCompaction: (info) => compactions.push(info),
+      onToken: () => {},
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+  }
+
+  it('never reports a truncate pass that reclaimed nothing', async () => {
+    const compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
+    const loop = bandLoop(compactions);
+    await loop.processUserInput('hello '.repeat(250));
+    for (const c of compactions) {
+      expect(c.afterTokens).toBeLessThan(c.beforeTokens);
+    }
+  });
+
+  it('when a pass does fire it trims below the trigger watermark', async () => {
+    const compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
+    const loop = bandLoop(compactions);
+    await loop.processUserInput('hello '.repeat(250));
+    await loop.processUserInput('more '.repeat(250));
+    const last = compactions[compactions.length - 1];
+    expect(last).toBeDefined();
+    // trigger for window 400 is 200 (half-window clamp).
+    expect(last.afterTokens).toBeLessThanOrEqual(200);
+  });
+});

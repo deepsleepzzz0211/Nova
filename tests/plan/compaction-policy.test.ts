@@ -170,6 +170,12 @@ describe('AgentLoop compaction policy', () => {
     loop.loadMessages(seedHistory());
 
     for (let turn = 0; turn < 4; turn++) {
+      // An effective pressure pass (truncate-idle 01) drops the context
+      // below the trigger after the first failure, so re-seed to keep every
+      // round a real pressure attempt — same idiom as the manual/overflow
+      // test below. The assertions (3 attempts, breaker, conversation
+      // keeps working) are unchanged.
+      loop.loadMessages(seedHistory());
       await loop.processUserInput('keep going ' + turn);
     }
     expect(counts.summary).toBe(3); // breaker stopped further attempts
