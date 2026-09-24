@@ -141,6 +141,9 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     contextTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
+  // Session compaction totals for /status (cache-hit ticket 05); read at
+  // report time, so no re-render is needed.
+  const compactionTotalsRef = useRef({ events: 0, reclaimedTokens: 0 });
   const [modelInfo, setModelInfo] = useState<{
     model: string;
     contextWindow?: number;
@@ -417,6 +420,12 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         });
       },
       onCompaction: (info) => {
+        compactionTotalsRef.current = {
+          events: compactionTotalsRef.current.events + 1,
+          reclaimedTokens:
+            compactionTotalsRef.current.reclaimedTokens +
+            Math.max(0, info.beforeTokens - info.afterTokens),
+        };
         const label: Record<typeof info.strategy, string> = {
           compact: 'compacted',
           microcompact: 'micro-compacted',
@@ -515,6 +524,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
             contextStrategy: config.contextStrategy,
             cacheStats,
             modelCost: modelInfo.cost,
+            compaction: compactionTotalsRef.current,
             extras: config.statusExtras?.(),
           }),
       });

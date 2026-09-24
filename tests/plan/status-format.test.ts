@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fmtTokens, estimateCostUsd, contextUsage, workingBorderColor } from '../../src/tui/status-format.js';
+import { fmtTokens, estimateCostUsd, contextUsage, workingBorderColor, formatStatusReport } from '../../src/tui/status-format.js';
 import { theme } from '../../src/tui/theme.js';
 
 describe('status-format (tui-refactor 09)', () => {
@@ -65,6 +65,22 @@ describe('status-format (tui-refactor 09)', () => {
       const colors = [workingBorderColor('idle'), workingBorderColor('streaming'), workingBorderColor('thinking')];
       expect(new Set(colors).size).toBe(3);
       for (const c of colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
+    });
+  });
+
+  describe('formatStatusReport compaction line (cache-hit 05)', () => {
+    const base = { providerName: 'p', model: 'm' };
+    it('omits the line when no compaction happened', () => {
+      const out = formatStatusReport(base);
+      expect(out).not.toMatch(/compaction/i);
+    });
+    it('omits the line for zero events', () => {
+      const out = formatStatusReport({ ...base, compaction: { events: 0, reclaimedTokens: 0 } });
+      expect(out).not.toMatch(/compaction/i);
+    });
+    it('shows event count and reclaimed total with compact tokens', () => {
+      const out = formatStatusReport({ ...base, compaction: { events: 2, reclaimedTokens: 18400 } });
+      expect(out).toMatch(/context: 2 compactions · 18\.4k tokens reclaimed/);
     });
   });
 });

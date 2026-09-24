@@ -81,6 +81,8 @@ export interface StatusReportInput {
   contextStrategy?: 'truncate' | 'compact';
   cacheStats?: CacheStatsView;
   modelCost?: ModelCost;
+  /** Session totals from context-management passes (cache-hit ticket 05). */
+  compaction?: { events: number; reclaimedTokens: number };
   /** Extra pre-rendered lines (cwd/branch, MCP count, …). */
   extras?: string[];
 }
@@ -91,7 +93,7 @@ export interface StatusReportInput {
  * placeholder until the first request records tokens.
  */
 export function formatStatusReport(input: StatusReportInput): string {
-  const { providerName, model, thinkingLevel, contextWindow, contextStrategy, cacheStats, modelCost, extras } = input;
+  const { providerName, model, thinkingLevel, contextWindow, contextStrategy, cacheStats, modelCost, compaction, extras } = input;
   const head =
     `${providerName}/${model} · thinking ${thinkingLevel ?? 'off'}` +
     (contextWindow ? ` · ctx ${contextWindow.toLocaleString('en-US')}` : '') +
@@ -116,5 +118,9 @@ export function formatStatusReport(input: StatusReportInput): string {
       `usage: ↑${fmtTokens(cacheStats.totalInputTokens)} ↓${fmtTokens(cacheStats.totalOutputTokens)}${cache}` +
       ` · ${cost === null ? '—' : `$${cost.toFixed(4)}`}`;
   }
-  return [head, ...(extras ?? []), usage].join('\n');
+  const compactionLine =
+    compaction && compaction.events > 0
+      ? `context: ${compaction.events} compaction${compaction.events === 1 ? '' : 's'} · ${fmtTokens(compaction.reclaimedTokens)} tokens reclaimed`
+      : null;
+  return [head, ...(extras ?? []), compactionLine, usage].filter((l): l is string => l !== null).join('\n');
 }
