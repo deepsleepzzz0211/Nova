@@ -3,7 +3,11 @@ import * as path from 'path';
 import * as os from 'os';
 import { parse } from 'smol-toml';
 import type { AppConfig, LLMConfig } from './schema.js';
+import type { CacheRetention } from '../llm/types.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+
+/** Accepted [llm] cache_retention values; TOML input is arbitrary strings. */
+const VALID_CACHE_RETENTION: readonly CacheRetention[] = ['none', 'short', 'long'];
 
 /** Convert a snake_case string to camelCase. */
 function snakeToCamel(str: string): string {
@@ -72,7 +76,7 @@ export function normalizeConfig(config: AppConfig): { config: AppConfig; warning
     config = { ...config, agent: { ...config.agent, subagentMaxConcurrent: 3 } };
   }
   const retention = config.llm.cacheRetention;
-  if (retention !== undefined && retention !== 'none' && retention !== 'short' && retention !== 'long') {
+  if (retention !== undefined && !VALID_CACHE_RETENTION.includes(retention)) {
     warnings.push(
       `unknown llm.cache_retention "${String(retention)}" — ignoring (valid: none, short, long)`,
     );

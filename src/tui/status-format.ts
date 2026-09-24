@@ -73,6 +73,13 @@ export function workingBorderColor(state: 'idle' | 'streaming' | 'thinking'): st
 }
 
 /** Input for `/status` report composition (tui-redesign ticket 02). */
+/** Session totals from context-management passes (cache-hit ticket 05). */
+export interface CompactionTotals {
+  events: number;
+  /** Net tokens removed by compaction passes (negative = context grew). */
+  reclaimedTokens: number;
+}
+
 export interface StatusReportInput {
   providerName: string;
   model: string;
@@ -81,8 +88,7 @@ export interface StatusReportInput {
   contextStrategy?: 'truncate' | 'compact';
   cacheStats?: CacheStatsView;
   modelCost?: ModelCost;
-  /** Session totals from context-management passes (cache-hit ticket 05). */
-  compaction?: { events: number; reclaimedTokens: number };
+  compaction?: CompactionTotals;
   /** Extra pre-rendered lines (cwd/branch, MCP count, …). */
   extras?: string[];
 }

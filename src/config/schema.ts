@@ -1,3 +1,5 @@
+import type { CacheRetention } from '../llm/types.js';
+
 /** LLM provider configuration. */
 export interface LLMConfig {
   provider: string;
@@ -13,7 +15,7 @@ export interface LLMConfig {
    * model supports it, "none" = disable explicit caching. Unset = provider
    * default path (pi-ai resolves "short").
    */
-  cacheRetention?: 'none' | 'short' | 'long';
+  cacheRetention?: CacheRetention;
   /** LLM stream idle timeout: error out when no chunk arrives for this long (ms). */
   streamIdleTimeoutMs?: number;
   /**

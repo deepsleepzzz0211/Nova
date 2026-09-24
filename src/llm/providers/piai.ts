@@ -5,7 +5,7 @@ import type {
 } from '@earendil-works/pi-ai';
 import type { ModelsSimpleStreamOptions } from '@earendil-works/pi-ai';
 import type { LLMProvider, ProviderCapabilities } from '../provider.js';
-import type { ChatOptions, Message, StreamChunk, ThinkingLevel } from '../types.js';
+import type { CacheRetention, ChatOptions, Message, StreamChunk, ThinkingLevel } from '../types.js';
 import type { PiaiEngine } from '../piai-engine.js';
 import { isContextOverflowError } from '../errors.js';
 import { toPiaiContext, createPiaiChunkTranslator } from '../piai-bridge.js';
@@ -30,7 +30,7 @@ export interface PiProviderConfig {
    */
   maxStreamRetries?: number;
   /** Prompt-cache retention forwarded to pi-ai verbatim (cache-hit 02). */
-  cacheRetention?: 'none' | 'short' | 'long';
+  cacheRetention?: CacheRetention;
 }
 
 /**
@@ -68,7 +68,7 @@ export class PiProvider implements LLMProvider {
   private readonly apiKey?: string;
   private readonly defaultHeaders?: Record<string, string>;
   private readonly maxStreamRetries: number;
-  private readonly cacheRetention?: 'none' | 'short' | 'long';
+  private readonly cacheRetention?: CacheRetention;
 
   constructor(config: PiProviderConfig) {
     this.engine = config.engine;
