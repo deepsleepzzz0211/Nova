@@ -140,7 +140,15 @@ describe('user-file merge against the real pi-ai engine', () => {
         },
       });
       const { catalog, engine } = loadModelCatalogWithEngine(new PiaiEngine(), [path1]);
-      expect(catalog.providers.custom.models).toHaveLength(2);
+      // Exact object shape: no junk keys from mutated base/array literals.
+      expect(catalog.providers.custom).toEqual({
+        baseUrl: 'http://x/v1',
+        api: 'openai-completions',
+        models: [
+          { id: 'm1', contextWindow: 5000 },
+          { id: 'm2', contextWindow: 128_000 },
+        ],
+      });
       expect(catalog.providers.custom.models?.map((m) => m.id)).toEqual(['m1', 'm2']);
       // The engine registration side-effect is observable through describe.
       const described = engine.describeProviderModels('custom');
@@ -173,6 +181,30 @@ describe('user-file merge against the real pi-ai engine', () => {
       // re-registration with an empty model spec).
       expect(engine.describeProviderModels('openai').length).toBeGreaterThan(3);
     });
+  });
+
+  it('a provider with no api anywhere fails with the no-api message', () => {
+    const catalog: ModelCatalog = {
+      providers: { noapi: { models: [{ id: 'x' }] } },
+    };
+    expect(() => resolveModel({ provider: 'noapi', model: 'x' }, catalog)).toThrow('no api configured');
+  });
+
+  it('a declared literal apiKey survives resolution when no explicit key is given', () => {
+    const catalog: ModelCatalog = {
+      providers: {
+        keyed: { api: 'openai-completions', apiKey: 'sk-catalog-literal-9f3', models: [{ id: 'k' }] },
+      },
+    };
+    const r = resolveModel({ provider: 'keyed', model: 'k' }, catalog);
+    expect(r.apiKey).toBe('sk-catalog-literal-9f3');
+    const explicit = resolveModel({ provider: 'keyed', model: 'k', apiKey: 'sk-explicit' }, catalog);
+    expect(explicit.apiKey).toBe('sk-explicit');
+    const none = resolveModel(
+      { provider: 'noapi2', model: 'k' },
+      { providers: { noapi2: { api: 'openai-completions', models: [] } } },
+    );
+    expect(none.apiKey).toBeUndefined();
   });
 
   it('custom provider without explicit baseUrl/api falls back to engine defaults per api', () => {
