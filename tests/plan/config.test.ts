@@ -102,3 +102,45 @@ describe('llm.cache_retention validation (cache-hit 02)', () => {
     expect(warnings.join(' ')).toMatch(/cache_retention/);
   });
 });
+
+describe('search.tavily env fallback (web-search-batch 01)', () => {
+  let tmpDir: string;
+  let savedNovaHome: string | undefined;
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-search-'));
+    savedNovaHome = process.env.NOVA_HOME;
+    process.env.NOVA_HOME = tmpDir;
+  });
+  afterEach(() => {
+    if (savedNovaHome === undefined) delete process.env.NOVA_HOME;
+    else process.env.NOVA_HOME = savedNovaHome;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('TAVILY_API_KEY env populates search.tavilyApiKey when config omits it', () => {
+    const orig = process.env.TAVILY_API_KEY;
+    process.env.TAVILY_API_KEY = 'tvly-env-test';
+    try {
+      const config = loadConfig(tmpDir);
+      expect(config.search.tavilyApiKey).toBe('tvly-env-test');
+    } finally {
+      if (orig === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = orig;
+    }
+  });
+
+  it('config.toml tavily_api_key wins over the environment variable', () => {
+    const tomlPath = path.join(tmpDir, 'config.toml');
+    fs.writeFileSync(tomlPath, '[search]\ntavily_api_key = "tvly-from-file"\n');
+    const orig = process.env.TAVILY_API_KEY;
+    process.env.TAVILY_API_KEY = 'tvly-env-test';
+    try {
+      const config = loadConfig(tmpDir);
+      expect(config.search.tavilyApiKey).toBe('tvly-from-file');
+    } finally {
+      if (orig === undefined) delete process.env.TAVILY_API_KEY;
+      else process.env.TAVILY_API_KEY = orig;
+      fs.rmSync(tomlPath, { force: true });
+    }
+  });
+});
