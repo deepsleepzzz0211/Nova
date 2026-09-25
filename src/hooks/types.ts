@@ -1,4 +1,4 @@
-import type { ToolResult } from '../tools/types.js';
+import type { ToolResult } from '../shared/tool-contracts.js';
 
 /** Input for a PreToolUse hook. */
 export interface PreToolUseInput {

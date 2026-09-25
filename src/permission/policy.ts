@@ -1,5 +1,5 @@
 import type { PermissionConfig } from '../config/schema.js';
-import type { Tool } from '../tools/types.js';
+import type { Tool } from '../shared/tool-contracts.js';
 import { DANGEROUS_PATTERNS } from './dangerous.js';
 
 /** Decision returned by the permission policy. */
