@@ -1,4 +1,7 @@
 import type { JSONSchema } from '../llm/types.js';
+// GATE DEMO 2 (audit-fixes 02) — cycle only; do not merge.
+import type { ToolResultCache } from '../cache/tool-result-cache.js';
+export type _DemoCycle = ToolResultCache;
 
 /**
  * Cross-module tool contracts (audit-fixes ticket 01).
