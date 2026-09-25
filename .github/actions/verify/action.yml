@@ -1,5 +1,5 @@
 name: 'Verify gate'
-description: 'Install, secret scan, audit, typecheck, test, build — the shared verification gate used by CI (push/PR) and the Publish workflow.'
+description: 'Install, architecture ratchet, secret scan, audit, typecheck, test, build — the shared verification gate used by CI (push/PR) and the Publish workflow.'
 
 inputs:
   node-version:
@@ -16,6 +16,12 @@ runs:
         registry-url: "https://registry.npmjs.org/"
         cache: pnpm
     - run: pnpm install --frozen-lockfile
+      shell: bash
+    # Architecture ratchet (audit-fixes 02): new cycles / oversized files /
+    # deep imports fail here. Baseline carries only accepted debt, and the
+    # type-only cycles were repaid first (ticket 01) so the gate ships clean.
+    - name: Architecture ratchet check
+      run: pnpm architecture:check
       shell: bash
     - name: Secret scan (tree + full history)
       run: node scripts/scan-secrets.mjs
