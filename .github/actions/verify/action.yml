@@ -1,5 +1,5 @@
 name: 'Verify gate'
-description: 'Install, architecture ratchet, secret scan, audit, typecheck, test, build — the shared verification gate used by CI (push/PR) and the Publish workflow.'
+description: 'Install, architecture ratchet, audit, typecheck, test, build — the shared verification gate used by CI (push/PR) and the Publish workflow. The secret scan lives in a dedicated singleton job (audit-fixes 05): it is OS/Node-independent and must not multiply with the matrix.'
 
 inputs:
   node-version:
@@ -22,9 +22,6 @@ runs:
     # type-only cycles were repaid first (ticket 01) so the gate ships clean.
     - name: Architecture ratchet check
       run: pnpm architecture:check
-      shell: bash
-    - name: Secret scan (tree + full history)
-      run: node scripts/scan-secrets.mjs
       shell: bash
     - name: Audit (prod deps, high+)
       run: pnpm audit --prod --audit-level=high

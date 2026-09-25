@@ -11,9 +11,22 @@ on:
     tags: ["v*"]
 
 jobs:
+  # Singleton secret scan (audit-fixes 05): one full-history pass per
+  # release instead of one per matrix leg, and with fetch-depth: 0 the
+  # history is actually scanned (see ci.yml for the depth-1 evidence).
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan (tree + full history)
+        run: node scripts/scan-secrets.mjs
+
   # Full gate across all three OS on the supported Node line. Publishing
   # happens only when every combination is green.
   test:
+    needs: secret-scan
     strategy:
       fail-fast: false
       matrix:

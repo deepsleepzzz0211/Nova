@@ -12,10 +12,26 @@ on:
   pull_request:
 
 jobs:
+  # Secret scan as a singleton (audit-fixes 05): the scan is OS- and
+  # Node-independent, so running it inside the verify composite multiplied
+  # it with the matrix (2 legs here, 3 in Publish). fetch-depth: 0 is the
+  # point — the composite ran on the default depth-1 checkout, so the
+  # "full history" scan has been degenerating to a single commit on CI
+  # (proved from the run 36133714413 job log: "1 commits scanned").
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan (tree + full history)
+        run: node scripts/scan-secrets.mjs
+
   # Node 22 only — Node 20 hit EOL 2026-04-30 and its Windows ConPTY input
   # path drops the Shift modifier (libuv#4979), making PTY suites unsatisfiable
   # there. Full 3 OS runs on the release tag.
   test:
+    needs: secret-scan
     strategy:
       fail-fast: false
       matrix:
@@ -36,10 +52,10 @@ jobs:
   # (a matrix-expanded required check that stops being reported blocks every
   # PR with "Expected — Waiting for status to be reported").
   ci-ready:
-    needs: test
+    needs: [secret-scan, test]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every matrix leg succeeded
         run: exit 1
-        if: ${{ needs.test.result != 'success' }}
+        if: ${{ needs.test.result != 'success' || needs['secret-scan'].result != 'success' }}
