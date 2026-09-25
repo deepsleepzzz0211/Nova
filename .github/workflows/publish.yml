@@ -10,6 +10,17 @@ on:
   push:
     tags: ["v*"]
 
+# Least privilege at the top level (audit-fixes 07); the publish job below
+# escalates explicitly for provenance + Release.
+permissions:
+  contents: read
+
+# Two tags pushed back-to-back must NOT cancel each other — a publish cut
+# mid-`npm publish` is the worst failure mode this workflow has. Serialize.
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
 jobs:
   # Singleton secret scan (audit-fixes 05): one full-history pass per
   # release instead of one per matrix leg, and with fetch-depth: 0 the

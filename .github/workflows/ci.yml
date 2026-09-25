@@ -1,15 +1,27 @@
 name: CI
 
 # Continuous verification for everyday work: every push to main and every
-# PR runs the same gate as the release pipeline (minus the OS corners that
-# the release matrix covers — macOS and Windows×Node20 are intentionally
-# deferred to the tag-gated Publish workflow).
+# PR runs the same gate as the release pipeline. macOS is deferred to the
+# tag-gated Publish workflow; Windows runs HERE (the old "Windows×Node20
+# deferred" note went stale when Node 20 was dropped and ubuntu+windows
+# became the PR matrix).
 # Releases stay tag-gated: see publish.yml (tags v*).
 
 on:
   push:
     branches: ["main"]
   pull_request:
+
+# Least privilege (audit-fixes 07): this workflow only reads the repo;
+# jobs that need more must say so (see publish.yml's publish job).
+permissions:
+  contents: read
+
+# A newer push to the same PR/branch supersedes older runs — their results
+# would describe code nobody is merging anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # Secret scan as a singleton (audit-fixes 05): the scan is OS- and

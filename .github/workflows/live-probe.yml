@@ -16,6 +16,11 @@ on:
 permissions:
   contents: read
 
+# Manual dispatch supersedes a still-running scheduled probe (audit-fixes 07).
+concurrency:
+  group: live-probe
+  cancel-in-progress: true
+
 jobs:
   probe:
     runs-on: ubuntu-latest
