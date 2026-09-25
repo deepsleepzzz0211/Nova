@@ -70,6 +70,8 @@ describe('overflow error patterns (llm/errors.ts)', () => {
 describe('ContextManager counting & clamp boundaries', () => {
   it('counts framing overhead exactly (tool_call_id adds 4)', () => {
     const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 200_000 });
+    // user vs tool isolates the same +4 delta: both count content once and
+    // framing once, and only the tool variant can carry tool_call_id.
     const base: Message[] = [{ role: 'user', content: 'hello world' }];
     const withId: Message[] = [{ role: 'tool', tool_call_id: 'c1', content: 'hello world', is_error: false }];
     // tool_call_id adds exactly +4 to the framing

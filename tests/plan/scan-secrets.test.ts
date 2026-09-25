@@ -2,17 +2,27 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import * as path from 'node:path';
+import * as path from 'path';
 import { fileURLToPath } from 'node:url';
 
 // audit-fixes 04: secret-scanner behaviour contract. The scanner runs as a
 // subprocess over a throwaway git repo — history detection is the whole
 // point of the tool, so it must survive the single-process rewrite.
-// All tokens here are obviously-fake fixtures (pattern-matching only).
+//
+// The fake tokens below NEVER appear as contiguous literals: this file is
+// itself scanned by the tool it tests (and by GitHub push protection), and
+// lesson 31 says anything committed here stays in history. The scanner
+// carries one documented path exclusion for this file to cover the earlier
+// literal-token commits; the concatenation keeps NEW commits clean anyway.
 
-const SCANNER = fileURLToPath(new URL('../../scripts/scan-secrets.mjs', import.meta.url));
-const FAKE_SK = 'sk-FAKEFAKEFAKE0000000011112222';
-const FAKE_TAVILY = 'tvly-FAKEFAKEFAKEFAKEFAKE00001';
+const fake = (prefix: string, body: string): string => `${prefix}${body}`;
+const FAKE = {
+  openai: fake('sk-', 'FAKEFAKEFAKE0000000011112222'),
+  tavily: fake('tvly-', 'FAKEFAKEFAKEFAKEFAKE00001'),
+  ghPat: fake('github_pat_', 'FAKEFAKEFAKE000000001111222233334444'),
+  ghClassic: fake('ghp_', 'FAKEFAKEFAKEFAKE0000000011112222'),
+  npm: fake('npm_', 'FAKEFAKEFAKE0000111122223333'),
+};
 
 function git(repo: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'user.email=test@example.invalid',
@@ -43,6 +53,8 @@ function runScanner(repo: string): { status: number; stdout: string; stderr: str
   }
 }
 
+const SCANNER = fileURLToPath(new URL('../../scripts/scan-secrets.mjs', import.meta.url));
+
 describe('scan-secrets.mjs (audit-fixes 04)', () => {
   let repo: string;
   beforeEach(() => {
@@ -61,22 +73,26 @@ describe('scan-secrets.mjs (audit-fixes 04)', () => {
 
   it('flags a secret living in the HEAD tree', () => {
     writeAndCommit(repo, 'README.md', '# clean\n');
-    writeAndCommit(repo, 'config.leak', `apiKey = "${FAKE_SK}"\n`);
+    writeAndCommit(repo, 'config.leak', `apiKey = "${FAKE.openai}"\n`);
     const run = runScanner(repo);
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain(FAKE_SK.slice(0, 6));
+    expect(run.stderr).toContain('OpenAI/OpenCode-style key');
     expect(run.stderr).toMatch(/config\.leak/);
   });
 
-  it('flags a secret that was deleted from the tree but lives in history', () => {
+  it('flags every token shape deleted from the tree but living in history', () => {
     writeAndCommit(repo, 'README.md', '# clean\n');
-    writeAndCommit(repo, 'src/leaky.ts', `const key = "${FAKE_TAVILY}";\n`);
+    const all = Object.values(FAKE).map((t) => `"${t}"`).join('\n');
+    writeAndCommit(repo, 'src/leaky.ts', `const keys = [\n${all}\n];\n`);
     git(repo, 'rm', '-q', 'src/leaky.ts');
     git(repo, 'commit', '-m', 'remove leaky file');
     const run = runScanner(repo);
     expect(run.status).toBe(1);
+    expect(run.stderr).toContain('OpenAI/OpenCode-style key');
     expect(run.stderr).toContain('Tavily key');
-    expect(run.stderr).toContain(FAKE_TAVILY.slice(0, 6));
+    expect(run.stderr).toContain('GitHub fine-grained PAT');
+    expect(run.stderr).toContain('GitHub classic token');
+    expect(run.stderr).toContain('npm token');
   });
 
   it('never matches the short test fixtures documented in the header', () => {

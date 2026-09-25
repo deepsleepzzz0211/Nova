@@ -21,10 +21,21 @@
  */
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as path from 'path';
+import * as path from 'node:path';
 
 const ROOT = path.resolve(process.argv[2] ?? '.');
 const SELF_RELATIVE = 'scripts/scan-secrets.mjs';
+
+/**
+ * Fixture allowlist — the ONE tracked path permitted to contain
+ * full-length fake tokens (the scanner's own contract test plants them).
+ * GitHub secret scanning stays honest there only because the live file
+ * assembles tokens by concatenation; but the test's earlier commits put
+ * literals into history, and history is exactly what this scanner reads
+ * (lesson 31: rewriting the file cannot un-blob a commit). A contentless
+ * path exclusion is the honest fix for a fake-token fixture file.
+ */
+const FIXTURE_ALLOWLIST = ['tests/plan/scan-secrets.test.ts'];
 
 /** Revisions per `git grep` invocation; keeps argv well under OS limits. */
 const REV_BATCH = 400;
@@ -80,7 +91,8 @@ function main() {
   const startedAt = Date.now();
 
   // ---- 1. HEAD working tree (tracked files only) ----
-  const tracked = git(['ls-files']).split('\n').filter((f) => f && f !== SELF_RELATIVE);
+  const tracked = git(['ls-files']).split('\n')
+    .filter((f) => f && f !== SELF_RELATIVE && !FIXTURE_ALLOWLIST.includes(f));
   for (const file of tracked) {
     let content;
     try {
@@ -99,7 +111,7 @@ function main() {
     const batch = commits.slice(i, i + REV_BATCH);
     const out = gitGrepOrEmpty([
       'grep', '-I', '-n', '-E', combined, ...batch,
-      '--', '.', `:(exclude)${SELF_RELATIVE}`,
+      '--', '.', ...FIXTURE_ALLOWLIST.map((p) => `:(exclude)${p}`), `:(exclude)${SELF_RELATIVE}`,
     ]);
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;
