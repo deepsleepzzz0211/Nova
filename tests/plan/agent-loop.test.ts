@@ -26,6 +26,8 @@ function makePipeline(): ToolExecutionPipeline {
 function mockLLM(responses: StreamChunk[][]): LLMProvider {
   let i = 0;
   return {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(_msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
       for (const chunk of responses[i++] ?? []) {
         yield chunk;
@@ -105,6 +107,8 @@ describe('AgentLoop', () => {
     ];
     let callCount = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         callCount++;
         for (const c of infiniteToolCall) yield c;
@@ -246,6 +250,8 @@ describe('AgentLoop.undoTurns', () => {
 
   function makeToolTurnLoop(): { loop: AgentLoop; llm: LLMProvider } {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'text_delta', content: 'summary' };
@@ -302,6 +308,8 @@ describe('AgentLoop.undoTurns', () => {
     registry.register(makeTool('tool_a'));
     let callIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'text_delta', content: 'summary' };
@@ -340,6 +348,8 @@ describe('AgentLoop.undoTurns', () => {
       const sessionFile = path.join(dir, 's.jsonl');
       const store = new SessionStore(sessionFile);
       const llm2: LLMProvider = {
+        name: 'fake',
+        capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
         async *chat(): AsyncIterable<StreamChunk> {
           yield { type: 'text_delta', content: 'ok' };
         },
@@ -382,6 +392,8 @@ describe('AgentLoop truncation continuation + empty stream (streaming ticket 05)
     const chatMessages: Message[][] = [];
     let chatCall = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         chatMessages.push(msgs.map((m) => ({ ...m })));
         chatCall++;
@@ -422,6 +434,8 @@ describe('AgentLoop truncation continuation + empty stream (streaming ticket 05)
   it('keeps thinking on the partial assistant message across a continuation', async () => {
     let chatCall = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         chatCall++;
         if (chatCall === 1) {
@@ -452,6 +466,8 @@ describe('AgentLoop truncation continuation + empty stream (streaming ticket 05)
   it('retries an empty stream once and succeeds', async () => {
     let chatCall = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         chatCall++;
         if (chatCall === 1) return; // empty stream
@@ -475,6 +491,8 @@ describe('AgentLoop truncation continuation + empty stream (streaming ticket 05)
 
   it('errors cleanly after a second empty stream', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         return; // always empty
       },
@@ -512,6 +530,8 @@ describe('AgentLoop pending tool visibility (streaming ticket 04)', () => {
     let sawStart = false;
     let chatCall = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         chatCall++;
         if (chatCall > 1) {
@@ -570,6 +590,8 @@ describe('AgentLoop thinking channel (streaming ticket 03)', () => {
   it('forwards thinking deltas and stores thinking on the assistant message', async () => {
     const thinkingSeen: string[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'thinking_delta', content: 'let me ' };
         yield { type: 'thinking_delta', content: 'think' };
@@ -600,6 +622,8 @@ describe('AgentLoop thinking channel (streaming ticket 03)', () => {
     let release: (() => void) | undefined;
     let sawThinking = false;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'thinking_delta', content: 'partial thought' };
         sawThinking = true;
@@ -647,6 +671,8 @@ describe('AgentLoop.interrupt (streaming ticket 02)', () => {
     let sawPartial = false;
     let release: (() => void) | undefined;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         // Emit partial text, then a half tool-call frame, then hang.
         yield { type: 'text_delta', content: 'par' };
@@ -696,6 +722,8 @@ describe('AgentLoop.interrupt (streaming ticket 02)', () => {
 
   it('interrupt with no in-flight stream is a no-op', () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },
@@ -723,6 +751,8 @@ describe('AgentLoop context management', () => {
     const calls: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
     let callIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         calls.push({ msgs: [...msgs], opts });
         callIndex++;
@@ -771,6 +801,8 @@ describe('AgentLoop context management', () => {
     // degrade to truncate instead of fail-open (which would hit the
     // context window on the next round).
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'error', error: 'summarizer unavailable' };
@@ -811,6 +843,8 @@ describe('AgentLoop context management', () => {
     // compact and retry the round exactly once.
     let chatCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         // Summarizer calls (tool-free) always succeed
         if (opts.tools === undefined) {
@@ -855,6 +889,8 @@ describe('AgentLoop context management', () => {
   it('gives up cleanly when the retry still overflows (no compaction loop)', async () => {
     let callCount = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         callCount++;
         throw new Error('maximum context length exceeded');
@@ -883,6 +919,8 @@ describe('AgentLoop context management', () => {
   it('does not retry on ordinary errors', async () => {
     let callCount = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         callCount++;
         throw new Error('connection refused');
@@ -908,6 +946,8 @@ describe('AgentLoop context management', () => {
 
   it('truncates context when strategy is truncate', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },
@@ -976,6 +1016,7 @@ class MemorySessionStore {
   async append(message: Message2): Promise<void> {
     this.entries.push(message);
   }
+  async appendCompaction(_messages: Message2[]): Promise<void> {}
   async close(): Promise<void> {}
 }
 
@@ -983,6 +1024,8 @@ describe('AgentLoop context reporting (ticket 22)', () => {
   it('reports the real context size and trigger budget after a turn', async () => {
     const seen: Array<{ tokens: number; trigger: number }> = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },
@@ -1018,6 +1061,8 @@ describe('truncate pressure-band (truncate-idle 01)', () => {
   // a zero-reclaim event every round (live repro: 4x before==after).
   function bandLoop(compactions: Array<{ strategy: string; beforeTokens: number; afterTokens: number }>) {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },

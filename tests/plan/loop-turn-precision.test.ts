@@ -14,7 +14,8 @@ import type { SkillRegistry } from '../../src/skills/registry.js';
 import type { SkillMeta } from '../../src/skills/registry.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { Tool } from '../../src/tools/types.js';
-import type { Message, StreamChunk, ToolCall, ToolResult } from '../../src/llm/types.js';
+import type { Message, StreamChunk, ToolCall } from '../../src/llm/types.js';
+import type { ToolResult } from '../../src/shared/tool-contracts.js';
 
 // survived-hunt (test-effectiveness 03), cluster: src/agent/loop.ts.
 // Every case pins an EXACT value (event field, message object, call count,
@@ -51,6 +52,8 @@ function scriptedLLM(responses: StreamChunk[][]): LLMProvider & { calls: number 
   let i = 0;
   const llm = {
     calls: 0,
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(): AsyncIterable<StreamChunk> {
       llm.calls++;
       for (const c of responses[i++] ?? []) yield c;
@@ -217,6 +220,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
     const outcomes: Array<'fail' | 'ok'> = ['fail', 'fail', 'ok', 'fail', 'fail', 'fail'];
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (!isSummary) throw new Error('turn chat must not be called');
@@ -249,6 +254,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
 
   it('the breaker-opening notice survives an unwired onContextNote callback', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'error', error: 'boom' };
       },
@@ -272,6 +279,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
   it("a 'nothing' compaction attempt neither resets nor feeds the failure streak", async () => {
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (!isSummary) throw new Error('not a summary call');
@@ -307,6 +316,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
   it('once the breaker is open the automatic path truncates without calling the summarizer', async () => {
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (isSummary) { summaryCalls++; yield { type: 'error', error: 'boom' }; return; }
@@ -341,6 +352,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
   it('rapid refill suppresses automatic compaction after the streak limit and notices once', async () => {
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (isSummary) { summaryCalls++; yield text('S'); return; }
@@ -367,6 +380,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
 
   it('rapid-refill suppression survives unwired notice/callback hooks', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (isSummary) { yield text('S'); return; }
@@ -405,6 +420,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
 
   it('manual compact with a failed summary degrades to the same half-trigger truncate', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'error', error: 'boom' };
       },
@@ -516,6 +533,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
     let sawHalf = false;
     let release: (() => void) | undefined;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'thinking_delta', content: 'TH' };
         yield toolStart('c1', 'echo');
@@ -552,6 +571,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
     let saw = false;
     let release: (() => void) | undefined;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield text('par');
         yield usage({ inputTokens: 7, outputTokens: 2 });
@@ -758,6 +779,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
 
   it('an ordinary error never triggers the overflow compaction path', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         throw new Error('kaboom');
       },
@@ -782,6 +805,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
   it('reactive overflow retry counts as the SAME round', async () => {
     let turnChats = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (isSummary) { yield text('S'); return; }
@@ -808,6 +833,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
   it('a second overflow gives up cleanly after exactly one compaction attempt', async () => {
     let summaries = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
         if (isSummary) { summaries++; yield text('S'); return; }
@@ -830,6 +857,8 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
 
   it('stalled streams fail with the exact watchdog message', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         await new Promise(() => {}); // never yields
       },

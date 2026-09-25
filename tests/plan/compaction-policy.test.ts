@@ -116,6 +116,8 @@ interface Counts {
 function makeLLM(summary: 'fail' | 'ok'): { llm: LLMProvider; counts: Counts } {
   const counts: Counts = { main: 0, summary: 0 };
   const llm: LLMProvider = {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
       if (opts.systemPrompt === undefined) {
         counts.summary++;
@@ -247,6 +249,8 @@ describe('grown summary is discarded (truncate-idle 01 review)', () => {
   it('a summary larger than the context is never applied, persisted, or counted', async () => {
     const events: Array<{ strategy: string; beforeTokens: number; afterTokens: number }> = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.systemPrompt === undefined) {
           // "successful" summary that is bigger than everything it replaces.

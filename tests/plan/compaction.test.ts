@@ -5,6 +5,8 @@ import type { Message, StreamChunk, ChatOptions } from '../../src/llm/types.js';
 
 function makeLLM(respond: (msgs: Message[], opts: ChatOptions) => StreamChunk[]): LLMProvider {
   return {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
       for (const chunk of respond(msgs, opts)) yield chunk;
     },
@@ -88,6 +90,8 @@ describe('Compactor (token-budget keep window)', () => {
     const budget = msgEstimate(messages[3]) + msgEstimate(messages[4]);
     const chatCalls: Array<{ msgs: Message[] }> = [];
     const llm2: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
         chatCalls.push({ msgs });
         yield { type: 'text_delta', content: 'summary' };
@@ -170,6 +174,8 @@ describe('Compactor (token-budget keep window)', () => {
   it('falls through to the LLM summary when placeholders are not enough', async () => {
     const chatCalls: Array<{ msgs: Message[] }> = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
         chatCalls.push({ msgs });
         yield { type: 'text_delta', content: 'full summary' };
@@ -203,6 +209,8 @@ describe('Compactor (token-budget keep window)', () => {
   it('handles 6 oversized tool results: recent ones kept, old ones summarized', async () => {
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         summaryCalls++;
         yield { type: 'text_delta', content: 'summary of old tool results' };
@@ -260,6 +268,8 @@ describe('Compactor (token-budget keep window)', () => {
   it('tool-batch owner resolution matches the exact tool_call id', async () => {
     let summaryCalls = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         summaryCalls++;
         yield { type: 'text_delta', content: 'summary' };
@@ -292,6 +302,8 @@ describe('Compactor (token-budget keep window)', () => {
   it('serializes assistant thinking into the summary transcript (pi-style)', async () => {
     const chatCalls: Array<{ msgs: Message[] }> = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
         chatCalls.push({ msgs });
         yield { type: 'text_delta', content: 'summary' };
@@ -336,6 +348,8 @@ describe('Compactor (token-budget keep window)', () => {
 
   it('returns null when the summary stream throws', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         throw new Error('socket reset');
       },

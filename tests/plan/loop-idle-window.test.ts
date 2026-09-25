@@ -9,7 +9,8 @@ import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
 import { PermissionPolicy } from '../../src/permission/policy.js';
 import { SessionStore } from '../../src/agent/session.js';
 import { MICROCOMPACT_MARKER } from '../../src/agent/microcompact.js';
-import type { LLMProvider, ChatOptions, Message, StreamChunk } from '../../src/llm/types.js';
+import type { ChatOptions, Message, StreamChunk } from '../../src/llm/types.js';
+import type { LLMProvider } from '../../src/llm/provider.js';
 import type { Tool } from '../../src/tools/types.js';
 
 // survived-hunt (test-effectiveness 03), cluster: AgentLoop context-management
@@ -23,6 +24,8 @@ const policy = new PermissionPolicy({
 
 function mockLLM(): LLMProvider {
   return {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(): AsyncIterable<StreamChunk> {
       yield { type: 'text_delta', content: 'ok' };
     },

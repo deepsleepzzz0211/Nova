@@ -5,6 +5,17 @@ import type { Message } from '../llm/types.js';
 /** Default retention window for session files (days). */
 export const SESSION_RETENTION_DAYS = 30;
 
+/**
+ * Structural persistence surface the agent loop needs. `SessionStore` is a
+ * class with private members (nominal typing), so test doubles could never
+ * satisfy it directly; the loop only appends and checkpoints (audit-fixes 03).
+ */
+export interface SessionWriter {
+  append(entry: SessionEntry): Promise<void>;
+  appendCompaction(messages: Message[]): Promise<void>;
+  close(): Promise<void>;
+}
+
 /** List .jsonl files in a directory (empty on missing/unreadable dir). */
 function listJsonlFiles(dir: string): { full: string; mtimeMs: number }[] {
   let entries: fs.Dirent[];

@@ -6,6 +6,7 @@ import {
   loadModelCatalog,
   resolveModel,
   BUILTIN_PROVIDER_API,
+  type ModelCatalog,
 } from '../../src/llm/catalog.js';
 import { PiaiEngine } from '../../src/llm/piai-engine.js';
 

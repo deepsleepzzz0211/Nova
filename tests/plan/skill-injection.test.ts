@@ -44,6 +44,8 @@ describe('AgentLoop skill injection (progressive disclosure)', () => {
 
     const systemPrompts: string[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         systemPrompts.push(opts.systemPrompt ?? '');
         yield { type: 'text_delta', content: 'ok' };

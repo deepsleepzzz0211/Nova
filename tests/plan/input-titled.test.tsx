@@ -10,8 +10,9 @@ async function settle(ms = 40): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-function bar(extra: React.ComponentProps<typeof InputBar> = {}) {
-  return render(<InputBar onSubmit={vi.fn()} isStreaming={false} {...extra} />);
+function bar(extra: Partial<React.ComponentProps<typeof InputBar>> = {}) {
+  const { onSubmit = vi.fn(), isStreaming = false, ...rest } = extra;
+  return render(<InputBar onSubmit={onSubmit} isStreaming={isStreaming} {...rest} />);
 }
 
 describe('InputBar titled border (tui-redesign 03)', () => {

@@ -1,9 +1,10 @@
 name: CI
 
 # Continuous verification for everyday work: every push to main and every
-# PR runs the same gate as the release pipeline (minus the OS corners that
-# the release matrix covers — macOS and Windows×Node20 are intentionally
-# deferred to the tag-gated Publish workflow).
+# PR runs the same gate as the release pipeline. macOS is deferred to the
+# tag-gated Publish workflow; Windows runs HERE (the old "Windows×Node20
+# deferred" note went stale when Node 20 was dropped and ubuntu+windows
+# became the PR matrix).
 # Releases stay tag-gated: see publish.yml (tags v*).
 
 on:
@@ -11,11 +12,38 @@ on:
     branches: ["main"]
   pull_request:
 
+# Least privilege (audit-fixes 07): this workflow only reads the repo;
+# jobs that need more must say so (see publish.yml's publish job).
+permissions:
+  contents: read
+
+# A newer push to the same PR/branch supersedes older runs — their results
+# would describe code nobody is merging anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Secret scan as a singleton (audit-fixes 05): the scan is OS- and
+  # Node-independent, so running it inside the verify composite multiplied
+  # it with the matrix (2 legs here, 3 in Publish). fetch-depth: 0 is the
+  # point — the composite ran on the default depth-1 checkout, so the
+  # "full history" scan has been degenerating to a single commit on CI
+  # (proved from the run 36133714413 job log: "1 commits scanned").
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Secret scan (tree + full history)
+        run: node scripts/scan-secrets.mjs
+
   # Node 22 only — Node 20 hit EOL 2026-04-30 and its Windows ConPTY input
   # path drops the Shift modifier (libuv#4979), making PTY suites unsatisfiable
   # there. Full 3 OS runs on the release tag.
   test:
+    needs: secret-scan
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +54,7 @@ jobs:
             node: 22
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
@@ -36,10 +64,10 @@ jobs:
   # (a matrix-expanded required check that stops being reported blocks every
   # PR with "Expected — Waiting for status to be reported").
   ci-ready:
-    needs: test
+    needs: [secret-scan, test]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every matrix leg succeeded
         run: exit 1
-        if: ${{ needs.test.result != 'success' }}
+        if: ${{ needs.test.result != 'success' || needs['secret-scan'].result != 'success' }}

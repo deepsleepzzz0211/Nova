@@ -1,4 +1,4 @@
-import type { ToolResult } from '../tools/types.js';
+import type { ToolResult } from '../shared/tool-contracts.js';
 import type { Cache, CacheStats } from './types.js';
 import { MemoryCache } from './memory-cache.js';
 

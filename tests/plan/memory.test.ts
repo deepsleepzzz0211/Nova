@@ -19,7 +19,7 @@ describe('Memory store', () => {
   it('readMemory returns empty string for missing/corrupt files', () => {
     expect(readMemory(path.join(dir, 'missing.md'))).toBe('');
     const corrupt = path.join(dir, 'corrupt.md');
-    fs.writeFileSync(corrupt, Buffer.from([[0xff, 0xfe, 0x00, 0x01]], 'utf-8') as unknown as string);
+    fs.writeFileSync(corrupt, Buffer.from([0xff, 0xfe, 0x00, 0x01]));
     expect(typeof readMemory(corrupt)).toBe('string');
   });
 

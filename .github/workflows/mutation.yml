@@ -9,22 +9,32 @@ on:
     - cron: "0 4 * * 1" # Mondays 04:00 UTC
   workflow_dispatch:
 
+# Read-only: clones the repo and uploads a run artifact (no repo writes).
+permissions:
+  contents: read
+
+# A manual re-run supersedes the scheduled one; never stack two Stryker runs.
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Ratchet semantics (test-effectiveness 01): stryker.config.json
-  # thresholds.break == 74 fails this job when the score drops below the
-  # recorded baseline (scripts/mutation-baseline.json). Improve -> raise BOTH
-  # numbers in the same PR; the baseline's topSurvived list drives ticket 03.
+  # thresholds.break fails this job when the score drops below the recorded
+  # baseline (scripts/mutation-baseline.json) — currently 79. Improve ->
+  # raise BOTH numbers in the same PR; the baseline's topSurvived list
+  # drives the survived-mutant hunts.
   mutation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/verify
         with:
           node-version: 22
       - run: pnpm test:mutation
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mutation-report
           path: reports/mutation/mutation.html

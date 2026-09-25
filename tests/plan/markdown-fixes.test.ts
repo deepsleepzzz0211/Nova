@@ -3,8 +3,15 @@ import {
   parseMarkdownBlocks,
   highlightToSegments,
   highlightedLines,
+  type MdBlock,
 } from '../../src/tui/markdown.js';
 import { clearBlockCache } from '../../src/tui/markdown-cache.js';
+
+/** Narrow to a text-bearing block; throws instead of silently skipping. */
+function textOf(b: MdBlock | undefined): string {
+  if (b === undefined || !('text' in b)) throw new Error(`block without text: ${JSON.stringify(b)}`);
+  return b.text;
+}
 
 describe('markdown review fixes (ticket 07)', () => {
   describe('entity decoding', () => {
@@ -89,7 +96,7 @@ describe('markdown review fixes (ticket 07)', () => {
     it('extracts blockquote text through nested tokens', () => {
       const blocks = parseMarkdownBlocks('> quoted **word**');
       expect(blocks[0]).toMatchObject({ kind: 'quote' });
-      expect(blocks[0].text).toContain('quoted');
+      expect(textOf(blocks[0])).toContain('quoted');
     });
   });
 });

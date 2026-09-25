@@ -3,18 +3,31 @@ import {
   parseMarkdownBlocks,
   highlightToSegments,
   languageOf,
+  type MdBlock,
 } from '../../src/tui/markdown.js';
 import { getCachedBlocks, clearBlockCache } from '../../src/tui/markdown-cache.js';
+
+/** Narrow to a text-bearing block; throws instead of silently skipping. */
+function textOf(b: MdBlock | undefined): string {
+  if (b === undefined || !('text' in b)) throw new Error(`block without text: ${JSON.stringify(b)}`);
+  return b.text;
+}
+
+/** Narrow to a table block's rows. */
+function rowsOf(b: MdBlock | undefined): string[][] {
+  if (b === undefined || b.kind !== 'table') throw new Error(`not a table block: ${JSON.stringify(b)}`);
+  return b.rows;
+}
 
 describe('markdown pipeline (tui-refactor 07)', () => {
   describe('parseMarkdownBlocks', () => {
     it('parses headings, paragraphs and inline code', () => {
       const blocks = parseMarkdownBlocks('# Title\n\nSome **bold** and `code`.');
       expect(blocks[0]).toMatchObject({ kind: 'heading', level: 1 });
-      expect(blocks[0].text).toContain('Title');
+      expect(textOf(blocks[0])).toContain('Title');
       expect(blocks[1]).toMatchObject({ kind: 'paragraph' });
-      expect(blocks[1].text).toContain('bold');
-      expect(blocks[1].text).toContain('code');
+      expect(textOf(blocks[1])).toContain('bold');
+      expect(textOf(blocks[1])).toContain('code');
     });
 
     it('parses bullet and ordered lists', () => {
@@ -37,12 +50,12 @@ describe('markdown pipeline (tui-refactor 07)', () => {
     it('parses blockquotes and tables', () => {
       const quote = parseMarkdownBlocks('> quoted line');
       expect(quote[0]).toMatchObject({ kind: 'quote' });
-      expect(quote[0].text).toContain('quoted line');
+      expect(textOf(quote[0])).toContain('quoted line');
 
       const table = parseMarkdownBlocks('| a | b |\n| --- | --- |\n| 1 | 2 |');
       expect(table[0]).toMatchObject({ kind: 'table' });
-      expect(table[0].rows?.[0]).toEqual(['a', 'b']);
-      expect(table[0].rows?.[1]).toEqual(['1', '2']);
+      expect(rowsOf(table[0])[0]).toEqual(['a', 'b']);
+      expect(rowsOf(table[0])[1]).toEqual(['1', '2']);
     });
   });
 
@@ -57,7 +70,7 @@ describe('markdown pipeline (tui-refactor 07)', () => {
     it('degrades a half-written table header to a paragraph', () => {
       const blocks = parseMarkdownBlocks('| a | b |\n| --- ');
       expect(blocks.some((b) => b.kind === 'table')).toBe(false);
-      const text = blocks.map((b) => b.text).join('\n');
+      const text = blocks.map(textOf).join('\n');
       expect(text).toContain('| a | b |');
     });
 
