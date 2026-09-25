@@ -84,7 +84,7 @@ function ollamaBuiltinModels(): Model<string>[] {
  * point it at) speaks /chat/completions unless told otherwise.
  */
 export type ProviderProtocol = 'openai-completions' | 'anthropic-messages' | 'ollama';
-export const NOVA_BUILTIN_PROTOCOLS: Record<string, ProviderProtocol> = {
+export const NOVA_BUILTIN_PROTOCOLS: { openai: ProviderProtocol } = {
   openai: 'openai-completions',
 };
 
@@ -156,7 +156,8 @@ export class PiaiEngine {
    * Inject a user-declared provider into the same collection via
    * `createProvider`, so on models resolve exactly like built-in ones.
    */
-  registerUserProvider(spec: UserProviderSpec): void {    const baseUrl = spec.baseUrl ?? defaultBaseUrl(spec.api, spec.id);
+  registerUserProvider(spec: UserProviderSpec): void {
+    const baseUrl = spec.baseUrl ?? defaultBaseUrl(spec.api, spec.id);
     const api = spec.api ?? 'openai-completions';
     const provider = createProvider({
       id: spec.id,
@@ -204,6 +205,8 @@ export class PiaiEngine {
     if (models.length > 0 && models.every((m) => m.api === modelApi)) {
       return; // pi-ai's model.api mirrors the bound adapter; match = no-op
     }
+    // Auth mirrors pi-ai's own built-in wiring (env-key only); Nova's auth
+    // story is apiKey/env end to end (option A), so nothing else is lost.
     this.models.setProvider(
       createProvider({
         id: provider.id,

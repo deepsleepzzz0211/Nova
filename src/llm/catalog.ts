@@ -85,7 +85,14 @@ export interface ModelCatalogEntry {
   name?: string;
   /** Pricing for the session-cost estimate (absent = cost hidden). */
   cost?: ModelCost;
-  /** Override the provider's wire API for this model. */
+  /**
+   * Wire-API record for the Nova view (resolution + /model display).
+   * The actual protocol on the wire is bound per PROVIDER (pi-ai attaches
+   * one adapter implementation per provider); a model whose api differs
+   * from its provider's is displayed as overridden but still streams on
+   * the provider's adapter. Full per-model routing would need pi-ai's
+   * api-map providers — separate ticket if it ever bites.
+   */
   api?: ApiId;
   contextWindow?: number;
   maxTokens?: number;
