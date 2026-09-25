@@ -17,7 +17,7 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: Secret scan (tree + full history)
@@ -34,7 +34,7 @@ jobs:
         node: [22]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
@@ -46,9 +46,9 @@ jobs:
       id-token: write # for npm provenance
       contents: write # for GitHub Release
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4   # reads packageManager from package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0   # reads packageManager from package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org/"
@@ -89,7 +89,7 @@ jobs:
           echo "version still not visible after 5 minutes" >&2
           exit 1
       - name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

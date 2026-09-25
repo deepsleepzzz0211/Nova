@@ -9,8 +9,8 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: pnpm/action-setup@v4   # reads packageManager from package.json
-    - uses: actions/setup-node@v4
+    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0   # reads packageManager from package.json
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ inputs.node-version }}
         registry-url: "https://registry.npmjs.org/"
@@ -42,7 +42,7 @@ runs:
     # runner temp dir so they survive the test workspace cleanup).
     - name: Upload E2E artifacts on failure
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: e2e-artifacts-${{ runner.os }}-${{ github.run_id }}
         path: ${{ runner.temp }}/nova-e2e-artifacts
