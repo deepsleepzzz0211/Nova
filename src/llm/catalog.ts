@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import type { ThinkingLevel, ThinkingLevelMap } from './types.js';
 import { resolveSecretValue } from './secrets.js';
-import { PiaiEngine, type UserProviderSpec } from './piai-engine.js';
+import { PiaiEngine, NOVA_BUILTIN_PROTOCOLS, type UserProviderSpec } from './piai-engine.js';
 
 export type { ThinkingLevel, ThinkingLevelMap } from './types.js';
 
@@ -50,7 +50,7 @@ export const BUILTIN_PROVIDERS: Record<
   { api: ApiId; baseUrl?: string; contextWindow: number }
 > = {
   openai: {
-    api: 'openai-completions',
+    api: NOVA_BUILTIN_PROTOCOLS.openai,
     baseUrl: 'https://api.openai.com/v1',
     contextWindow: 128_000,
   },
@@ -243,6 +243,10 @@ export function loadModelCatalogWithEngine(
           })),
         };
         engine.registerUserProvider(spec);
+      } else if (userEntry.api) {
+        // An explicit protocol on a built-in must reach the wire, not just
+        // the Nova catalog view.
+        engine.enforceProtocol(name, userEntry.api);
       }
 
       const base = catalog.providers[name] ?? { models: [] };
@@ -350,11 +354,11 @@ export function resolveModel(selection: ModelSelection, catalog: ModelCatalog): 
   return {
     name: selection.provider,
     api,
-    baseUrl: selection.baseUrl ?? entry.baseUrl,
-    // Catalog-declared keys go through the value-resolution DSL
-    // ("$ENV" interpolation / "!command"); explicit overrides (env/CLI)
-    // are used verbatim.
-    apiKey: selection.apiKey ?? (entry.apiKey !== undefined
+    // Blank strings (the shipped config defaults) mean "not provided" —
+    // otherwise every models.json declaration would be masked by
+    // DEFAULT_CONFIG values that the user never set.
+    baseUrl: selection.baseUrl || entry.baseUrl,
+    apiKey: selection.apiKey || (entry.apiKey !== undefined
       ? resolveSecretValue(entry.apiKey)
       : undefined),
     model: {

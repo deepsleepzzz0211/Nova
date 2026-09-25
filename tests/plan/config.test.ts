@@ -24,7 +24,8 @@ describe('Config Loader', () => {
   it('returns defaults when no config exists', () => {
     const c = loadConfig(tmpDir);
     expect(c.llm.model).toBe('gpt-4o');
-    expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
+    // Empty default by design: the catalog supplies provider URLs.
+    expect(c.llm.baseUrl).toBe('');
     expect(c.agent.maxToolRounds).toBe(50);
     expect(c.agent.contextReserveTokens).toBe(16384);
     expect(c.agent.contextKeepRecentTokens).toBe(20000);
@@ -56,7 +57,8 @@ describe('Config Loader', () => {
     const c = loadConfig(tmpDir);
     expect(c.llm.model).toBe('gpt-4o-mini');
     expect(c.llm.apiKey).toBe('sk-test');
-    expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
+    // Empty default by design: the catalog supplies provider URLs.
+    expect(c.llm.baseUrl).toBe('');
   });
 
   it('reads mcp_servers array', () => {
