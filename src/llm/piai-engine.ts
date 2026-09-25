@@ -77,12 +77,26 @@ function ollamaBuiltinModels(): Model<string>[] {
   }));
 }
 
+/**
+ * Nova's protocol choice for the built-in providers — the wire-protocol
+ * source of truth. pi-ai's openai factory binds the /responses adapter
+ * exclusively, but Nova (and every chat-completions gateway its users
+ * point it at) speaks /chat/completions unless told otherwise.
+ */
+export type ProviderProtocol = 'openai-completions' | 'anthropic-messages' | 'ollama';
+export const NOVA_BUILTIN_PROTOCOLS: { openai: ProviderProtocol } = {
+  openai: 'openai-completions',
+};
+
 export class PiaiEngine {
   readonly models: MutableModels;
 
   constructor() {
     this.models = createModels();
     this.registerBuiltins();
+    for (const [id, protocol] of Object.entries(NOVA_BUILTIN_PROTOCOLS)) {
+      this.enforceProtocol(id, protocol);
+    }
   }
 
   /** Built-in factories pi-ai ships, plus a local OpenAI-compatible ollama. */
@@ -174,6 +188,35 @@ export class PiaiEngine {
       api: pickApi(api),
     });
     this.models.setProvider(provider);
+  }
+
+  /**
+   * Rebind a registered provider to the protocol Nova's catalog resolves.
+   * pi-ai built-in factories hard-bind ONE adapter implementation, so
+   * changing model.api is not enough — the provider object is rebuilt with
+   * the catalog-chosen adapter over the same model list.
+   */
+  enforceProtocol(providerId: string, protocol: ProviderProtocol): void {
+    const provider = this.models.getProvider(providerId);
+    if (!provider) return;
+    const models = provider.getModels();
+    const modelApi: 'openai-completions' | 'anthropic-messages' =
+      protocol === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions';
+    if (models.length > 0 && models.every((m) => m.api === modelApi)) {
+      return; // pi-ai's model.api mirrors the bound adapter; match = no-op
+    }
+    // Auth mirrors pi-ai's own built-in wiring (env-key only); Nova's auth
+    // story is apiKey/env end to end (option A), so nothing else is lost.
+    this.models.setProvider(
+      createProvider({
+        id: provider.id,
+        name: provider.name,
+        baseUrl: models[0]?.baseUrl ?? defaultBaseUrl(protocol, providerId),
+        auth: { apiKey: envApiKeyAuth(provider.name, [apiKeyEnvName(providerId)]) },
+        models: models.map((m) => ({ ...m, api: modelApi })),
+        api: pickApi(protocol),
+      }),
+    );
   }
 }
 

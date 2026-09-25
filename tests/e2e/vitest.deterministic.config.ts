@@ -11,6 +11,7 @@ export default defineConfig({
       'tests/e2e/tui/tui-deterministic.test.ts',
       'tests/e2e/cli-flags.test.ts',
       'tests/e2e/recorded-replay.test.ts',
+      'tests/e2e/protocol-route.test.ts',
     ],
     testTimeout: 120_000,
     hookTimeout: 60_000,

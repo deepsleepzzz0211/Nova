@@ -96,7 +96,7 @@ describe('Integration: config loads from TOML with defaults', () => {
     const c = loadConfig(tmpDir);
     // LLM defaults
     expect(c.llm.model).toBe('gpt-4o');
-    expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
+    expect(c.llm.baseUrl).toBe(''); // catalog supplies provider URLs (responses-route 01)
     expect(c.llm.maxTokens).toBe(4096);
     expect(c.llm.temperature).toBe(0.7);
     // Agent defaults
@@ -123,7 +123,7 @@ describe('Integration: config loads from TOML with defaults', () => {
     expect(c.llm.apiKey).toBe('sk-test');
     expect(c.agent.maxToolRounds).toBe(10);
     // Preserved defaults
-    expect(c.llm.baseUrl).toBe('https://api.openai.com/v1');
+    expect(c.llm.baseUrl).toBe(''); // catalog supplies provider URLs (responses-route 01)
     expect(c.llm.temperature).toBe(0.7);
     expect(c.search.provider).toBe('tavily');
     expect(c.permission.autoApproveFileWrite).toBe(false);

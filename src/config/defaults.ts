@@ -5,7 +5,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   llm: {
     provider: 'openai',
     apiKey: '',
-    baseUrl: 'https://api.openai.com/v1',
+    // Empty by design: the wire URL comes from the model catalog
+    // (BUILTIN_PROVIDERS / models.json), so a config default must not
+    // mask a declared provider baseUrl.
+    baseUrl: '',
     model: 'gpt-4o',
     maxTokens: 4096,
     temperature: 0.7,
