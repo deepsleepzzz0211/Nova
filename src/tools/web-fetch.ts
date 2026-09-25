@@ -3,9 +3,11 @@ import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 import { proxyAwareFetch } from './proxy.js';
+import { blockedFetchReason } from './url-guard.js';
 
 const TIMEOUT_MS = 30_000;
 const MAX_RESPONSE_BYTES = 512 * 1024; // 500KB
+const MAX_REDIRECTS = 5;
 
 function htmlToMarkdown(html: string, url: string): { title: string; content: string } {
   const dom = new JSDOM(html, { url });
@@ -63,13 +65,42 @@ export function createWebFetchTool(): Tool {
       const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
       try {
-        const response = await proxyAwareFetch(url, {
-          signal: controller.signal,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (compatible; Nova/1.0)',
-            'Accept': 'text/html,application/xhtml+xml,*/*',
-          },
-        });
+        // Manual redirect following: every hop goes through the SSRF guard
+        // before the request, so a public URL cannot 302 us into the
+        // user's internal network.
+        let currentUrl = url;
+        let response: Response;
+        for (let hop = 0; ; hop++) {
+          const blocked = blockedFetchReason(currentUrl);
+          if (blocked) {
+            return {
+              content: `Fetch blocked${hop > 0 ? ' after redirect' : ''}: ${blocked}.`,
+              isError: true,
+            };
+          }
+          response = await proxyAwareFetch(currentUrl, {
+            redirect: 'manual',
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; Nova/1.0)',
+              'Accept': 'text/html,application/xhtml+xml,*/*',
+            },
+          });
+          const status = response.status;
+          const location = response.headers?.get('location') ?? null;
+          if (status >= 301 && status <= 308 && location) {
+            if (hop >= MAX_REDIRECTS) {
+              return { content: `Too many redirects (limit ${MAX_REDIRECTS}) — giving up.`, isError: true };
+            }
+            try {
+              currentUrl = new URL(location, currentUrl).toString();
+            } catch {
+              return { content: `Invalid redirect target: ${JSON.stringify(location)}`, isError: true };
+            }
+            continue;
+          }
+          break;
+        }
 
         if (!response.ok) {
           return {
@@ -96,7 +127,7 @@ export function createWebFetchTool(): Tool {
         }
 
         const html = new TextDecoder().decode(arrayBuffer);
-        const { title, content } = htmlToMarkdown(html, url);
+        const { title, content } = htmlToMarkdown(html, currentUrl);
 
         const parts: string[] = [];
         if (title) {

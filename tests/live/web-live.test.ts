@@ -56,6 +56,39 @@ describe.skipIf(!hasSearchKey)('LIVE web_search (Tavily backend)', () => {
     expect(numbered).toBe(3);
   });
 
+  it('time_range=week returns a fresh-window result set (ticket 01)', async () => {
+    const result = await tool.execute({ query: 'typescript 7 release news', num_results: 5, time_range: 'week' }, ctx);
+    console.log('--- web_search time_range=week ---\n' + result.content.slice(0, 600));
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toMatch(/\d+\. \*\*.+\*\*/);
+  });
+
+  it('include_domains confines every result URL to the given site (ticket 01)', async () => {
+    const result = await tool.execute(
+      { query: 'assert equal API reference', num_results: 5, include_domains: ['vitest.dev'] },
+      ctx,
+    );
+    console.log('--- web_search include_domains=vitest.dev ---\n' + result.content.slice(0, 600));
+    expect(result.isError).toBeUndefined();
+    const urls = [...result.content.matchAll(/URL: (https?:\/\/[^/\s]+)/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) {
+      expect(u).toMatch(/vitest\.dev$/);
+    }
+  });
+
+  it('rejects invalid or mutually exclusive filter params without a request (ticket 01)', async () => {
+    const bad = await tool.execute({ query: 'q', time_range: 'fortnight' }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('time_range');
+    const both = await tool.execute(
+      { query: 'q', include_domains: ['a.com'], exclude_domains: ['b.com'] },
+      ctx,
+    );
+    expect(both.isError).toBe(true);
+    expect(both.content).toContain('cannot both be specified');
+  });
+
   it('caches identical queries at the pipeline level (2nd call = cache hit)', async () => {
     const pipeline = makePipeline();
     const params = { query: 'prompt caching llm', num_results: 3 };
@@ -100,6 +133,15 @@ describe('LIVE web_fetch (Readability → Markdown)', () => {
     const result = await tool.execute({ url: 'not-a-url' }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Invalid URL');
+  });
+
+  it('SSRF guard refuses internal targets before any packet (ticket 02)', async () => {
+    for (const url of ['http://127.0.0.1:8080/', 'http://169.254.169.254/latest/meta-data/', 'http://localhost:6379/']) {
+      const result = await tool.execute({ url }, ctx);
+      console.log(`--- ssrf ${url} ---\n${result.content}`);
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/blocked/i);
+    }
   });
 
   it('reports DNS failures as errors', async () => {

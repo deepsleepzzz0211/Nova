@@ -138,5 +138,14 @@ export function loadConfig(projectDir: string): AppConfig {
     merged = deepMerge(merged, { llm: envLlm });
   }
 
+  // TAVILY_API_KEY is the documented env fallback for the search key
+  // (the web_search tool's own error message promises it); a key written
+  // in config.toml keeps priority.
+  const envTavily = process.env.TAVILY_API_KEY;
+  const fileTavily = (merged as { search?: { tavilyApiKey?: string } }).search?.tavilyApiKey;
+  if (envTavily && !fileTavily) {
+    merged = deepMerge(merged, { search: { tavilyApiKey: envTavily } });
+  }
+
   return merged as unknown as AppConfig;
 }
