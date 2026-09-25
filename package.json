@@ -50,7 +50,7 @@
     "string-width": "^8.2.2",
     "tiktoken": "^1.0.22",
     "turndown": "^7.2.4",
-    "undici": "^7.29.1"
+    "undici": "^8.11.0"
   },
   "devDependencies": {
     "@microsoft/tui-test": "0.1.0-beta.3",
@@ -86,7 +86,7 @@
   "homepage": "https://github.com/deepsleepzzz0211/Nova#readme",
   "pnpm": {
     "overrides": {
-      "undici": "^7.29.1"
+      "undici": "^8.11.0"
     }
   }
 }
