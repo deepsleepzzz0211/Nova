@@ -32,7 +32,7 @@ const tavilyKey = process.env.TAVILY_API_KEY;
 const hasSearchKey = typeof tavilyKey === 'string' && tavilyKey.length > 0;
 
 describe.skipIf(!hasSearchKey)('LIVE web_search (Tavily backend)', () => {
-  const tool = createWebSearchTool({ provider: 'tavily', tavilyApiKey: tavilyKey });
+  const tool = createWebSearchTool({ tavilyApiKey: tavilyKey });
 
   it('searches an English query and returns formatted results', async () => {
     const result = await tool.execute({ query: 'vitest testing framework', num_results: 5 }, ctx);

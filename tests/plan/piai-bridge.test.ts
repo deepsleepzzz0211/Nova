@@ -64,7 +64,10 @@ describe('toPiaiContext: system prompt handling', () => {
     const ctx = toPiaiContext({ messages, systemPrompt: 'option prompt' });
 
     expect(ctx.systemPrompt).toBe('from history');
-    expect(ctx.messages.every((m) => m.role !== 'system')).toBe(true);
+    // pi-ai's message type forbids 'system' by construction; assert the
+    // runtime shape anyway (a stray system message would be a bridge leak).
+    const roles: string[] = ctx.messages.map((m) => m.role as string);
+    expect(roles).not.toContain('system');
   });
 
   it('converts mid-history system messages to user "[context]" messages', () => {

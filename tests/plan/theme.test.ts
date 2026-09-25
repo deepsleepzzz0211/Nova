@@ -69,7 +69,7 @@ describe('theme tokens (tui-refactor 11)', () => {
     expect(theme.element).not.toBe(theme.panel);
     // No ANSI colour names left anywhere in the palette.
     const ansi = new Set(['cyan', 'magenta', 'gray', 'grey', 'red', 'green', 'yellow', 'blue', 'white', 'black']);
-    const values = Object.values(theme).filter((v): v is string => typeof v === 'string');
+    const values = Object.values(theme).flatMap((v) => (typeof v === 'string' ? [v] : []));
     expect(values.filter((v) => ansi.has(v))).toEqual([]);
   });
 

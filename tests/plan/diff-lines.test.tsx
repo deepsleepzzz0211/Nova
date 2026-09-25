@@ -31,7 +31,7 @@ describe('expanded diff rendering (tui-redesign 08)', () => {
     arguments: JSON.stringify({ path: 'a.ts', old_string: 'old line', new_string: 'new line' }),
     status: 'done',
   };
-  const kindOf = (n: string) => (n === 'edit_file' ? { kind: 'text' as const, diff: 'edit' as const } : undefined);
+  const kindOf = (n: string) => (n === 'edit_file' ? { kind: 'path' as const, diff: 'edit' as const } : undefined);
 
   it('shows the marker, number gutter and text', () => {
     const frame = render(<ToolCallView toolCall={call} expanded displayKind={kindOf} />).lastFrame() ?? '';

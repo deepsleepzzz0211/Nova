@@ -3,7 +3,7 @@ import type { StreamChunk, Message, ToolCall } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolResult } from '../tools/types.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
-import type { SessionStore } from './session.js';
+import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
 import type { CompactResult } from './compaction.js';
 import { CompactionGuard } from './compaction-guard.js';
@@ -59,7 +59,7 @@ export interface AgentLoopConfig {
   /** Optional context window management. */
   context?: LoopContextConfig;
   /** Optional JSONL session persistence. */
-  session?: SessionStore;
+  session?: SessionWriter;
   /** Optional skill registry for progressive disclosure. */
   skills?: SkillRegistry;
   /** Extra system prompt parts (environment facts, project instructions, custom). */
@@ -120,7 +120,7 @@ export class AgentLoop {
   private lastActivityAtMs: number;
   private readonly compactionGuard = new CompactionGuard();
   private readonly onContextNote: AgentLoopConfig['onContextNote'];
-  private readonly session: SessionStore | null;
+  private readonly session: SessionWriter | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
   private readonly promptOptions: BuildPromptOptions;

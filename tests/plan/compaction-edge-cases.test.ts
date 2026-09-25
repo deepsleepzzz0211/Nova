@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { Compactor, SUMMARY_MARKER } from '../../src/agent/compaction.js';
 import { MICROCOMPACT_MARKER } from '../../src/agent/microcompact.js';
-import type { LLMProvider, Message, StreamChunk, ChatOptions } from '../../src/llm/types.js';
+import type { Message, StreamChunk, ChatOptions } from '../../src/llm/types.js';
 import type { LLMProvider as Provider } from '../../src/llm/provider.js';
 
 function makeLLM(chunks: StreamChunk[]): Provider & { chatCalls: Array<{ msgs: Message[]; opts: ChatOptions }> } {
   const chatCalls: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
   return {
     chatCalls,
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
       chatCalls.push({ msgs, opts });
       for (const c of chunks) yield c;

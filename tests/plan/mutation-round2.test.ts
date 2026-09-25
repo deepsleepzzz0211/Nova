@@ -64,7 +64,7 @@ describe('buildSystemPrompt section structure', () => {
       [{ name: 'read_file', description: 'Read a file', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: '' }) }],
       [{ name: 'deploy', description: 'Deploy the app', path: '/x/SKILL.md' }],
       {
-        environment: { workingDirectory: '/work', platform: 'linux', gitBranch: 'main', gitStatus: ' M a.ts' },
+        environment: { workingDirectory: '/work', platform: 'linux', gitBranch: 'main', gitStatus: ' M a.ts', isGitRepo: true },
         projectInstructions: 'NEVER use any.',
         customPrompt: 'Be terse.',
       },
@@ -128,6 +128,8 @@ describe('SessionStore edge cases', () => {
 describe('Compactor boundary (tiny keep budget)', () => {
   it('summarizes non-user messages outside the budget, keeps users + newest verbatim', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'short summary' };
       },
@@ -232,6 +234,8 @@ describe('AgentLoop error hardening', () => {
   it('invalid JSON tool arguments produce an error tool result', async () => {
     let callIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         callIndex++;
         if (callIndex === 1) {
@@ -271,6 +275,8 @@ describe('AgentLoop error hardening', () => {
 
   it('compactNow returns compacted=false when history is already small', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'unused' };
       },

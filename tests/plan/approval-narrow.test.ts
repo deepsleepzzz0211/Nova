@@ -51,7 +51,10 @@ describe('prepareApproval is narrow-only', () => {
   it('can attach a preview note that reaches the confirmation prompt', async () => {
     const pipeline = new ToolExecutionPipeline(tmpCache(), policy());
     const tool = askTool({ prepareApproval: () => ({ previewNote: 'about to run: ls -la' }) });
-    const confirm = vi.fn(async (): Promise<ApprovalOutcome> => ({ approved: true }));
+    const confirm = vi.fn(
+      async (_name: string, _params: Record<string, unknown>, _message?: string): Promise<ApprovalOutcome> =>
+        ({ approved: true }),
+    );
     await pipeline.execute(tool, { command: 'ls -la' }, ctx, { confirm });
     expect(confirm).toHaveBeenCalledTimes(1);
     const messageArg = confirm.mock.calls[0]?.[2] as string;
@@ -157,7 +160,10 @@ describe('built-in bash preview hook', () => {
   it('the preview reaches the confirm message through the pipeline for bash', async () => {
     const pipeline = new ToolExecutionPipeline(tmpCache(), policy());
     const bash = createBashTool();
-    const confirm = vi.fn(async (): Promise<ApprovalOutcome> => ({ approved: false }));
+    const confirm = vi.fn(
+      async (_name: string, _params: Record<string, unknown>, _message?: string): Promise<ApprovalOutcome> =>
+        ({ approved: false }),
+    );
     await pipeline.execute(bash, { command: 'echo previewed' }, ctx, { confirm });
     const message = confirm.mock.calls[0]?.[2] as string;
     expect(message).toContain('Run: echo previewed');

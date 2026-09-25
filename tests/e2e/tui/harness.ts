@@ -113,7 +113,7 @@ export async function launchTui(
   await terminal.run(process.execPath, [BINARY, '--model', MODEL_SPEC, ...(options.args ?? [])], {
     cwd,
     env: {
-      ...process.env,
+      ...(process.env as Record<string, string>),
       NOVA_HOME: cwd,
       [KEY_ENV]: apiKey ?? '',
       // Ink switches to non-interactive mode when it detects CI, which would

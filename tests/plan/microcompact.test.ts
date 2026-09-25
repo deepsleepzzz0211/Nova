@@ -177,6 +177,8 @@ const policy = new PermissionPolicy({
 function mockLLM(responses: StreamChunk[][]): LLMProvider {
   let i = 0;
   return {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(_msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
       for (const chunk of responses[i++] ?? []) {
         yield chunk;

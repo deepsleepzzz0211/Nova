@@ -28,7 +28,11 @@ describe('SessionStore', () => {
     const loaded = SessionStore.load(file);
     expect(loaded).toHaveLength(4);
     expect(loaded[0]).toEqual({ role: 'user', content: 'hello' });
-    expect(loaded[2].tool_calls).toHaveLength(1);
+    const assistant = loaded[2];
+    if (!('tool_calls' in assistant) || assistant.tool_calls === undefined) {
+      throw new Error('expected an assistant message carrying tool_calls');
+    }
+    expect(assistant.tool_calls).toHaveLength(1);
     expect(loaded[3].role).toBe('tool');
   });
 

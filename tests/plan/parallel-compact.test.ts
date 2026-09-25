@@ -56,6 +56,8 @@ describe('AgentLoop parallel tool execution', () => {
     let callIndex = 0;
     const secondRoundMsgs: Message[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (callIndex++ === 0) {
           return yield* toolCallChunks('c1', 'tool_a', 'one')
@@ -102,6 +104,8 @@ describe('AgentLoop parallel tool execution', () => {
 
     let callIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (callIndex++ === 0) {
           return yield* toolCallChunks('c1', 'tool_a', 'solo').values() as Generator<StreamChunk>;
@@ -136,6 +140,8 @@ describe('AgentLoop.compactNow', () => {
   it('forces compaction regardless of the trigger threshold', async () => {
     let replyIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'text_delta', content: 'summary of everything' };
@@ -177,6 +183,8 @@ describe('AgentLoop.compactNow', () => {
 
   it('falls back to truncation when strategy is truncate', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },
@@ -216,6 +224,8 @@ describe('AgentLoop.compactNow', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-persist-'));
     try {
       const llm: LLMProvider = {
+        name: 'fake',
+        capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
         async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
           if (opts.tools === undefined) {
             yield { type: 'text_delta', content: 'summary of everything' };
@@ -265,6 +275,8 @@ describe('AgentLoop.compactNow', () => {
 
   it('falls back to truncation when the /compact summary fails', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         if (opts.tools === undefined) {
           yield { type: 'error', error: 'summarizer unavailable' };
@@ -305,6 +317,8 @@ describe('AgentLoop.compactNow', () => {
 
   it('returns compacted=false when no context management is configured', async () => {
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },

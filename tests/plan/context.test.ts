@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ContextManager } from '../../src/agent/context.js';
+import type { Message } from '../../src/llm/types.js';
 
 describe('ContextManager', () => {
   it('counts tokens in messages', () => {
@@ -63,7 +64,7 @@ describe('ContextManager', () => {
 
 describe('truncate content integrity (truncate-idle 01)', () => {
   it('drops whole messages and never rewrites content of a kept one', () => {
-    const cm = new ContextManager({ maxTokens: 100 });
+    const cm = new ContextManager({ model: 'gpt-4o', maxTokens: 100 });
     const msgs: Message[] = [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'x '.repeat(300) },

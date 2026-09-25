@@ -45,6 +45,8 @@ describe('Stable prompt prefix (cache-friendly design)', () => {
 
     const systemPrompts: string[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         systemPrompts.push(opts.systemPrompt ?? '');
         yield { type: 'text_delta', content: 'ok' };
@@ -83,6 +85,8 @@ describe('Stable prompt prefix (cache-friendly design)', () => {
     await registry.scan(tmp);
 
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'text_delta', content: 'ok' };
       },
@@ -163,6 +167,8 @@ describe('AgentLoop usage aggregation', () => {
     ];
     let callIndex = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         callIndex++;
         if (callIndex === 1) {

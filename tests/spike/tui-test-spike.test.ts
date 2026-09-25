@@ -70,7 +70,7 @@ describe('tui-test capability evidence', () => {
     try {
       await terminal.run(process.execPath, [BINARY, '--model', 'e2e/Deepseek-v4-flash'], {
         cwd,
-        env: { ...process.env, NOVA_HOME: cwd, [KEY_ENV]: apiKey ?? '', NOVA_FORCE_INTERACTIVE: '1' },
+        env: { ...(process.env as Record<string, string>), NOVA_HOME: cwd, [KEY_ENV]: apiKey ?? '', NOVA_FORCE_INTERACTIVE: '1' },
         cols: 90,
         rows: 28,
       });

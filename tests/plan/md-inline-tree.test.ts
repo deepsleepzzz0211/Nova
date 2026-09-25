@@ -5,8 +5,8 @@ import { parseInlineNodes, flattenInline, type InlineNode } from '../../src/tui/
 // stripper. Markers are dropped by the renderer (no conceal), and malformed
 // nesting must never leak literal ** / ` characters.
 
-const kinds = (nodes: InlineNode[]): string[] => nodes.map((n) => n.kind);
-const kids = (nodes: InlineNode[], i: number): string[] => kinds(nodes[i].children ?? []);
+const kinds = (nodes: readonly InlineNode[]): string[] => nodes.map((n) => n.kind);
+const kids = (nodes: readonly InlineNode[], i: number): string[] => kinds(nodes[i].children ?? []);
 
 describe('parseInlineNodes (md-structured-inline 01)', () => {
   it('classifies the five inline roles', () => {

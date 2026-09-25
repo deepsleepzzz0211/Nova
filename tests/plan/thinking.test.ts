@@ -153,6 +153,8 @@ describe('AgentLoop forwards thinkingLevel to ChatOptions', () => {
   it('passes the configured level into every chat call', async () => {
     const opts: ChatOptions[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], options: ChatOptions): AsyncIterable<StreamChunk> {
         opts.push(options);
         yield { type: 'text_delta', content: 'ok' };

@@ -29,6 +29,7 @@ const FLAKY_MODEL: Model<string> = {
   name: 'flaky-llm',
   api: 'flaky-api',
   provider: 'flaky',
+  baseUrl: 'http://127.0.0.1:43100',
   reasoning: false,
   input: ['text'],
   contextWindow: 32_768,

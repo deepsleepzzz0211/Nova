@@ -37,6 +37,8 @@ function bashTool(): Tool {
 function toolCallingLLM(): { llm: LLMProvider; chats: Array<{ msgs: Message[]; opts: ChatOptions }> } {
   const chats: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
   const llm: LLMProvider = {
+    name: 'fake',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
     async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
       chats.push({ msgs: [...msgs], opts });
       const lastToolMsg = [...msgs].reverse().find((m) => m.role === 'tool');
@@ -78,6 +80,8 @@ describe('SubagentSpawner', () => {
     const registry = new ToolRegistry();
     registry.register(bashTool());
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const sawDenial = msgs.some((m) => m.role === 'tool' && m.content.includes('denied'));
         if (!sawDenial) {
@@ -124,6 +128,8 @@ describe('SubagentSpawner', () => {
     const registry = new ToolRegistry();
     registry.register(bashTool());
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'tool_call_start', id: 's1', name: 'bash' };
         yield { type: 'tool_call_delta', id: 's1', arguments: '{"command":"x"}' };
@@ -189,6 +195,8 @@ describe('SubagentSpawner guardrails (ticket 01)', () => {
     registry.register(bashTool());
     // Slow LLM: holds each subagent open long enough to overlap
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         await new Promise((r) => setTimeout(r, 200));
         yield { type: 'text_delta', content: 'done' };
@@ -265,7 +273,7 @@ describe('SubagentSpawner context injection (ticket 02)', () => {
       toolExecutionPipeline: makePipeline(),
       model: 'test',
       promptOptions: {
-        environment: { workingDirectory: '/proj', platform: 'win32' },
+        environment: { workingDirectory: '/proj', platform: 'win32', isGitRepo: false },
         projectInstructions: 'Always use pnpm.',
         memory: '- user prefers pnpm',
       },
@@ -332,6 +340,8 @@ describe('SubagentSpawner model routing (ticket 03)', () => {
     registry.register(bashTool());
     const { llm: parentLLM, chats } = toolCallingLLM();
     const cheapLLM: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         chats.push({ msgs: [...msgs], opts });
         yield { type: 'text_delta', content: 'CHEAP MODEL SUMMARY' };
@@ -411,6 +421,8 @@ describe('SubagentSpawner progress & cancellation (ticket 04)', () => {
     });
     const events: Array<{ agentId: string; type: string; payload?: unknown }> = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
         const lastTool = [...msgs].reverse().find((m) => m.role === 'tool');
         if (!lastTool) {
@@ -461,6 +473,8 @@ describe('SubagentSpawner progress & cancellation (ticket 04)', () => {
     });
     const controller = new AbortController();
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(): AsyncIterable<StreamChunk> {
         yield { type: 'tool_call_start', id: 's1', name: 'bash' };
         yield { type: 'tool_call_delta', id: 's1', arguments: '{"command":"x"}' };
@@ -489,6 +503,8 @@ describe('SubagentSpawner transcript & resume (ticket 05)', () => {
     const chats: Array<{ msgs: Message[]; opts: ChatOptions }> = [];
     let round = 0;
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         chats.push({ msgs: [...msgs], opts });
         const lastTool = [...msgs].reverse().find((m) => m.role === 'tool');
@@ -561,6 +577,8 @@ describe('SubagentSpawner transcript & resume (ticket 05)', () => {
       const registry = new ToolRegistry();
       registry.register(bashTool());
       const llm: LLMProvider = {
+        name: 'fake',
+        capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
         async *chat(): AsyncIterable<StreamChunk> {
           // Hang until the test aborts the signal
           await new Promise((r) => setTimeout(r, 5000));

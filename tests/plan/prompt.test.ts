@@ -30,6 +30,7 @@ describe('buildSystemPrompt', () => {
         platform: 'win32',
         gitBranch: 'feat/context',
         gitStatus: ' M src/agent/loop.ts',
+        isGitRepo: true,
       },
     });
     expect(prompt).toContain('/work/project');

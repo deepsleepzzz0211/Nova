@@ -52,6 +52,8 @@ describe('AgentLoop setModel/setProvider', () => {
   function fakeLLM(tag: string): { llm: LLMProvider; models: string[] } {
     const models: string[] = [];
     const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         models.push(`${tag}:${opts.model}`);
         yield { type: 'text_delta', content: tag };
