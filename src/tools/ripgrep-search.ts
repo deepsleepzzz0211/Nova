@@ -1,9 +1,13 @@
 /**
  * Pure core of the ripgrep-backed search tools (search-tools ticket 01/02):
  * argv construction, output parsing for the three render modes, and
- * pagination. Kept free of I/O so the engine contract stays unit-testable;
- * the WASM execution seam lives in ripgrep-worker.ts.
+ * pagination. Kept free of engine I/O so the contract stays unit-testable;
+ * the WASM execution seam lives in ripgrep-worker.ts. Only the two display
+ * helpers touch the filesystem (mtime sort, relativized paths).
  */
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /** Result of one raw ripgrep invocation. */
 export interface RipgrepResult {
@@ -61,7 +65,7 @@ export function buildGrepArgs(req: SearchRequest): string[] {
   }
   if (req.ignoreCase) args.push('-i');
   if (req.multiline) args.push('-U', '--multiline-dotall');
-  if (req.glob) args.push('--glob', req.glob);
+  if (req.glob) args.push('--glob', normalizeGlobPattern(req.glob));
   if (req.type) args.push('--type', req.type);
   if (req.outputMode === 'content') {
     if (req.onlyMatching) args.push('-o');
@@ -82,6 +86,49 @@ export function buildGrepArgs(req: SearchRequest): string[] {
 export function parseFilesList(stdout: string): string[] {
   if (!stdout) return [];
   return stdout.split('\u0000').filter((p) => p.length > 0);
+}
+
+/**
+ * Normalize a model-supplied glob pattern for rg `--glob` matching.
+ *
+ * rg matches slash-containing patterns against the FULL displayed path, and we
+ * search with absolute paths — so a root-relative pattern like
+ * `src` + doublestar glob must be prefixed with a doublestar segment to match.
+ * Backslashes (a Windows model habit) normalize to slashes first; a bare
+ * filename glob stays a basename pattern, which rg matches at any depth.
+ */
+export function normalizeGlobPattern(pattern: string): string {
+  const slashed = toSlashes(pattern.trim());
+  if (!slashed.includes('/')) return slashed;
+  if (slashed.startsWith('/') || slashed.startsWith('**/')) return slashed;
+  return `**/${slashed}`;
+}
+
+/** Build the ripgrep argv for a filename-glob listing (`--files --glob …`). */
+export function buildGlobArgs(pattern: string, searchPath: string): string[] {
+  const args: string[] = ['--no-config', '--files', '--null'];
+  if (pattern) args.push('--glob', normalizeGlobPattern(pattern));
+  args.push('--', searchPath);
+  return args;
+}
+
+/** Display path: relative to the working directory when possible, forward slashes. */
+export function relativize(filePath: string, workingDirectory: string): string {
+  const rel = path.relative(workingDirectory, filePath);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return toSlashes(rel);
+  return toSlashes(filePath);
+}
+
+/** Newest-modified first: models overwhelmingly care about recent files. */
+export function sortPathsByMtime(absPaths: string[]): string[] {
+  const mtimeOf = (p: string): number => {
+    try {
+      return fs.statSync(p).mtimeMs;
+    } catch {
+      return 0; // raced deletion (or an injected runner in tests): keep position
+    }
+  };
+  return [...absPaths].sort((a, b) => mtimeOf(b) - mtimeOf(a));
 }
 
 /** Parse `-c --null` output (`path\0count` per line). */
@@ -155,6 +202,23 @@ export function paginate<T>(
 export function renderClip(text: string, maxChars = 500): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}…`;
+}
+
+/** Resolve a model-provided search path against the working directory (abs, slashes). */
+export function resolveSearchPath(raw: unknown, workingDirectory: string): string {
+  const target = typeof raw === 'string' && raw.length > 0 ? raw : '.';
+  return toSlashes(path.resolve(workingDirectory, target));
+}
+
+/** Number parameter with a finite-value guard (model sends junk sometimes). */
+export function numParam(params: Record<string, unknown>, key: string): number | undefined {
+  const v = params[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/** First line of an engine stderr as the user-facing error. */
+export function firstErrorLine(stderr: string): string {
+  return stderr.trim().split('\n')[0] ?? 'unknown error';
 }
 
 /** Pagination echo suffix (Claude-style), or '' when nothing was applied. */

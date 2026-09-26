@@ -104,6 +104,7 @@ const VERBS: Record<string, string> = {
   memory_write: 'Memory',
   spawn_subagent: 'Agent',
   grep: 'Grep',
+  glob: 'Glob',
 };
 
 /** Display verb for a tool name; unknown names title-case their words. */

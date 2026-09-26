@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildGrepArgs,
+  normalizeGlobPattern,
   parseFilesList,
   parseCountList,
   parseContentEvents,
@@ -13,6 +14,24 @@ import {
 // parsing, and pagination. The WASM engine needs forward-slash paths on
 // Windows (backslashes are eaten by the guest), so path normalization is a
 // first-class contract here, not an afterthought.
+
+describe('normalizeGlobPattern', () => {
+  it('leaves a bare basename pattern untouched', () => {
+    expect(normalizeGlobPattern('*.ts')).toBe('*.ts');
+  });
+  it('prepends **/ to a root-relative slash pattern so it matches absolute paths', () => {
+    expect(normalizeGlobPattern('src/**/*.ts')).toBe('**/src/**/*.ts');
+  });
+  it('does not double-prefix an already-globbed pattern', () => {
+    expect(normalizeGlobPattern('**/*.tsx')).toBe('**/*.tsx');
+  });
+  it('preserves an absolute-anchored pattern', () => {
+    expect(normalizeGlobPattern('/etc/*.conf')).toBe('/etc/*.conf');
+  });
+  it('converts backslashes then normalizes', () => {
+    expect(normalizeGlobPattern('src\\components\\*.tsx')).toBe('**/src/components/*.tsx');
+  });
+});
 
 describe('toSlashes', () => {
   it('converts backslash separators to forward slashes', () => {

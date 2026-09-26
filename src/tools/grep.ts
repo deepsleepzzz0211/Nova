@@ -1,16 +1,18 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 import type { JSONSchema } from '../llm/types.js';
 import {
   buildGrepArgs,
+  firstErrorLine,
   formatPaginationNote,
+  numParam,
   paginate,
   parseContentEvents,
   parseCountList,
   parseFilesList,
+  relativize,
   renderClip,
-  toSlashes,
+  resolveSearchPath,
+  sortPathsByMtime,
   type RipgrepRun,
   type SearchOutputMode,
 } from './ripgrep-search.js';
@@ -71,19 +73,9 @@ const GREP_PARAMETERS: JSONSchema = {
   required: ['pattern'],
 };
 
-function resolveSearchPath(raw: unknown, workingDirectory: string): string {
-  const target = typeof raw === 'string' && raw.length > 0 ? raw : '.';
-  return toSlashes(path.resolve(workingDirectory, target));
-}
-
 function modeOf(raw: unknown): SearchOutputMode {
   if (raw === 'content' || raw === 'count') return raw;
   return 'files';
-}
-
-function numParam(params: Record<string, unknown>, key: string): number | undefined {
-  const v = params[key];
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 function boolParam(params: Record<string, unknown>, key: string): boolean {
@@ -92,29 +84,6 @@ function boolParam(params: Record<string, unknown>, key: string): boolean {
 
 function numOr(v: number | undefined, fallback: number | undefined): number | undefined {
   return v !== undefined ? v : fallback;
-}
-
-function firstErrorLine(stderr: string): string {
-  const line = stderr.trim().split('\n')[0] ?? 'unknown error';
-  return line;
-}
-
-function relativize(filePath: string, workingDirectory: string): string {
-  const rel = path.relative(workingDirectory, filePath);
-  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return toSlashes(rel);
-  return toSlashes(filePath);
-}
-
-/** Newest-modified first: models overwhelmingly care about recent files. */
-function sortPathsByMtime(absPaths: string[]): string[] {
-  const mtimeOf = (p: string): number => {
-    try {
-      return fs.statSync(p).mtimeMs;
-    } catch {
-      return 0; // raced deletion (or an injected runner in tests): keep position
-    }
-  };
-  return [...absPaths].sort((a, b) => mtimeOf(b) - mtimeOf(a));
 }
 
 /**
