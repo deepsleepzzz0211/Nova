@@ -15,6 +15,7 @@ import { ToolResultCache } from '../cache/tool-result-cache.js';
 import { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createReadFileTool } from '../tools/read-file.js';
+import { createGrepTool } from '../tools/grep.js';
 import { createWriteFileTool } from '../tools/write-file.js';
 import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
@@ -95,6 +96,7 @@ export async function buildToolRuntime(opts: {
   const toolRegistry = new ToolRegistry();
   const todoState = { todos: [] };
   toolRegistry.register(createReadFileTool());
+  toolRegistry.register(createGrepTool());
   toolRegistry.register(createWriteFileTool());
   toolRegistry.register(createEditFileTool());
   toolRegistry.register(createBashTool());

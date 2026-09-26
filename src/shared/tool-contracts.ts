@@ -35,7 +35,7 @@ export interface ToolResult {
 
 /** How a tool's primary argument should be summarized in the UI. */
 export interface ToolDisplay {
-  kind: 'command' | 'path';
+  kind: 'command' | 'path' | 'pattern';
   /** Line-level diff rendering for file-mutating tools (ticket 06). */
   diff?: 'edit' | 'write';
 }

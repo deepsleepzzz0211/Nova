@@ -56,7 +56,7 @@ function valueText(v: unknown): string {
   }
 }
 
-/** The typed primary argument of a call: command string, path, or null. */
+/** The typed primary argument of a call: command string, path, pattern, or null. */
 export function primaryArg(
   name: string,
   parsed: Record<string, unknown> | null,
@@ -66,6 +66,7 @@ export function primaryArg(
   const kind = kindOf?.(name)?.kind;
   if (kind === 'command' && typeof parsed.command === 'string') return parsed.command;
   if (kind === 'path' && typeof parsed.path === 'string') return parsed.path;
+  if (kind === 'pattern' && typeof parsed.pattern === 'string') return parsed.pattern;
   return null;
 }
 
@@ -102,6 +103,7 @@ const VERBS: Record<string, string> = {
   todo_write: 'Todos',
   memory_write: 'Memory',
   spawn_subagent: 'Agent',
+  grep: 'Grep',
 };
 
 /** Display verb for a tool name; unknown names title-case their words. */

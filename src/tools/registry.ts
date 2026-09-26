@@ -21,7 +21,7 @@ export class ToolRegistry {
    * The registry is the single source of tool-display knowledge — UI modules
    * must not hardcode tool names (AGENTS rule; tui-refactor ticket 14).
    */
-  displayKindFor(name: string): 'command' | 'path' | undefined {
+  displayKindFor(name: string): ToolDisplay['kind'] | undefined {
     return this.tools.get(name)?.display?.kind;
   }
 
