@@ -1,0 +1,4 @@
+{
+  "_comment": "Dated dependency waivers for scripts/audit-deps.mjs (p1-p2 07). Each waiver needs id (GHSA), reason, expires (YYYY-MM-DD). Expired waivers do NOT waive. Keep the list empty unless an assessment was actually done.",
+  "waivers": []
+}
