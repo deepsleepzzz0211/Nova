@@ -1,135 +1,51 @@
 import type { LLMProvider } from '../llm/provider.js';
-import type { StreamChunk, Message, ToolCall } from '../llm/types.js';
-import type { ToolRegistry } from '../tools/registry.js';
+import type { Message, ToolCall } from '../llm/types.js';
 import type { ToolResult } from '../tools/types.js';
+import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
-import type { CompactResult } from './compaction.js';
-import { CompactionGuard } from './compaction-guard.js';
 import { ContextManager } from './context.js';
-import { microcompactMessages } from './microcompact.js';
-import { isContextOverflowError } from '../llm/errors.js';
-import { withIdleTimeout, consumeWithInterrupt, StreamInterruptedError } from '../llm/stream-watchdog.js';
+import { StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
 import { buildSystemPrompt } from './prompt.js';
-/** Continuation instruction appended after a truncated stream (ticket 05). */
-const TRUNCATION_CONTINUE_PROMPT =
-  'Your previous response was cut off mid-output. Continue exactly where you stopped — do not repeat any content already emitted.';
-
-import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
 import type { ThinkingLevel } from '../llm/types.js';
 
-/** Result of a single user-input turn. */
-export interface AgentTurnResult {
-  /** Final assistant text (empty when the turn ended without text). */
-  text: string;
-  /** Number of LLM rounds consumed. */
-  rounds: number;
-}
+// Split-out regions of the loop (p1-p2 12). Names below stay re-exported so
+// every historical import path (TUI, commands, tests) keeps resolving.
+import { ContextOps } from './context-ops.js';
+import { runTurn as runTurnImpl, type TurnHost } from './loop-turn.js';
+import { executeToolCall as executeToolCallImpl, injectSkills as injectSkillsImpl } from './loop-tool-exec.js';
+import type { AgentLoopConfig, AgentTurnResult, ContextDecisionReason, LoopContextConfig } from './loop-types.js';
 
-/** Why a context-management pass ran (or the notice that replaced it). */
-export type ContextDecisionReason = 'pressure' | 'idle' | 'manual' | 'overflow';
+export type { AgentLoopConfig, AgentTurnResult, ContextDecisionReason, LoopContextConfig } from './loop-types.js';
 
-/** Context management configuration. */
-export interface LoopContextConfig {
-  /** Model context window size. */
-  maxTokens: number;
-  /** Tokens reserved for the LLM response (trigger = window − reserve). Default 16384. */
-  reserveTokens?: number;
-  /** Recent tokens kept verbatim during compaction. Default 20000. */
-  keepRecentTokens?: number;
-  /** What to do when the budget is approached: drop old messages or summarize. */
-  strategy: 'truncate' | 'compact';
-  /**
-   * Microcompact (zero-LLM clearing of old tool results) also runs when the
-   * conversation has been idle this long without pressure. Default 60 min.
-   */
-  microcompactIdleMs?: number;
-}
-
-/** Configuration for the AgentLoop. */
-export interface AgentLoopConfig {
-  llm: LLMProvider;
-  toolRegistry: ToolRegistry;
-  /** Single execution path for all tool invocations. */
-  toolExecutionPipeline: ToolExecutionPipeline;
-  config: { maxToolRounds: number; model: string };
-  /** Optional context window management. */
-  context?: LoopContextConfig;
-  /** Optional JSONL session persistence. */
-  session?: SessionWriter;
-  /** Optional skill registry for progressive disclosure. */
-  skills?: SkillRegistry;
-  /** Extra system prompt parts (environment facts, project instructions, custom). */
-  promptOptions?: BuildPromptOptions;
-  /** Maximum matched skills whose full body is injected per turn. Default 2. */
-  maxActiveSkills?: number;
-  /** Notified after a compaction/truncation pass; reason codes the decision. */
-  onCompaction?: (info: {
-    strategy: 'truncate' | 'compact' | 'microcompact';
-    beforeTokens: number;
-    afterTokens: number;
-    reason: ContextDecisionReason;
-  }) => void;
-  /**
-   * Session-visible context-policy notices that change no tokens: circuit
-   * breaker opening, rapid-refill suppression (zcode-borrow ticket 02).
-   */
-  onContextNote?: (note: string) => void;
-  /** Notified once per turn with aggregated provider usage (cache metrics). */
-  onUsage?: (usage: TurnUsage) => void;
-  /**
-   * Current context size in tokens (real count from the context manager, not
-   * an estimate from provider usage). Reported after each round and after a
-   * compaction, so the footer can show an accurate gauge (ticket 22).
-   */
-  onContextSize?: (tokens: number, triggerTokens: number) => void;
-  /** Notified per thinking delta (reasoning stream, streaming ticket 03). */
-  onThinking?: (delta: string) => void;
-  /**
-   * Notified once per tool call when its arguments are complete, just before
-   * execution. The mid-stream onToolCall fires at tool_call_start with empty
-   * arguments (ticket 04), so the UI uses this to fill in the summary.
-   */
-  onToolCallReady?: (call: ToolCall) => void;
-  /** Unified thinking level forwarded to every chat call. */
-  thinkingLevel?: ThinkingLevel;
-  /** Cancellation signal: aborts in-flight tool execution (and future rounds). */
-  abortSignal?: AbortSignal;
-  /** LLM stream idle timeout (ms). Default 60000. */
-  streamIdleTimeoutMs?: number;
-  onToken: (token: string) => void;
-  onToolCall: (call: ToolCall) => void;
-  onToolResult: (result: ToolResult, callId?: string) => void;
-  onPermissionRequest: (call: ToolCall) => Promise<boolean>;
-}
-
-/** Core orchestration loop that manages LLM conversation with tool execution. */
-export class AgentLoop {
-  private llm: LLMProvider;
-  private readonly toolRegistry: ToolRegistry;
+/**
+ * Core orchestration loop that manages LLM conversation with tool execution.
+ *
+ * State + wiring live here; the turn engine lives in loop-turn.ts and the
+ * context-management chain in context-ops.ts (p1-p2 12). Members marked
+ * @internal are public ONLY so those sibling modules can drive the loop as
+ * a TurnHost; they are not part of the supported API.
+ */
+export class AgentLoop implements TurnHost {
+  /** @internal */ llm: LLMProvider;
+  /** @internal */ readonly toolRegistry: ToolRegistry;
   private readonly toolExecutionPipeline: ToolExecutionPipeline;
-  private readonly maxToolRounds: number;
-  private model: string;
+  /** @internal */ readonly maxToolRounds: number;
+  /** @internal */ model: string;
   private readonly contextManager: ContextManager | null;
-  private readonly contextStrategy: LoopContextConfig['strategy'] | null;
-  private readonly compactor: Compactor | null;
-  private readonly microcompactIdleMs: number;
-  private lastActivityAtMs: number;
-  private readonly compactionGuard = new CompactionGuard();
-  private readonly onContextNote: AgentLoopConfig['onContextNote'];
+  /** @internal */ readonly ctxOps: ContextOps;
   private readonly session: SessionWriter | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
   private readonly promptOptions: BuildPromptOptions;
-  private readonly onCompaction: AgentLoopConfig['onCompaction'];
   private readonly onUsage: AgentLoopConfig['onUsage'];
-  private readonly onContextSize: AgentLoopConfig['onContextSize'];
-  private readonly onThinking: AgentLoopConfig['onThinking'];
-  private readonly onToolCallReady: AgentLoopConfig['onToolCallReady'];
-  private readonly thinkingLevel?: ThinkingLevel;
+  /** @internal */ readonly onContextSize: AgentLoopConfig['onContextSize'];
+  /** @internal */ onThinking: AgentLoopConfig['onThinking'];
+  /** @internal */ onToolCallReady: AgentLoopConfig['onToolCallReady'];
+  /** @internal */ readonly thinkingLevel?: ThinkingLevel;
   /**
    * Base system prompt, frozen at construction.
    *
@@ -137,14 +53,14 @@ export class AgentLoop {
    * across the whole session so the provider prompt-cache prefix survives.
    * Turn-scoped content (skills) travels as append-only messages instead.
    */
-  private readonly frozenSystemPrompt: string;
-  private readonly abortSignal?: AbortSignal;
-  private readonly streamIdleTimeoutMs: number;
+  /** @internal */ readonly frozenSystemPrompt: string;
+  /** @internal */ readonly abortSignal?: AbortSignal;
+  /** @internal */ readonly streamIdleTimeoutMs: number;
   /** Abort controller for the in-flight LLM stream (set per round). */
-  private runAbort: AbortController | null = null;
-  private readonly onToken: (token: string) => void;
-  private readonly onToolCall: (call: ToolCall) => void;
-  private readonly onToolResult: (result: ToolResult, callId?: string) => void;
+  /** @internal */ runAbort: AbortController | null = null;
+  /** @internal */ onToken: (token: string) => void;
+  /** @internal */ onToolCall: (call: ToolCall) => void;
+  /** @internal */ onToolResult: (result: ToolResult, callId?: string) => void;
   private readonly onPermissionRequest: (call: ToolCall) => Promise<boolean>;
   private messages: Message[] = [];
 
@@ -161,16 +77,24 @@ export class AgentLoop {
           reserveTokens: options.context.reserveTokens,
         })
       : null;
-    this.contextStrategy = options.context?.strategy ?? null;
-    this.compactor = options.context?.strategy === 'compact' && options.context
+    const compactor = options.context?.strategy === 'compact' && options.context
       ? new Compactor(options.llm, options.config.model, {
           keepRecentTokens: options.context.keepRecentTokens,
           triggerTokens: this.contextManager?.triggerTokens,
         })
       : null;
-    this.microcompactIdleMs = options.context?.microcompactIdleMs ?? 60 * 60 * 1000;
-    this.lastActivityAtMs = Date.now();
     this.session = options.session ?? null;
+    this.ctxOps = new ContextOps({
+      getMessages: () => this.messages,
+      setMessages: (messages: Message[]) => { this.messages = messages; },
+      contextManager: this.contextManager,
+      contextStrategy: options.context?.strategy ?? null,
+      compactor,
+      microcompactIdleMs: options.context?.microcompactIdleMs ?? 60 * 60 * 1000,
+      session: this.session,
+      onCompaction: options.onCompaction,
+      onContextNote: options.onContextNote,
+    });
     this.skills = options.skills ?? null;
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
     this.promptOptions = options.promptOptions ?? {};
@@ -185,8 +109,6 @@ export class AgentLoop {
       ...this.promptOptions,
       countText: this.contextManager ? (t: string) => this.contextManager!.countText(t) : undefined,
     });
-    this.onCompaction = options.onCompaction;
-    this.onContextNote = options.onContextNote;
     this.onToken = options.onToken;
     this.onToolCall = options.onToolCall;
     this.onToolResult = options.onToolResult;
@@ -208,124 +130,15 @@ export class AgentLoop {
     this.llm = llm;
   }
 
+  /** @internal The live conversation array handed to provider requests. */
+  get currentMessages(): Message[] {
+    return this.messages;
+  }
+
   /** Append a message to the conversation and the session log. */
-  private pushMessage(message: Message): void {
+  /** @internal */ pushMessage(message: Message): void {
     this.messages.push(message);
     void this.session?.append(message);
-  }
-
-  /**
-   * Layer 0 (zcode-borrow 01): run the zero-LLM microcompact pass; when it
-   * applies, swap, persist, report, and return the new token count.
-   */
-  private runMicrocompact(currentTokens: number, reason: ContextDecisionReason): number {
-    if (!this.contextManager) return currentTokens;
-    const micro = microcompactMessages(this.messages, {
-      countTokens: (text) => this.contextManager?.countText(text) ?? 0,
-    });
-    if (!micro.applied) return currentTokens;
-    const afterTokens = this.contextManager.countTokens(micro.messages);
-    this.messages = micro.messages;
-    this.persistCompaction(micro.messages);
-    this.onCompaction?.({ strategy: 'microcompact', beforeTokens: currentTokens, afterTokens, reason });
-    return afterTokens;
-  }
-
-  /**
-   * Guard bookkeeping for one summarization attempt, shared by the automatic
-   * chain and the manual/overflow path: counts failures toward the circuit
-   * (announcing when the attempt OPENS it) and resets the failure streak on
-   * a wire-level success. The rapid-refill anchor is NOT set here — only
-   * where a pass is actually applied (a grown summary gets discarded below
-   * and must not count as an applied compaction).
-   */
-  private noteSummaryOutcome(
-    result: CompactResult | null,
-  ): { outcome: 'applied'; messages: Message[] } | { outcome: 'failed' | 'nothing' } {
-    if (result === null) {
-      if (this.compactionGuard.recordFailure()) {
-        this.onContextNote?.(
-          `compaction circuit breaker opened: summary failed ${this.compactionGuard.failureThreshold} times in a row, truncating without summarizing for the rest of the session`,
-        );
-      }
-      return { outcome: 'failed' };
-    }
-    if (result.method === 'none') {
-      return { outcome: 'nothing' };
-    }
-    this.compactionGuard.recordSuccess();
-    return { outcome: 'applied', messages: result.messages };
-  }
-
-  /** Run a truncate/compact pass when the conversation approaches the budget. */
-  private async prepareContext(): Promise<void> {
-    if (!this.contextManager || !this.contextStrategy) return;
-
-    this.compactionGuard.nextRound();
-    const nowMs = Date.now();
-    const idleElapsed = nowMs - this.lastActivityAtMs >= this.microcompactIdleMs;
-    this.lastActivityAtMs = nowMs;
-
-    // Microcompact fires on token pressure OR long idle; when it alone fits
-    // the budget we stop, otherwise the compact → truncate chain continues
-    // on the cleared messages.
-    let tokens = this.contextManager.countTokens(this.messages);
-    if (idleElapsed || this.contextManager.isNearLimit(tokens)) {
-      tokens = this.runMicrocompact(tokens, idleElapsed ? 'idle' : 'pressure');
-    }
-    if (!this.contextManager.isNearLimit(tokens)) return;
-
-    const beforeTokens = tokens;
-
-    // Rapid refill (pressure back on the tail of the last pass): repeated
-    // occurrences silence the automatic chain — overflow recovery and
-    // /compact still bypass it (zcode-borrow ticket 02).
-    const pressure = this.compactionGuard.notePressure();
-    if (pressure.suppressedNow) {
-      this.onContextNote?.(
-        `rapid refill detected: context hit the limit again within ${this.compactionGuard.refillWindowRounds} rounds of each of the last ${this.compactionGuard.refillStreakLimit} compactions; automatic compaction is off for this session (use /compact if needed)`,
-      );
-    }
-    if (this.compactionGuard.compactSuppressed) return;
-
-    // Fallback chain: compact → truncate. A failed summary must still
-    // shrink the context; fail-open here would hit the window on the
-    // very next round. "Nothing to summarize" is NOT a failure — keep
-    // the messages as-is (e.g. a single huge user message). Once the
-    // summary circuit has opened, passes go straight to truncate.
-    let after: Message[] | null = null;
-    let applied: LoopContextConfig['strategy'] = this.contextStrategy;
-    if (this.contextStrategy === 'compact' && this.compactor && !this.compactionGuard.circuitOpen) {
-      const attempt = this.noteSummaryOutcome(await this.compactor.compact(this.messages));
-      if (attempt.outcome === 'applied') {
-        after = attempt.messages; // summary or placeholder pass
-      } else if (attempt.outcome === 'nothing') {
-        return; // nothing to compact — no compaction possible
-      } else {
-        applied = 'truncate';
-      }
-    }
-    if (after === null) {
-      // Pressure watermark: trim to triggerTokens, not maxTokens — a pass
-      // targeting max reclaims nothing inside the [trigger, max) dead band
-      // and re-fires every round (truncate-idle 01). Matches the manual /
-      // overflow paths and shadow-replay, which already trim below trigger.
-      after = this.contextManager.truncateToTokens(this.messages, this.contextManager.triggerTokens);
-    }
-
-    const afterTokens = this.contextManager.countTokens(after);
-    // A pass that did not actually shrink the context rewrites nothing and
-    // reports nothing (the /status compaction counter stays honest).
-    if (afterTokens >= beforeTokens) return;
-    this.messages = after;
-    this.compactionGuard.noteCompactionApplied();
-    this.persistCompaction(after);
-    this.onCompaction?.({ strategy: applied, beforeTokens, afterTokens, reason: 'pressure' });
-  }
-
-  /** Persist a compaction checkpoint so --resume replays the slim state. */
-  private persistCompaction(messages: Message[]): void {
-    void this.session?.appendCompaction(messages);
   }
 
   /**
@@ -337,51 +150,25 @@ export class AgentLoop {
    * N is clamped to the number of available turns.
    */
   undoTurns(n = 1): { undone: boolean; undoneTurns: number } {
-    const userIdxs: number[] = [];
-    for (let i = 0; i < this.messages.length; i++) {
-      if (this.messages[i].role === 'user') userIdxs.push(i);
-    }
-    if (userIdxs.length === 0 || n < 1) {
-      return { undone: false, undoneTurns: 0 };
-    }
-
-    const undoneTurns = Math.min(n, userIdxs.length);
-    const cut = undoneTurns === userIdxs.length ? 0 : userIdxs[userIdxs.length - undoneTurns];
-    const after = this.messages.slice(0, cut);
-    this.messages = after;
-    this.persistCompaction(after); // append-only checkpoint; replay truncates
-    return { undone: true, undoneTurns };
+    return this.ctxOps.undoTurns(n);
   }
 
   /**
-   * Load full bodies of skills matching the user input as an append-only
-   * system message. The frozen system prompt itself is never mutated, so
-   * the provider prompt-cache prefix stays valid.
+   * Force a compaction/truncation pass regardless of the token trigger.
+   * Origins: the /compact command ('manual') and reactive overflow recovery
+   * ('overflow') — both bypass the automatic-path gates.
    */
-  private async injectSkills(userInput: string): Promise<void> {
-    if (!this.skills) return;
-
-    const matched = this.skills.findByKeywords(userInput).slice(0, this.maxActiveSkills);
-    if (matched.length === 0) return;
-
-    const sections: string[] = [];
-    for (const meta of matched) {
-      try {
-        sections.push(await this.skills.load(meta));
-      } catch {
-        // Skip skills that cannot be read
-      }
-    }
-    if (sections.length === 0) return;
-
-    this.pushMessage({
-      role: 'system',
-      content: `## Active Skills\n${sections.join('\n\n---\n\n')}`,
-    });
+  async compactNow(origin: 'manual' | 'overflow' = 'manual'): Promise<{
+    compacted: boolean;
+    strategy?: 'truncate' | 'compact';
+    beforeTokens?: number;
+    afterTokens?: number;
+  }> {
+    return this.ctxOps.compactNow(origin);
   }
 
   async processUserInput(input: string): Promise<AgentTurnResult> {
-    return this.runTurn(input);
+    return runTurnImpl(this, input);
   }
 
   /**
@@ -394,263 +181,6 @@ export class AgentLoop {
     this.runAbort?.abort(new StreamInterruptedError());
   }
 
-  /** Run a single user-input turn against the frozen system prompt. */
-  private async runTurn(input: string): Promise<AgentTurnResult> {
-    this.pushMessage({ role: 'user', content: input });
-
-    await this.injectSkills(input);
-    const systemPrompt = this.frozenSystemPrompt;
-    let rounds = 0;
-    let finalText = '';
-    const turnUsage: Required<Pick<TurnUsage, 'inputTokens' | 'outputTokens'>> & Partial<TurnUsage> = {
-      inputTokens: 0,
-      outputTokens: 0,
-    };
-
-    const tools = this.toolRegistry.toToolDefinitions();
-
-    // Reactive overflow recovery (context-compaction ticket 04): token estimates can never be
-    // exact, so when the provider rejects the request for exceeding the
-    // context window we compact once (with the truncate fallback) and retry
-    // the same round exactly once. A second overflow surfaces as a normal
-    // error — no compaction loop.
-    let overflowRetried = false;
-    // Streaming ticket 05: one continuation after a truncated stream and one
-    // retry after an empty stream, per turn.
-    let truncationContinued = false;
-    let emptyRetried = false;
-
-    for (let toolRound = 0; toolRound <= this.maxToolRounds; toolRound++) {
-      await this.prepareContext();
-      rounds++;
-
-      const toolCalls = new Map<string, { name: string; args: string }>();
-      let textContent = '';
-      let thinkingContent = '';
-      let sawTruncated = false;
-      let sawError = false;
-
-      // Abort controller for this round's LLM stream (interruptible).
-      const runAbort = new AbortController();
-      this.runAbort = runAbort;
-
-      try {
-        const rawStream = this.llm.chat(this.messages, {
-          model: this.model,
-          tools,
-          systemPrompt,
-          thinkingLevel: this.thinkingLevel,
-        });
-
-        // Stall watchdog: a provider/proxy that stops emitting bytes must
-        // fail the turn instead of hanging forever (idle measured from the
-        // last chunk, so slow thinking before the first token is fine).
-        const stream = withIdleTimeout(rawStream, this.streamIdleTimeoutMs, () =>
-          new Error(`LLM stream stalled — no data for ${Math.round(this.streamIdleTimeoutMs / 1000)}s`),
-        );
-
-        const handleChunk = (chunk: Awaited<ReturnType<typeof this.llm.chat>> extends AsyncIterable<infer T> ? T : never): void => {
-          switch (chunk.type) {
-            case 'text_delta':
-              textContent += chunk.content;
-              this.onToken(chunk.content);
-              break;
-            case 'thinking_delta':
-              thinkingContent += chunk.content;
-              this.onThinking?.(chunk.content);
-              break;
-            case 'truncated':
-              sawTruncated = true;
-              break;
-            case 'tool_call_start':
-              toolCalls.set(chunk.id, { name: chunk.name, args: '' });
-              // Surface the call immediately (streaming ticket 04): the UI
-              // shows it as pending while arguments still stream in.
-              this.onToolCall({
-                id: chunk.id,
-                type: 'function',
-                function: { name: chunk.name, arguments: '' },
-              });
-              break;
-            case 'tool_call_delta': {
-              const tc = toolCalls.get(chunk.id);
-              if (tc) tc.args += chunk.arguments;
-              break;
-            }
-            case 'tool_call_end': {
-              // no-op; tool call is complete in the map
-              break;
-            }
-            case 'error':
-              sawError = true;
-              this.onToken(`[Error: ${chunk.error}]`);
-              break;
-            case 'usage':
-              turnUsage.inputTokens += chunk.inputTokens;
-              turnUsage.outputTokens += chunk.outputTokens;
-              turnUsage.cachedInputTokens = (turnUsage.cachedInputTokens ?? 0) + (chunk.cachedInputTokens ?? 0);
-              turnUsage.cacheWriteTokens = (turnUsage.cacheWriteTokens ?? 0) + (chunk.cacheWriteTokens ?? 0);
-              break;
-          }
-        };
-
-        // Interruptible consumption: Esc/abort bails out mid-stream while
-        // chunks already received keep flowing through handleChunk.
-        await consumeWithInterrupt(stream, runAbort.signal, handleChunk);
-      } catch (err: unknown) {
-        // Interruption: keep the partial text as the assistant message and
-        // DISCARD incomplete tool-call half-frames (their argument JSON may
-        // be truncated — executing them would be a hazard). No tool
-        // execution, no orphan results; the turn ends cleanly.
-        if (err instanceof StreamInterruptedError) {
-          // Calls surfaced mid-stream never execute — mark them in the UI
-          // (callback only; no tool results are written to history).
-          for (const id of toolCalls.keys()) {
-            this.onToolResult({ content: 'Interrupted.', isError: true }, id);
-          }
-          if (textContent || thinkingContent) {
-            this.pushMessage({
-              role: 'assistant',
-              content: textContent || null,
-              ...(thinkingContent ? { thinking: thinkingContent } : {}),
-            });
-          }
-          this.onToken('[interrupted]');
-          this.runAbort = null;
-          this.emitUsage(turnUsage);
-          return { text: textContent, rounds };
-        }
-        // Reactive overflow recovery (context-compaction ticket 04):
-        // compact once and retry the same round.
-        this.runAbort = null;
-        if (isContextOverflowError(err) && !overflowRetried) {
-          const compacted = await this.compactNow('overflow');
-          if (compacted.compacted) {
-            overflowRetried = true;
-            toolRound--; // retry the same round after compaction
-            rounds--; // the retry is the same round, not a new one
-            continue;
-          }
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        this.onToken(`[Error: ${msg}]`);
-        this.emitUsage(turnUsage);
-        return { text: finalText, rounds };
-      }
-
-      this.runAbort = null;
-
-      // Truncation: the provider signaled a max-token cutoff mid-output
-      // (streaming ticket 05). With partial output, ask the model to
-      // continue exactly once; tool-call half-frames are discarded, never
-      // executed. A second truncation keeps whatever partial output exists.
-      if (sawTruncated && (textContent || thinkingContent || toolCalls.size > 0)) {
-        if (!truncationContinued) {
-          truncationContinued = true;
-          for (const id of toolCalls.keys()) {
-            this.onToolResult({ content: 'Truncated before execution.', isError: true }, id);
-          }
-          this.pushMessage({
-            role: 'assistant',
-            content: textContent || null,
-            ...(thinkingContent ? { thinking: thinkingContent } : {}),
-          });
-          this.pushMessage({ role: 'user', content: TRUNCATION_CONTINUE_PROMPT });
-          finalText += textContent;
-          continue;
-        }
-        if (textContent || thinkingContent) {
-          this.pushMessage({
-            role: 'assistant',
-            content: textContent || null,
-            ...(thinkingContent ? { thinking: thinkingContent } : {}),
-          });
-        }
-        finalText += textContent;
-        this.emitUsage(turnUsage);
-        return { text: finalText, rounds };
-      }
-
-      // Empty stream: the provider finished with zero content — abnormal.
-      // Retry the round once, then surface a clean error (ticket 05).
-      // An explicit error chunk already reported the failure — keep the
-      // legacy report-and-stop semantics, no retry.
-      if (sawError) {
-        this.emitUsage(turnUsage);
-        return { text: finalText, rounds };
-      }
-      if (!textContent && !thinkingContent && toolCalls.size === 0) {
-        if (!emptyRetried) {
-          emptyRetried = true;
-          continue;
-        }
-        this.onToken('[Error: LLM returned an empty stream]');
-        this.emitUsage(turnUsage);
-        return { text: finalText, rounds };
-      }
-
-      // If the LLM returned tool calls, process them
-      if (toolCalls.size > 0) {
-        const callArray: ToolCall[] = [];
-        for (const [id, tc] of toolCalls) {
-          const call: ToolCall = {
-            id,
-            type: 'function',
-            function: { name: tc.name, arguments: tc.args },
-          };
-          callArray.push(call);
-          this.onToolCallReady?.(call);
-        }
-
-        // Append assistant message with tool_calls
-        this.pushMessage({
-          role: 'assistant',
-          content: textContent || null,
-          tool_calls: callArray,
-        });
-
-        // Execute all tool calls of the round concurrently (mainstream
-        // pattern); results are appended to the conversation in call order.
-        const settled = await Promise.all(
-          callArray.map(async (call) => ({ call, result: await this.executeToolCall(call) })),
-        );
-        for (const { call, result } of settled) {
-          this.pushMessage({
-            role: 'tool',
-            tool_call_id: call.id,
-            content: result.content,
-            is_error: result.isError,
-          });
-        }
-
-        // Cancelled mid-run: stop without another LLM round
-        if (this.abortSignal?.aborted) {
-          this.pushMessage({ role: 'assistant', content: '' });
-          this.emitUsage(turnUsage);
-          return { text: '', rounds };
-        }
-
-        // Continue to next round — call LLM again with tool results
-        continue;
-      }
-
-      // Text-only response — append and done
-      this.pushMessage({
-        role: 'assistant',
-        content: textContent,
-        ...(thinkingContent ? { thinking: thinkingContent } : {}),
-      });
-      finalText += textContent;
-      this.emitUsage(turnUsage);
-      return { text: finalText, rounds };
-    }
-
-    // Exceeded maxToolRounds — append what we have and stop
-    this.pushMessage({ role: 'assistant', content: '' });
-    this.emitUsage(turnUsage);
-    return { text: '', rounds };
-  }
-
   /** Report the real context size to the UI (ticket 22). */
   private emitContextSize(): void {
     if (!this.contextManager || this.onContextSize === undefined) return;
@@ -661,7 +191,7 @@ export class AgentLoop {
   }
 
   /** Report aggregated per-turn usage to the cache metrics listener. */
-  private emitUsage(usage: {
+  /** @internal */ emitUsage(usage: {
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens?: number;
@@ -679,113 +209,31 @@ export class AgentLoop {
     });
   }
 
-  /** Execute one tool call through the pipeline and notify the UI. */
-  private async executeToolCall(call: ToolCall): Promise<ToolResult> {
-    if (this.abortSignal?.aborted) {
-      const result: ToolResult = { content: 'Aborted.', isError: true };
-      this.onToolResult(result, call.id);
-      return result;
-    }
-    const tool = this.toolRegistry.get(call.function.name);
-    if (!tool) {
-      const result: ToolResult = {
-        content: `Tool "${call.function.name}" not found.`,
-        isError: true,
-      };
-      this.onToolResult(result, call.id);
-      return result;
-    }
+  /**
+   * Load full bodies of skills matching the user input as an append-only
+   * system message. The frozen system prompt itself is never mutated, so
+   * the provider prompt-cache prefix stays valid.
+   */
+  /** @internal */ async injectSkills(userInput: string): Promise<void> {
+    return injectSkillsImpl(this.skills, this.maxActiveSkills, userInput, (message) => this.pushMessage(message));
+  }
 
-    try {
-      const params = JSON.parse(call.function.arguments) as Record<string, unknown>;
-      const result = await this.toolExecutionPipeline.execute(
-        tool,
-        params,
-        {
-          workingDirectory: process.cwd(),
-          abortSignal: this.abortSignal ?? new AbortController().signal,
-        },
-        { confirm: () => this.onPermissionRequest(call) },
-      );
-      this.onToolResult(result, call.id);
-      return result;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const result: ToolResult = { content: msg, isError: true };
-      this.onToolResult(result, call.id);
-      return result;
-    }
+  /** Execute one tool call through the pipeline and notify the UI. */
+  /** @internal */ async executeToolCall(call: ToolCall): Promise<ToolResult> {
+    return executeToolCallImpl(
+      {
+        toolRegistry: this.toolRegistry,
+        toolExecutionPipeline: this.toolExecutionPipeline,
+        abortSignal: this.abortSignal,
+        onToolResult: this.onToolResult,
+        onPermissionRequest: this.onPermissionRequest,
+      },
+      call,
+    );
   }
 
   /** Current conversation history (introspection/testing). */
   getMessages(): readonly Message[] {
     return this.messages;
-  }
-
-  /**
-   * Force a compaction/truncation pass regardless of the token trigger.
-   * Origins: the /compact command ('manual') and reactive overflow recovery
-   * ('overflow') — both bypass the automatic-path gates.
-   */
-  async compactNow(origin: 'manual' | 'overflow' = 'manual'): Promise<{
-    compacted: boolean;
-    strategy?: 'truncate' | 'compact';
-    beforeTokens?: number;
-    afterTokens?: number;
-  }> {
-    if (!this.contextManager || !this.contextStrategy) {
-      return { compacted: false };
-    }
-
-    // Manual/overflow path also gets the free layer first: microcompact, then
-    // summary/truncate on whatever pressure remains. It bypasses the
-    // automatic-path gates (breaker, suppression) by design — an explicit
-    // request or a real overflow deserves the attempt — but still feeds the
-    // guard so repeated failures eventually open the circuit for auto too.
-    const beforeTokens = this.runMicrocompact(
-      this.contextManager.countTokens(this.messages),
-      origin,
-    );
-
-    let after: Message[] | null = null;
-    if (this.compactor) {
-      const attempt = this.noteSummaryOutcome(await this.compactor.compact(this.messages));
-      if (attempt.outcome === 'applied') {
-        after = attempt.messages; // summary or placeholder pass
-      } else if (attempt.outcome === 'nothing') {
-        // Nothing to summarize (e.g. all user messages): nothing to do
-        return { compacted: false, strategy: this.contextStrategy, beforeTokens };
-      } else {
-        // Summary failed → degrade to an aggressive truncate
-        after = this.contextManager.truncateToTokens(
-          this.messages,
-          Math.floor(this.contextManager.triggerTokens / 2),
-        );
-      }
-    }
-    if (after === null) {
-      // Manual truncate target: half the trigger budget (aggressive cleanup)
-      after = this.contextManager.truncateToTokens(
-        this.messages,
-        Math.floor(this.contextManager.triggerTokens / 2),
-      );
-    }
-
-    const afterTokens = this.contextManager.countTokens(after);
-    // Compaction is meaningful only when it actually shrank the context
-    // (the summary can outweigh toy-size summarized content).
-    if (afterTokens >= beforeTokens) {
-      return { compacted: false, strategy: this.contextStrategy, beforeTokens };
-    }
-    this.messages = after;
-    this.compactionGuard.noteCompactionApplied();
-    this.persistCompaction(after);
-    this.onCompaction?.({
-      strategy: this.contextStrategy,
-      beforeTokens,
-      afterTokens,
-      reason: origin,
-    });
-    return { compacted: true, strategy: this.contextStrategy, beforeTokens, afterTokens };
   }
 }

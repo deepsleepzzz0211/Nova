@@ -175,3 +175,40 @@ describe('AgentLoop forwards thinkingLevel to ChatOptions', () => {
     expect(opts[0].thinkingLevel).toBe('high');
   });
 });
+
+// p1-p2 12 (kill test): thinking deltas must not require an onThinking
+// callback — the accumulator forwards through ?. and a provider can emit
+// reasoning to a loop configured without one (print mode, scripts).
+describe('AgentLoop tolerates thinking deltas without an onThinking callback', () => {
+  it('consumes a thinking_delta stream and completes normally', async () => {
+    const llm: LLMProvider = {
+      name: 'fake',
+      capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
+      async *chat(): AsyncIterable<StreamChunk> {
+        yield { type: 'thinking_delta', content: 'reasoning ' };
+        yield { type: 'thinking_delta', content: 'done' };
+        yield { type: 'text_delta', content: 'answer' };
+      },
+    };
+    const tokens: string[] = [];
+    const loop = new AgentLoop({
+      llm,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: new ToolExecutionPipeline(new ToolResultCache(), policy),
+      config: { maxToolRounds: 10, model: 'test' },
+      onToken: (t) => tokens.push(t),
+      onToolCall: () => {},
+      onToolResult: () => {},
+      onPermissionRequest: async () => true,
+    });
+    const result = await loop.processUserInput('hi');
+    expect(result.text).toBe('answer');
+    expect(result.rounds).toBe(1);
+    const history = loop.getMessages();
+    const assistant = history[history.length - 1];
+    expect(assistant.role).toBe('assistant');
+    if (assistant.role === 'assistant') {
+      expect(assistant.thinking).toBe('reasoning done');
+    }
+  });
+});
