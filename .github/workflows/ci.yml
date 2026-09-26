@@ -75,8 +75,17 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - name: npm publish --dry-run (catch pack surprises before any tag)
-        run: npm publish --dry-run --access public
+      - name: npm publish --dry-run (local packaging pass)
+        run: |
+          # npm publish --dry-run checks the REAL registry for a version
+          # collision — with package.json still at the shipped 0.3.0 that
+          # would red every PR forever. Swap in a throwaway dry-run version
+          # in this ephemeral workspace so npm's packaging pass runs clean;
+          # collision at release time remains the tag job's business.
+          npm version --no-git-tag-version "0.0.0-dryrun.${GITHUB_RUN_ID}"
+          # --tag is mandatory for prerelease-looking versions; nothing is
+          # pushed because this stays --dry-run.
+          npm publish --dry-run --access public --ignore-scripts --tag next
       - name: Pack manifest assertions (bin present, dev dirs absent)
         run: node scripts/pack-check.mjs --keep
       - name: Install the tarball and boot the bin headless
