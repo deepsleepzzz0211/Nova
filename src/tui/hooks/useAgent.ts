@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ToolCall, Message } from '../../llm/types.js';
-import type { ToolResult } from '../../tools/types.js';
 import type { LLMProvider } from '../../llm/provider.js';
 import type { ToolRegistry } from '../../tools/registry.js';
 import type { ToolExecutionPipeline } from '../../tools/execution-pipeline.js';
@@ -8,18 +7,14 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
-import { StreamBatcher } from '../stream-batcher.js';
 import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
-import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
-import { parseToolArgs } from '../tool-summary.js';
 import { findCommand } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
 import { formatStatusReport, type CompactionTotals } from '../status-format.js';
-import { modeGate, nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
-import { toolVerb } from '../tool-summary.js';
+import { nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
 
 // UI display types live in a neutral module so the command/context layers
 // can use them without importing React hooks (tui-refactor ticket 15 fixes).
@@ -32,24 +27,15 @@ import type {
 
 export type { DisplayMessage, DisplayToolCall, DisplayModelInfo, CacheStatsView } from '../display-types.js';
 
-/** Pending permission request awaiting user decision. */
-export interface PendingPermission {
-  call: ToolCall;
-  resolve: (decision: PermissionDecision) => void;
-}
+// The streaming draft state machine and the approval pipeline were split
+// out (p1-p2 11); PendingPermission moved with the gate and is re-exported
+// so consumers (PermissionDialog, tests) keep importing it from here.
+import { useAssistantStream, patchToolCall, setToolCallStatus as setToolCallStatusVia } from './assistant-stream.js';
+import { createPermissionGate, type PendingPermission } from './permission-gate.js';
+
+export type { PendingPermission } from './permission-gate.js';
 
 /** Configuration for the useAgent hook. */
-/**
- * Replace the trailing assistant message with `snap` (leaving earlier
- * messages untouched). Shared by the batcher's flush and the loop callbacks
- * (ticket 16 — the same shape used to be written out three times).
- */
-function withAssistantSnapshot(prev: DisplayMessage[], snap: DisplayMessage): DisplayMessage[] {
-  const withoutLast =
-    prev.length > 0 && prev[prev.length - 1].role === 'assistant' ? prev.slice(0, -1) : prev;
-  return [...withoutLast, snap];
-}
-
 export interface UseAgentConfig {
   llm: LLMProvider;
   toolRegistry: ToolRegistry;
@@ -126,6 +112,9 @@ export interface UseAgentResult {
  *
  * Manages display messages, streaming state, and permission requests.
  * The AgentLoop is created once and persists for the component lifetime.
+ * The streaming draft machine lives in ./assistant-stream, the approval
+ * pipeline in ./permission-gate (p1-p2 11); this file sequences state,
+ * loop wiring, commands, and rendering-facing output.
  */
 export function useAgent(config: UseAgentConfig): UseAgentResult {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -156,7 +145,6 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     cost: config.modelCost,
   });
 
-  // Ref to track the current assistant message being built during streaming
   const [isThinking, setIsThinking] = useState(false);
   // Shift+Tab approval mode (tui-redesign 10): state for the badge, ref for
   // the async permission callback which must read the LATEST value.
@@ -171,213 +159,27 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   // Bumped whenever the displayed conversation is replaced wholesale (/undo):
   // Ink's static region is append-only and must be remounted to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
-  const currentAssistantRef = useRef<{
-    content: string;
-    toolCalls: DisplayToolCall[];
-    thinking: string;
-    /** Thought timing for the `– Thought 4.2s` header (tui-redesign 09). */
-    thinkingStartedAtMs?: number;
-    thinkingEndedAtMs?: number;
-  } | null>(null);
-  const loopRef = useRef<AgentLoop | null>(null);
 
-  /** One assistant-message snapshot (shared by batcher and event paths). */
-  const assistantSnapshot = (
-    cur: NonNullable<typeof currentAssistantRef.current>,
-  ): DisplayMessage => {
-    let thinkingSeconds: number | undefined;
-    if (cur.thinking !== '' && cur.thinkingStartedAtMs !== undefined && cur.thinkingEndedAtMs !== undefined) {
-      thinkingSeconds = Math.max(0, (cur.thinkingEndedAtMs - cur.thinkingStartedAtMs) / 1000);
-    }
-    return {
-      role: 'assistant' as const,
-      content: cur.content,
-      toolCalls: [...cur.toolCalls],
-      thinking: cur.thinking || undefined,
-      ...(thinkingSeconds === undefined ? {} : { thinkingSeconds }),
-    };
-  };
-
-  // Token coalescing (streaming ticket 06): stream deltas mutate the ref;
-  // at most one setState per window keeps long sessions from degrading.
-  const batcherRef = useRef<StreamBatcher | null>(null);
-  if (batcherRef.current === null) {
-    batcherRef.current = new StreamBatcher(() => {
-      // Snapshot NOW, synchronously: React defers state-updater execution
-      // to the next render, by which time the turn may have ended and the
-      // ref reset to null (crash: reading 'content' of null).
-      const cur = currentAssistantRef.current;
-      if (cur === null) return;
-      const snap: DisplayMessage = assistantSnapshot(cur);
-      setMessages((prev) => withAssistantSnapshot(prev, snap));
-    }, 32);
-  }
-  const batcher = batcherRef.current;
+  // Split-out concerns (p1-p2 11): streaming draft machine + approval gate.
+  const stream = useAssistantStream(setMessages, setIsThinking);
+  const { currentAssistantRef, batcher } = stream;
+  const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void =>
+    setToolCallStatusVia(setMessages, callId, status);
+  // Tool display kinds come from the registry (ticket 14) — no hardcoded
+  // tool names in the TUI layer.
+  const kindOf = (n: string): import('../../tools/types.js').ToolDisplay | undefined =>
+    config.toolRegistry.displayFor(n);
+  const onPermissionRequest = createPermissionGate({
+    setMessages,
+    setPendingPermission,
+    setToolCallStatus,
+    approvalModeRef,
+    kindOf,
+  });
 
   // Create the AgentLoop once
+  const loopRef = useRef<AgentLoop | null>(null);
   if (loopRef.current === null) {
-    /** Immutable snapshot of the in-flight assistant message. */
-    const snapshot = (): DisplayMessage => assistantSnapshot(currentAssistantRef.current!);
-
-    /**
-     * Replace the trailing assistant message with `snap`. The snapshot is
-     * taken synchronously by the caller: React defers updater execution, by
-     * which time the ref may already be null (see the batcher comment).
-     */
-    const commitAssistant = (snap: DisplayMessage): void => {
-      setMessages((prev) => withAssistantSnapshot(prev, snap));
-    };
-
-    const onToken = (token: string): void => {
-      setIsThinking(false);
-      if (!currentAssistantRef.current) {
-        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
-      }
-      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
-        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
-      }
-      currentAssistantRef.current.content += token;
-      batcher.schedule();
-    };
-
-    const onThinking = (delta: string): void => {
-      setIsThinking(true);
-      if (!currentAssistantRef.current) {
-        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
-      }
-      if (currentAssistantRef.current.thinkingStartedAtMs === undefined) {
-        currentAssistantRef.current.thinkingStartedAtMs = Date.now();
-      }
-      currentAssistantRef.current.thinking += delta;
-      batcher.schedule();
-    };
-
-    const onToolCall = (call: ToolCall): void => {
-      if (!currentAssistantRef.current) {
-        currentAssistantRef.current = { content: '', toolCalls: [], thinking: '' };
-      }
-      if (currentAssistantRef.current.thinking !== '' && currentAssistantRef.current.thinkingEndedAtMs === undefined) {
-        currentAssistantRef.current.thinkingEndedAtMs = Date.now();
-      }
-      const displayCall: DisplayToolCall = {
-        id: call.id,
-        name: call.function.name,
-        arguments: call.function.arguments,
-        status: 'running',
-        startedAtMs: Date.now(),
-      };
-      currentAssistantRef.current.toolCalls.push(displayCall);
-      commitAssistant(snapshot());
-    };
-
-    const onToolResult = (result: ToolResult, callId?: string): void => {
-      if (!currentAssistantRef.current) return;
-      const calls = currentAssistantRef.current.toolCalls;
-      // Match by call id when provided (parallel execution); fall back to
-      // the last running call.
-      let index = -1;
-      if (callId !== undefined) {
-        index = calls.findIndex((c) => c.id === callId);
-      }
-      if (index === -1) {
-        for (let i = calls.length - 1; i >= 0; i--) {
-          if (calls[i].status === 'running') {
-            index = i;
-            break;
-          }
-        }
-      }
-      if (index !== -1) {
-        calls[index] = {
-          ...calls[index],
-          status: result.isError ? 'error' : 'done',
-          result: result.content,
-          endedAtMs: Date.now(),
-        };
-      }
-      commitAssistant(snapshot());
-    };
-
-    /** Update one displayed tool call (status and/or arguments). */
-    const patchToolCall = (callId: string, patch: Partial<DisplayToolCall>): void => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === 'assistant' && m.toolCalls !== undefined
-            ? {
-                ...m,
-                toolCalls: m.toolCalls.map((tc) => (tc.id === callId ? { ...tc, ...patch } : tc)),
-              }
-            : m,
-        ),
-      );
-    };
-
-    const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void => {
-      // A run that starts (or restarts after a permission wait) re-baselines
-      // its start time, so the row duration never counts user think-time.
-      patchToolCall(callId, status === 'running' ? { status, startedAtMs: Date.now() } : { status });
-    };
-
-    // Session-scoped always-allow rules (ticket 04): matching calls are
-    // allowed without a dialog.
-    // Tool display kinds come from the registry (ticket 14) — no hardcoded
-    // tool names in the TUI layer.
-    const kindOf = (n: string): import('../../tools/types.js').ToolDisplay | undefined =>
-      config.toolRegistry.displayFor(n);
-    const alwaysRules = new SessionAlwaysRules();
-    const onPermissionRequest = (call: ToolCall): Promise<boolean> => {
-      // Ticket 05: show the awaiting-permission state on the tool block.
-      setToolCallStatus(call.id, 'pending');
-      const args = parseToolArgs(call.function.arguments);
-      const dangerous = dangerReason(call.function.name, args, kindOf) !== null;
-      // Shift+Tab approval modes (tui-redesign 10): acceptEdits lets plain
-      // file edits through, plan denies every writing tool. Dangerous calls
-      // always reach a human either way.
-      const gate = modeGate(approvalModeRef.current, toolClassOf(kindOf(call.function.name)), dangerous);
-      if (gate === 'allow') {
-        setToolCallStatus(call.id, 'running');
-        return Promise.resolve(true);
-      }
-      if (gate === 'deny') {
-        setToolCallStatus(call.id, 'running');
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'system' as const,
-            content: `[plan mode] ${toolVerb(call.function.name)} blocked — shift+tab switches approval modes`,
-          },
-        ]);
-        return Promise.resolve(false);
-      }
-      // Dangerous calls are never session-whitelisted: always-rules must
-      // not short-circuit the dialog for them (review finding).
-      if (!dangerous && alwaysRules.matches(call.function.name, args, kindOf)) {
-        setToolCallStatus(call.id, 'running');
-        return Promise.resolve(true);
-      }
-      return new Promise<boolean>((resolve) => {
-        // One-shot: the promise ignores a second settle, but the wrapper's
-        // side effects must not replay either — settleDanglingPermission and
-        // the unmount path call resolve() again on an already-answered
-        // request, which used to flip the finished tool row back to running
-        // and re-baseline its start time (approval-flow 01).
-        let settled = false;
-        setPendingPermission({
-          call,
-          resolve: (decision: PermissionDecision) => {
-            if (settled) return;
-            settled = true;
-            if (decision === 'always' && !dangerous) {
-              alwaysRules.add(call.function.name, args, kindOf);
-            }
-            setToolCallStatus(call.id, 'running');
-            setPendingPermission(null);
-            resolve(decision !== 'deny');
-          },
-        });
-      });
-    };
-
     loopRef.current = new AgentLoop({
       llm: config.llm,
       toolRegistry: config.toolRegistry,
@@ -397,12 +199,13 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       thinkingLevel: config.thinkingLevel,
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
       config: { maxToolRounds: config.maxToolRounds, model: config.model },
-      onToken,
-      onToolCall,
-      onToolCallReady: (call) => patchToolCall(call.id, { arguments: call.function.arguments }),
-      onToolResult,
+      onToken: stream.onToken,
+      onToolCall: stream.onToolCall,
+      onToolCallReady: (call: ToolCall) =>
+        patchToolCall(setMessages, call.id, { arguments: call.function.arguments }),
+      onToolResult: stream.onToolResult,
       onPermissionRequest,
-      onThinking,
+      onThinking: stream.onThinking,
       onContextSize: (tokens, triggerTokens) => {
         setCacheStats((prev) => ({ ...prev, contextTokens: tokens, contextTriggerTokens: triggerTokens }));
       },
@@ -475,7 +278,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   useEffect(() => {
     return () => {
       // Cancel any pending coalesced flush on unmount (ticket 06)
-      batcherRef.current?.dispose();
+      batcher.dispose();
       // Resolve any pending permission as denied on unmount
       setPendingPermission((current) => {
         if (current) {
