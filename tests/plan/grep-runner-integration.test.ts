@@ -12,6 +12,10 @@ import { runRipgrep } from '../../src/tools/ripgrep-worker.js';
 let root: string;
 beforeAll(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'grep-rg-'));
+  // ripgrep ≥13 documents .gitignore rules as git-repo-scoped (require-git);
+  // make the fixture a repo so the ignore-behavior contract holds identically
+  // on every platform (the CI split proved the no-.git case is platform-dependent).
+  fs.mkdirSync(path.join(root, '.git'));
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, 'src', 'a.ts'), 'alpha\nfind the cacheRetention knob\nomega\n');
   fs.writeFileSync(path.join(root, 'src', 'b.ts'), 'nothing here\ncacheRetention = short\n');
