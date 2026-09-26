@@ -1,4 +1,5 @@
 import { theme } from './theme.js';
+import type { ToolDisplay } from '../shared/tool-contracts.js';
 
 /**
  * Approval modes cycled by Shift+Tab (tui-redesign 10, Claude-Code-style):
@@ -52,7 +53,7 @@ export function modeGate(
 }
 
 /** Tool class from registry display metadata: diff tools edit, commands execute. */
-export function toolClassOf(display: { kind: 'command' | 'path'; diff?: string } | undefined): ToolClass {
+export function toolClassOf(display: ToolDisplay | undefined): ToolClass {
   if (display === undefined) return 'read';
   if (display.diff !== undefined) return 'edit';
   if (display.kind === 'command') return 'execute';
