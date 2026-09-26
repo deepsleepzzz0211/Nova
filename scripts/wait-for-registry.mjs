@@ -13,8 +13,15 @@
  * pure (probe/sleep/clock injectable) and unit-tested.
  */
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const PACKAGE = '@posuiqianqiu/nova';
+// Package name comes from package.json — same source of truth the publish
+// step uses, so the probe can't drift from the shipped artifact (p1-p2 06
+// review: no duplicated env-specific constants).
+const PACKAGE = JSON.parse(
+  fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8'),
+).name;
 const BASE_MS = 1_000;
 const CLAMP_MS = 16_000;
 const BUDGET_MS = 300_000;
@@ -25,7 +32,6 @@ const BUDGET_MS = 300_000;
  *   sleep: (ms: number) => Promise<void>,
  *   now?: () => number,
  *   budgetMs?: number,
- *   startMs?: number,
  * }} opts
  */
 export async function waitForRegistry(opts) {

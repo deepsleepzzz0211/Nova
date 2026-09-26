@@ -53,6 +53,12 @@ jobs:
       # the ubuntu leg exports the build its gate just exercised, the
       # publish job consumes it instead of reinstalling+rebuilding (~37 s
       # saved and no "fresh build in a slightly different env" divergence).
+      - name: Checksum the verified dist (manifest consumed by the publish job)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          (cd dist && find . -type f | sort | xargs sha256sum) | sed 's|  \./|  dist/|' > dist-checksums.txt
+          cat dist-checksums.txt
       - name: Upload verified dist
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -60,10 +66,13 @@ jobs:
           name: dist
           path: dist/
           retention-days: 1
-      - name: Record dist checksum (compare against the publish job line)
+      - name: Upload dist checksum manifest
         if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: sha256sum dist/index.js | tee -a "$GITHUB_STEP_SUMMARY"
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist-checksums
+          path: dist-checksums.txt
+          retention-days: 1
 
   publish:
     needs: test
@@ -82,9 +91,13 @@ jobs:
         with:
           name: dist
           path: dist
-      - name: Show dist checksum (must match the test job's line)
+      - name: Download the checksum manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist-checksums
+      - name: Verify dist integrity (programmatic, p1-p2 05 review)
         shell: bash
-        run: sha256sum dist/index.js
+        run: sha256sum -c dist-checksums.txt
       - name: Pack manifest assertions (bin present, dev dirs absent)
         run: node scripts/pack-check.mjs
       - name: Dry-run pack (catch file-inclusion surprises before publishing)

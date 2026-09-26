@@ -49,9 +49,13 @@ export function extractHighFindings(report) {
  * @returns {{ blocked: typeof input.findings, waived: (typeof input.findings & { waiver: unknown })[] }}
  */
 export function evaluateAudit({ findings, waivers, today }) {
+  // A waiver counts only with BOTH a future expiry and a written reason —
+  // "evaluated" must mean someone recorded what they evaluated (p1-p2 07
+  // review: docs said "must carry a reason"; now the code does too).
   const active = new Map(
     waivers
-      .filter((w) => typeof w.expires === 'string' && w.expires >= today)
+      .filter((w) => typeof w.expires === 'string' && w.expires >= today
+        && typeof w.reason === 'string' && w.reason.trim() !== '')
       .map((w) => [w.id, w]),
   );
   const blocked = [];

@@ -11,7 +11,7 @@
  * test fixtures (sk-test / tvly-x / tvly-test / sk-abc123) never match.
  * The scanner excludes its own file (its regex sources contain token-prefix
  * literals by definition); further legitimate exceptions go in
- * .secretsignore (path-prefixed lines), not in this source file.
+ * .secretsignore (one exact tracked path per line), not in this source file.
  *
  * History scan is SINGLE-PROCESS: `git grep -E <pattern> <revs...>` takes
  * many revisions per invocation (chunked to stay under the OS argv limit),
@@ -29,7 +29,7 @@ const ROOT = path.resolve(process.argv[2] ?? '.');
 const SELF_RELATIVE = 'scripts/scan-secrets.mjs';
 
 /**
- * Re-allowlist (p1-p2 08): repo-root `.secretsignore`, one path prefix per
+ * Re-allowlist (p1-p2 08): repo-root `.secretsignore`, one exact tracked path per
  * line (`#` comments allowed). Replaces the hardcoded single-path fixture
  * exemption from audit-fixes 04 — legitimate exceptions (the scanner
  * contract test's planted fakes, illustrative key blocks in docs) are data,

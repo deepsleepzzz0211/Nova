@@ -56,7 +56,16 @@ jobs:
             sed -E 's/[A-Za-z0-9_-]{30,}/<REDACTED>/g' <<< "$OUT"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -q "401\|E401" <<< "$OUT" \
-            && echo "401: token invalid/expired — rotate on npmjs.com and update the repo secret." >&2
+          # if/fi (not `grep && echo`): the step runs under bash -e and a
+          # non-matching grep would abort the chain before the later labels.
+          if grep -q "401\|E401" <<< "$OUT"; then
+            echo "401: token invalid/expired — rotate on npmjs.com and update the repo secret." >&2
+          fi
+          if grep -q "E404\|404" <<< "$OUT"; then
+            echo "404: endpoint or token scope wrong — check the token type (classic Automation required)." >&2
+          fi
+          if grep -qE "ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN" <<< "$OUT"; then
+            echo "network: registry unreachable — transient if the next scheduled run goes green." >&2
+          fi
           echo "npm whoami failed (exit $RC)" >&2
           exit 1

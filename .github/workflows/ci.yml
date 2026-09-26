@@ -87,19 +87,23 @@ jobs:
           # pushed because this stays --dry-run.
           npm publish --dry-run --access public --ignore-scripts --tag next
       - name: Pack manifest assertions (bin present, dev dirs absent)
-        run: node scripts/pack-check.mjs --keep
+        run: node scripts/pack-check.mjs --keep | tee pack.out
       - name: Install the tarball and boot the bin headless
         shell: bash
         run: |
-          TARBALL=$(ls nova-*.tgz posuiqianqiu-nova-*.tgz 2>/dev/null | head -1)
-          npm i -g "./$TARBALL"
+          # Name comes from pack-check's report (an `ls` of possibly-absent
+          # globs would abort this -e/pipefail step on its non-zero exit).
+          TARBALL="./$(sed -n 's/^\[PACK\] TARBALL=//p' pack.out | head -1)"
+          test -f "$TARBALL"
+          npm i -g "$TARBALL"
           nova --version
           # Same Ink non-TTY trick as publish.yml: the Raw-mode error PROVES
           # the bin loaded, resolved deps and started rendering.
           NOVA_API_KEY=sk-ci-smoke-dummy timeout 60 nova > /tmp/boot.log 2>&1 || true
-          grep -q "Raw mode is not supported" /tmp/boot.log \
-            && echo "bin boot OK" \
-            || { echo "bin boot FAILED"; cat /tmp/boot.log; exit 1; }
+          if ! grep -q "Raw mode is not supported" /tmp/boot.log; then
+            echo "bin boot FAILED"; cat /tmp/boot.log; exit 1
+          fi
+          echo "bin boot OK"
 
   # Single stable-name aggregate gate: branch protection requires ONLY this
   # context, so adding or dropping matrix cells above never deadlocks merges

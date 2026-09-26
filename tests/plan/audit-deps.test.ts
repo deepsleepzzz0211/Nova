@@ -40,6 +40,16 @@ describe('evaluateAudit (p1-p2 07)', () => {
     expect(r.blocked.map((b: Finding) => b.id)).toEqual(['GHSA-aaaa-bbbb-cccc']);
   });
 
+  it('a waiver WITHOUT a reason does not waive', () => {
+    const r = evaluateAudit({
+      findings: [f('GHSA-aaaa-bbbb-cccc')],
+      waivers: [{ id: 'GHSA-aaaa-bbbb-cccc', expires: '2026-12-31' }],
+      today: '2026-09-26',
+    });
+    expect(r.blocked.map((b: Finding) => b.id)).toEqual(['GHSA-aaaa-bbbb-cccc']);
+    expect(r.waived).toEqual([]);
+  });
+
   it('waiver id must match exactly (no prefix drift)', () => {
     const r = evaluateAudit({
       findings: [f('GHSA-aaaa-bbbb-ccdd')],

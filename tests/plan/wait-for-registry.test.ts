@@ -19,7 +19,7 @@ describe('waitForRegistry (p1-p2 06)', () => {
   it('returns immediately when the version is already visible', async () => {
     const probe = okAfter(1);
     const sleeps: number[] = [];
-    const res = await waitForRegistry({ probe, sleep: async (ms) => { sleeps.push(ms); }, budgetMs: 300_000, startMs: 1_000 });
+    const res = await waitForRegistry({ probe, sleep: async (ms) => { sleeps.push(ms); }, budgetMs: 300_000 });
     expect(res.attempts).toBe(1);
     expect(sleeps).toEqual([]);
   });
@@ -27,7 +27,7 @@ describe('waitForRegistry (p1-p2 06)', () => {
   it('backs off 1s,2s,4s,8s,16s then clamps at 16s', async () => {
     const probe = okAfter(7);
     const sleeps: number[] = [];
-    const res = await waitForRegistry({ probe, sleep: async (ms) => { sleeps.push(ms); }, budgetMs: 300_000, startMs: 1_000 });
+    const res = await waitForRegistry({ probe, sleep: async (ms) => { sleeps.push(ms); }, budgetMs: 300_000 });
     expect(sleeps).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000]);
     expect(res.attempts).toBe(7);
   });
@@ -40,7 +40,6 @@ describe('waitForRegistry (p1-p2 06)', () => {
       sleep: async (ms) => { clock += ms; },
       now: () => clock,
       budgetMs: 300_000,
-      startMs: 1_000,
     });
     expect(res.visible).toBe(false);
     expect(clock).toBeGreaterThan(300_000 + 1_000 - 16_000); // overslept at most one clamp
@@ -54,7 +53,7 @@ describe('waitForRegistry (p1-p2 06)', () => {
       if (calls === 1) throw new Error('npm view exited 1');
       return true;
     });
-    const res = await waitForRegistry({ probe, sleep: async () => {}, budgetMs: 300_000, startMs: 1_000 });
+    const res = await waitForRegistry({ probe, sleep: async () => {}, budgetMs: 300_000 });
     expect(res.visible).toBe(true);
     expect(res.attempts).toBe(2);
   });
