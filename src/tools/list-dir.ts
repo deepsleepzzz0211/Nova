@@ -26,7 +26,7 @@ const LIST_DIR_PARAMETERS: JSONSchema = {
 };
 
 /** Compact human size: 2048 -> "2.0K", 512 -> "512B". */
-export function humanSize(bytes: number): string {
+function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   const units = ['K', 'M', 'G', 'T'];
   let value = bytes / 1024;

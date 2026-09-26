@@ -131,6 +131,29 @@ export function sortPathsByMtime(absPaths: string[]): string[] {
   return [...absPaths].sort((a, b) => mtimeOf(b) - mtimeOf(a));
 }
 
+/**
+ * Shared render for file-path result sets (grep files mode, glob). One stat
+ * pass per matched path at most — for an mtime-sorted caller the set is file
+ * paths (cheap), never file contents.
+ */
+export function renderFileList(
+  absPaths: string[],
+  workingDirectory: string,
+  headLimit: number | undefined,
+  offset: number | undefined,
+  opts: { sortByMtime: boolean },
+): string {
+  if (absPaths.length === 0) return 'No files found';
+  const ordered = opts.sortByMtime ? sortPathsByMtime(absPaths) : absPaths;
+  const page = paginate(
+    ordered.map((p) => relativize(p, workingDirectory)),
+    headLimit,
+    offset,
+  );
+  const header = `Found ${ordered.length} ${ordered.length === 1 ? 'file' : 'files'}`;
+  return `${header}\n${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}`;
+}
+
 /** Parse `-c --null` output (`path\0count` per line). */
 export function parseCountList(stdout: string): Array<{ path: string; count: number }> {
   if (!stdout) return [];

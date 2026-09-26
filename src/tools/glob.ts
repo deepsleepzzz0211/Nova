@@ -3,13 +3,10 @@ import type { JSONSchema } from '../llm/types.js';
 import {
   buildGlobArgs,
   firstErrorLine,
-  formatPaginationNote,
   numParam,
-  paginate,
   parseFilesList,
-  relativize,
+  renderFileList,
   resolveSearchPath,
-  sortPathsByMtime,
   type RipgrepRun,
 } from './ripgrep-search.js';
 import { runRipgrep } from './ripgrep-worker.js';
@@ -73,16 +70,15 @@ export function createGlobTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
         return { content: `ripgrep error: ${firstErrorLine(result.stderr)}`, isError: true };
       }
 
-      const abs = parseFilesList(result.stdout);
-      if (abs.length === 0) return { content: 'No files found' };
-      const sorted = sortPathsByMtime(abs);
-      const page = paginate(
-        sorted.map((p) => relativize(p, context.workingDirectory)),
-        numParam(params, 'head_limit'),
-        numParam(params, 'offset'),
-      );
-      const header = `Found ${sorted.length} ${sorted.length === 1 ? 'file' : 'files'}`;
-      return { content: `${header}\n${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}` };
+      return {
+        content: renderFileList(
+          parseFilesList(result.stdout),
+          context.workingDirectory,
+          numParam(params, 'head_limit'),
+          numParam(params, 'offset'),
+          { sortByMtime: true },
+        ),
+      };
     },
   };
 }

@@ -2,6 +2,7 @@ import type { Tool, ToolContext, ToolResult } from './types.js';
 import type { JSONSchema } from '../llm/types.js';
 import {
   buildGrepArgs,
+  DEFAULT_HEAD_LIMIT,
   firstErrorLine,
   formatPaginationNote,
   numParam,
@@ -11,8 +12,8 @@ import {
   parseFilesList,
   relativize,
   renderClip,
+  renderFileList,
   resolveSearchPath,
-  sortPathsByMtime,
   type RipgrepRun,
   type SearchOutputMode,
 } from './ripgrep-search.js';
@@ -63,7 +64,7 @@ const GREP_PARAMETERS: JSONSchema = {
     },
     head_limit: {
       type: 'number',
-      description: `Limit output to the first N lines/entries (default ${250}; 0 = unlimited). Large result sets waste context — prefer narrowing the pattern.`,
+      description: `Limit output to the first N lines/entries (default ${DEFAULT_HEAD_LIMIT}; 0 = unlimited). Large result sets waste context — prefer narrowing the pattern.`,
     },
     offset: {
       type: 'number',
@@ -147,12 +148,10 @@ export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
 }
 
 function renderFiles(stdout: string, workingDirectory: string, params: Record<string, unknown>): ToolResult {
-  const abs = parseFilesList(stdout);
-  if (abs.length === 0) return { content: 'No files found' };
-  const sorted = sortPathsByMtime(abs);
-  const page = paginate(sorted.map((p) => relativize(p, workingDirectory)), numParam(params, 'head_limit'), numParam(params, 'offset'));
-  const header = `Found ${sorted.length} ${sorted.length === 1 ? 'file' : 'files'}`;
-  return { content: `${header}\n${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}` };
+  // Engine traversal order, not mtime: grep files-mode answers "where does X
+  // live", and stat-ing the full match set on the main thread for an ordering
+  // nobody asked for is exactly the loop-stall this batch avoids (review).
+  return { content: renderFileList(parseFilesList(stdout), workingDirectory, numParam(params, 'head_limit'), numParam(params, 'offset'), { sortByMtime: false }) };
 }
 
 function renderCount(stdout: string, workingDirectory: string, params: Record<string, unknown>): ToolResult {
@@ -161,7 +160,9 @@ function renderCount(stdout: string, workingDirectory: string, params: Record<st
   const page = paginate(rows, numParam(params, 'head_limit'), numParam(params, 'offset'));
   const lines = page.items.map((r) => `${relativize(r.path, workingDirectory)}:${r.count}`);
   const totalMatches = rows.reduce((sum, r) => sum + r.count, 0);
-  const summary = `Found ${totalMatches} total ${totalMatches === 1 ? 'occurrence' : 'occurrences'} across ${rows.length} ${rows.length === 1 ? 'file' : 'files'}.`;
+  const shown = page.items.length;
+  const shownNote = shown === rows.length ? '' : ` (listing ${shown})`;
+  const summary = `Found ${totalMatches} total ${totalMatches === 1 ? 'occurrence' : 'occurrences'} across ${rows.length} ${rows.length === 1 ? 'file' : 'files'}${shownNote}.`;
   return { content: `${lines.join('\n')}\n\n${summary}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}` };
 }
 
