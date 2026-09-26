@@ -17,6 +17,7 @@ import { ToolRegistry } from '../tools/registry.js';
 import { createReadFileTool } from '../tools/read-file.js';
 import { createGrepTool } from '../tools/grep.js';
 import { createGlobTool } from '../tools/glob.js';
+import { createListDirTool } from '../tools/list-dir.js';
 import { createWriteFileTool } from '../tools/write-file.js';
 import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
@@ -99,6 +100,7 @@ export async function buildToolRuntime(opts: {
   toolRegistry.register(createReadFileTool());
   toolRegistry.register(createGrepTool());
   toolRegistry.register(createGlobTool());
+  toolRegistry.register(createListDirTool());
   toolRegistry.register(createWriteFileTool());
   toolRegistry.register(createEditFileTool());
   toolRegistry.register(createBashTool());

@@ -105,6 +105,7 @@ const VERBS: Record<string, string> = {
   spawn_subagent: 'Agent',
   grep: 'Grep',
   glob: 'Glob',
+  list_dir: 'List',
 };
 
 /** Display verb for a tool name; unknown names title-case their words. */
