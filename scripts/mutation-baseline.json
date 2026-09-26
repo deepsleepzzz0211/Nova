@@ -1,8 +1,7 @@
 {
-  "_comment": "Mutation ratchet: stryker.config.json thresholds.low gates the weekly run; raise both when the score improves. Snapshot taken 2026-09-25 (score 79.61 covered 82.58, killed 2770+38 timeout, survived 550, no-cov 169). topSurvived lists the current biggest survivors after the ticket-03 hunt (survived+nocov per module).",
+  "_comment": "Pure snapshot — thresholds live ONLY in stryker.config.json (p1-p2 04; a tests/plan/mutation-config-policy.test.ts enforces this file stays threshold-free). Snapshot taken 2026-09-25 (score 79.61, covered 83.62, killed 2770+38 timeout, survived 550, no-cov 169). When the score improves: raise stryker.config.json thresholds and refresh the snapshot numbers here in the same PR. topSurvived lists the current biggest survivors after the survived-mutant hunt (survived+nocov per module).",
   "scoreTotal": 79.61,
   "scoreCovered": 83.62,
-  "thresholds": { "low": 79, "high": 81, "break": 79 },
   "topSurvived": [
     { "path": "src/llm/piai-engine.ts", "survived": 51, "noCoverage": 7 },
     { "path": "src/llm/providers/piai.ts", "survived": 37, "noCoverage": 10 },

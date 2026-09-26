@@ -21,9 +21,10 @@ concurrency:
 jobs:
   # Ratchet semantics (test-effectiveness 01): stryker.config.json
   # thresholds.break fails this job when the score drops below the recorded
-  # baseline (scripts/mutation-baseline.json) — currently 79. Improve ->
-  # raise BOTH numbers in the same PR; the baseline's topSurvived list
-  # drives the survived-mutant hunts.
+  # baseline (scripts/mutation-baseline.json — a pure snapshot, thresholds
+  # live only in stryker config; see p1-p2 04 policy test). Improve ->
+  # raise the stryker thresholds and refresh the snapshot in the same PR;
+  # the baseline's topSurvived list drives the survived-mutant hunts.
   mutation:
     runs-on: ubuntu-latest
     steps:
