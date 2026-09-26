@@ -1,0 +1,62 @@
+name: Token health
+
+# Daily NPM_TOKEN validity probe (p1-p2 03, report-11 / lessons 38): a
+# silently-rotated token must not first surface as an E401/404 mystery on
+# release day. Failing here = red scheduled run = email.
+#
+# Supply-chain posture mirrors live-probe (the other secret-holding
+# workflow) and goes one step further: ZERO actions used — the runner ships
+# node+npm, so there is nothing to pin and nothing to compromise. Exactly
+# one secret lives in this workflow; NPM_TOKEN is deliberately NOT added to
+# live-probe (blast radius stays one secret per holder job).
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily 06:00 UTC, half an hour after live-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: token-health
+  cancel-in-progress: true
+
+jobs:
+  whoami:
+    runs-on: ubuntu-latest
+    steps:
+      - name: npm whoami against the registry
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NPM_TOKEN:-}" ]; then
+            echo "NPM_TOKEN secret is not set on this repository — add it under Settings ▸ Secrets ▸ Actions." >&2
+            exit 1
+          fi
+          # npm reads credentials from .npmrc, not from NODE_AUTH_TOKEN
+          # directly (that env var is a setup-node convention we don't use
+          # here). Write the scoped auth line, then probe.
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/.npmrc"
+          OUT=$(NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/.npmrc" \
+            npm whoami --registry=https://registry.npmjs.org/ --no-audit --no-fund 2>&1) && RC=0 || RC=$?
+          if [ "$RC" -eq 0 ]; then
+            {
+              echo "### NPM_TOKEN health OK"
+              echo "registry whoami succeeded (user: $OUT)"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "token health OK"
+            exit 0
+          fi
+          {
+            echo "### NPM_TOKEN health FAILED (npm exit $RC)"
+            echo '```'
+            # Long opaque runs are the token shape; never echo them.
+            sed -E 's/[A-Za-z0-9_-]{30,}/<REDACTED>/g' <<< "$OUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -q "401\|E401" <<< "$OUT" \
+            && echo "401: token invalid/expired — rotate on npmjs.com and update the repo secret." >&2
+          echo "npm whoami failed (exit $RC)" >&2
+          exit 1
