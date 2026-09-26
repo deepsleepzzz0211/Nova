@@ -59,15 +59,61 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+  # Publish-path rehearsal on every PR (p1-p2 02, report-10): everything the
+  # tag job does with the artifact EXCEPT publishing. beta.0/1/2-era
+  # surprises (file inclusion, broken bin wiring) surface here at PR cost —
+  # no secrets involved, `npm publish --dry-run` needs no auth.
+  publish-dry-run:
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: npm publish --dry-run (local packaging pass)
+        run: |
+          # npm publish --dry-run checks the REAL registry for a version
+          # collision — with package.json still at the shipped 0.3.0 that
+          # would red every PR forever. Swap in a throwaway dry-run version
+          # in this ephemeral workspace so npm's packaging pass runs clean;
+          # collision at release time remains the tag job's business.
+          npm version --no-git-tag-version "0.0.0-dryrun.${GITHUB_RUN_ID}"
+          # --tag is mandatory for prerelease-looking versions; nothing is
+          # pushed because this stays --dry-run.
+          npm publish --dry-run --access public --ignore-scripts --tag next
+      - name: Pack manifest assertions (bin present, dev dirs absent)
+        run: node scripts/pack-check.mjs --keep | tee pack.out
+      - name: Install the tarball and boot the bin headless
+        shell: bash
+        run: |
+          # Name comes from pack-check's report (an `ls` of possibly-absent
+          # globs would abort this -e/pipefail step on its non-zero exit).
+          TARBALL="./$(sed -n 's/^\[PACK\] TARBALL=//p' pack.out | head -1)"
+          test -f "$TARBALL"
+          npm i -g "$TARBALL"
+          nova --version
+          # Same Ink non-TTY trick as publish.yml: the Raw-mode error PROVES
+          # the bin loaded, resolved deps and started rendering.
+          NOVA_API_KEY=sk-ci-smoke-dummy timeout 60 nova > /tmp/boot.log 2>&1 || true
+          if ! grep -q "Raw mode is not supported" /tmp/boot.log; then
+            echo "bin boot FAILED"; cat /tmp/boot.log; exit 1
+          fi
+          echo "bin boot OK"
+
   # Single stable-name aggregate gate: branch protection requires ONLY this
   # context, so adding or dropping matrix cells above never deadlocks merges
   # (a matrix-expanded required check that stops being reported blocks every
   # PR with "Expected — Waiting for status to be reported").
   ci-ready:
-    needs: [secret-scan, test]
+    needs: [secret-scan, test, publish-dry-run]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every matrix leg succeeded
         run: exit 1
-        if: ${{ needs.test.result != 'success' || needs['secret-scan'].result != 'success' }}
+        if: ${{ needs.test.result != 'success' || needs['secret-scan'].result != 'success' || needs['publish-dry-run'].result != 'success' }}

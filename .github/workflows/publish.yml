@@ -49,6 +49,30 @@ jobs:
       - uses: ./.github/actions/verify
         with:
           node-version: ${{ matrix.node }}
+      # Ship the bytes that were actually verified (p1-p2 05, report-13):
+      # the ubuntu leg exports the build its gate just exercised, the
+      # publish job consumes it instead of reinstalling+rebuilding (~37 s
+      # saved and no "fresh build in a slightly different env" divergence).
+      - name: Checksum the verified dist (manifest consumed by the publish job)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          (cd dist && find . -type f | sort | xargs sha256sum) | sed 's|  \./|  dist/|' > dist-checksums.txt
+          cat dist-checksums.txt
+      - name: Upload verified dist
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+      - name: Upload dist checksum manifest
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist-checksums
+          path: dist-checksums.txt
+          retention-days: 1
 
   publish:
     needs: test
@@ -58,16 +82,30 @@ jobs:
       contents: write # for GitHub Release
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0   # reads packageManager from package.json
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org/"
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - name: Download the dist the test matrix verified
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist
+      - name: Download the checksum manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist-checksums
+      - name: Verify dist integrity (programmatic, p1-p2 05 review)
+        shell: bash
+        run: sha256sum -c dist-checksums.txt
+      - name: Pack manifest assertions (bin present, dev dirs absent)
+        run: node scripts/pack-check.mjs
       - name: Dry-run pack (catch file-inclusion surprises before publishing)
-        run: npm publish --dry-run --access public
+        # --ignore-scripts: prepublishOnly (scan/typecheck/test/build) is the
+        # LOCAL release safety net. In this job every one of those checks has
+        # already run as its own explicit step, and the deps aren't installed
+        # by design (p1-p2 05) — running it here would only crash on tsc.
+        run: npm publish --dry-run --access public --ignore-scripts --tag next
       - name: Publish
         id: publish
         shell: bash
@@ -80,25 +118,17 @@ jobs:
             echo "prerelease tag → dist-tag: next"
             EXTRA_FLAGS="--tag next"
           fi
-          npm publish --access public --provenance $EXTRA_FLAGS 2>&1 | tee /tmp/publish.log
+          npm publish --access public --provenance --ignore-scripts $EXTRA_FLAGS 2>&1 | tee /tmp/publish.log
           exit ${PIPESTATUS[0]}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # Propagation wait gates the Release (don't announce a version the
-      # registry cannot serve yet), but registry lag beyond this budget must
-      # not skip the Release of an artifact that published fine (beta.2:
-      # verify's old 90s budget red-failed the job and the Release had to
-      # be created by hand).
+      # registry cannot serve yet), but registry lag beyond the budget must
+      # not red the job of an artifact that published fine (beta.2 lesson —
+      # the budget stays ~5 min, only the cadence got smarter, p1-p2 06).
       - name: Wait for registry propagation
         shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          for i in $(seq 1 20); do
-            npm view @posuiqianqiu/nova@$VERSION version >/dev/null 2>&1 && exit 0
-            echo "waiting for registry sync ($i/20)..."; sleep 15
-          done
-          echo "version still not visible after 5 minutes" >&2
-          exit 1
+        run: node scripts/wait-for-registry.mjs "$(node -p "require('./package.json').version")"
       - name: GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:

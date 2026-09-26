@@ -6,10 +6,12 @@
  *   1. the HEAD working tree (all tracked files)
  *   2. the ENTIRE git history (a tag carries every commit)
  *
- * Detection is by well-known token prefixes with minimum lengths chosen so
- * that test fixtures (sk-test / tvly-x / tvly-test / sk-abc123) never match.
- * The scanner excludes its own file: its regex sources contain token-prefix
- * literals by definition.
+ * Detection is by well-known token prefixes (npm/GitHub/OpenAI/Tavily/AWS/
+ * Slack/Stripe/GCP-service-account/PEM) with minimum lengths chosen so that
+ * test fixtures (sk-test / tvly-x / tvly-test / sk-abc123) never match.
+ * The scanner excludes its own file (its regex sources contain token-prefix
+ * literals by definition); further legitimate exceptions go in
+ * .secretsignore (one exact tracked path per line), not in this source file.
  *
  * History scan is SINGLE-PROCESS: `git grep -E <pattern> <revs...>` takes
  * many revisions per invocation (chunked to stay under the OS argv limit),
@@ -27,15 +29,14 @@ const ROOT = path.resolve(process.argv[2] ?? '.');
 const SELF_RELATIVE = 'scripts/scan-secrets.mjs';
 
 /**
- * Fixture allowlist — the ONE tracked path permitted to contain
- * full-length fake tokens (the scanner's own contract test plants them).
- * GitHub secret scanning stays honest there only because the live file
- * assembles tokens by concatenation; but the test's earlier commits put
- * literals into history, and history is exactly what this scanner reads
- * (lesson 31: rewriting the file cannot un-blob a commit). A contentless
- * path exclusion is the honest fix for a fake-token fixture file.
+ * Re-allowlist (p1-p2 08): repo-root `.secretsignore`, one exact tracked path per
+ * line (`#` comments allowed). Replaces the hardcoded single-path fixture
+ * exemption from audit-fixes 04 — legitimate exceptions (the scanner
+ * contract test's planted fakes, illustrative key blocks in docs) are data,
+ * not a source edit. Path-only by design: content-based waivers rot into
+ * places real secrets can hide. Absent file = no extra exclusions.
  */
-const FIXTURE_ALLOWLIST = ['tests/plan/scan-secrets.test.ts'];
+const SECRETS_IGNORE = '.secretsignore';
 
 /** Revisions per `git grep` invocation; keeps argv well under OS limits. */
 const REV_BATCH = 400;
@@ -46,7 +47,25 @@ const PATTERNS = [
   { name: 'GitHub fine-grained PAT', re: /github_pat_[A-Za-z0-9_]{20,}/ },
   { name: 'GitHub classic token', re: /gh[posur]_[A-Za-z0-9]{20,}/ },
   { name: 'npm token', re: /npm_[A-Za-z0-9]{20,}/ },
+  { name: 'AWS access key id', re: /AKIA[0-9A-Z]{16}/ },
+  { name: 'Slack token', re: /xox[baprs]-[A-Za-z0-9-]{20,}/ },
+  { name: 'Stripe secret key', re: /sk_(live|test)_[0-9a-zA-Z]{20,}/ },
+  // ` *` not `\s*`: the history pass runs POSIX ERE (git grep), which has
+  // no \s — this form is valid in both engines.
+  { name: 'GCP service-account key JSON', re: /"private_key_id": *"/ },
+  { name: 'PEM private key block', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
 ];
+
+function loadExclusions() {
+  const file = path.join(ROOT, SECRETS_IGNORE);
+  const base = [SELF_RELATIVE];
+  if (!fs.existsSync(file)) return base;
+  const lines = fs.readFileSync(file, 'utf-8')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+  return [...new Set([...base, ...lines])];
+}
 
 const findings = [];
 
@@ -89,10 +108,11 @@ function gitGrepOrEmpty(args) {
 
 function main() {
   const startedAt = Date.now();
+  const exclusions = loadExclusions();
 
   // ---- 1. HEAD working tree (tracked files only) ----
   const tracked = git(['ls-files']).split('\n')
-    .filter((f) => f && f !== SELF_RELATIVE && !FIXTURE_ALLOWLIST.includes(f));
+    .filter((f) => f && !exclusions.includes(f));
   for (const file of tracked) {
     let content;
     try {
@@ -104,14 +124,14 @@ function main() {
   }
 
   // ---- 2. Full history (a version tag publishes every commit) ----
-  // `git grep -I` skips binary files; pathspec excludes the scanner itself.
+  // `git grep -I` skips binary files; pathspecs carry the exclusions.
   const combined = PATTERNS.map((p) => `(${p.re.source})`).join('|');
   const commits = git(['rev-list', 'HEAD']).split('\n').filter(Boolean);
   for (let i = 0; i < commits.length; i += REV_BATCH) {
     const batch = commits.slice(i, i + REV_BATCH);
     const out = gitGrepOrEmpty([
       'grep', '-I', '-n', '-E', combined, ...batch,
-      '--', '.', ...FIXTURE_ALLOWLIST.map((p) => `:(exclude)${p}`), `:(exclude)${SELF_RELATIVE}`,
+      '--', '.', ...exclusions.map((p) => `:(exclude)${p}`),
     ]);
     for (const line of out.split('\n')) {
       if (!line.trim()) continue;

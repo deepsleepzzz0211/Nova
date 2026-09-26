@@ -1,8 +1,4 @@
 {
   "version": 1,
-  "violations": [
-    "maxFileLines:agent/loop.ts",
-    "maxFileLines:index.tsx",
-    "maxFileLines:tui/hooks/useAgent.ts"
-  ]
+  "violations": []
 }

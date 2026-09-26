@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-// @ts-expect-error plain ESM helper without types (scripts/lib) — accepted seam for test reuse
+// allowJs in tsconfig.tests resolves this .mjs helper's JSDoc types now
+// (p1-p2 02) — the pre-allowJs "@ts-expect-error without types" seam died.
 import { parseSseEvents, assertShape } from '../../scripts/lib/sse-shape.mjs';
 
 const fixture = (name: string): string =>

@@ -22,6 +22,14 @@ const FAKE = {
   ghPat: fake('github_pat_', 'FAKEFAKEFAKE000000001111222233334444'),
   ghClassic: fake('ghp_', 'FAKEFAKEFAKEFAKE0000000011112222'),
   npm: fake('npm_', 'FAKEFAKEFAKE0000111122223333'),
+  aws: fake('AKIA', 'FAKE0FAKE1FAKE2FAKE'),
+  slack: fake('xoxb-', 'FAKE-FAKE-FAKE-FAKE01'),
+  stripe: fake('sk_live_', 'FAKEFAKEFAKEFAKE012345'),
+  // GCP + PEM live in a fixture file EXCLUDED via .secretsignore (written
+  // per-test below) — this test file's own history would otherwise trip
+  // the scanner, so keep these builds concatenation-safe forever.
+  gcpKey: '"private_key_id": ' + '"FAKE123"',
+  pem: fake('-----BEGIN ', 'RSA PRIVATE KEY-----'),
 };
 
 function git(repo: string, ...args: string[]): string {
@@ -82,7 +90,7 @@ describe('scan-secrets.mjs (audit-fixes 04)', () => {
 
   it('flags every token shape deleted from the tree but living in history', () => {
     writeAndCommit(repo, 'README.md', '# clean\n');
-    const all = Object.values(FAKE).map((t) => `"${t}"`).join('\n');
+    const all = Object.values(FAKE).map((t) => `${t}`).join('\n');
     writeAndCommit(repo, 'src/leaky.ts', `const keys = [\n${all}\n];\n`);
     git(repo, 'rm', '-q', 'src/leaky.ts');
     git(repo, 'commit', '-m', 'remove leaky file');
@@ -93,6 +101,29 @@ describe('scan-secrets.mjs (audit-fixes 04)', () => {
     expect(run.stderr).toContain('GitHub fine-grained PAT');
     expect(run.stderr).toContain('GitHub classic token');
     expect(run.stderr).toContain('npm token');
+    expect(run.stderr).toContain('AWS access key id');
+    expect(run.stderr).toContain('Slack token');
+    expect(run.stderr).toContain('Stripe secret key');
+    expect(run.stderr).toContain('GCP service-account key JSON');
+    expect(run.stderr).toContain('PEM private key block');
+  });
+
+  it('.secretsignore waives listed paths; removing a line re-arms them', () => {
+    writeAndCommit(repo, 'README.md', '# clean\n');
+    writeAndCommit(repo, 'fixtures/planted.ts', `export const k = "${FAKE.openai}";\n`);
+    const ignore = path.join(repo, '.secretsignore');
+    fs.writeFileSync(ignore, '# legit fakes\nfixtures/planted.ts\n');
+    git(repo, 'add', '.secretsignore');
+    git(repo, 'commit', '-m', 'ignore fixtures');
+    const waived = runScanner(repo);
+    expect(waived.status).toBe(0);
+
+    fs.writeFileSync(ignore, '# decision reversed\n');
+    git(repo, 'add', '.secretsignore');
+    git(repo, 'commit', '-m', 'drop the waiver');
+    const rearmed = runScanner(repo);
+    expect(rearmed.status).toBe(1);
+    expect(rearmed.stderr).toContain('OpenAI/OpenCode-style key');
   });
 
   it('never matches the short test fixtures documented in the header', () => {

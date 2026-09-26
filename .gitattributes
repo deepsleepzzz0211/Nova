@@ -1,1 +1,13 @@
+# Normalize source trees to LF on every platform: vitest .mjs imports break on
+# shebang+CRLF (p1-p2-gates PR #100 windows-leg SyntaxError), and mixed
+# line endings churn diffs. Binaries untouched.
+*.ts  text eol=lf
+*.tsx text eol=lf
+*.js  text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md  text eol=lf
 *.sse text eol=lf
