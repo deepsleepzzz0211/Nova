@@ -110,20 +110,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # Propagation wait gates the Release (don't announce a version the
-      # registry cannot serve yet), but registry lag beyond this budget must
-      # not skip the Release of an artifact that published fine (beta.2:
-      # verify's old 90s budget red-failed the job and the Release had to
-      # be created by hand).
+      # registry cannot serve yet), but registry lag beyond the budget must
+      # not red the job of an artifact that published fine (beta.2 lesson —
+      # the budget stays ~5 min, only the cadence got smarter, p1-p2 06).
       - name: Wait for registry propagation
         shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          for i in $(seq 1 20); do
-            npm view @posuiqianqiu/nova@$VERSION version >/dev/null 2>&1 && exit 0
-            echo "waiting for registry sync ($i/20)..."; sleep 15
-          done
-          echo "version still not visible after 5 minutes" >&2
-          exit 1
+        run: node scripts/wait-for-registry.mjs "$(node -p "require('./package.json').version")"
       - name: GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
