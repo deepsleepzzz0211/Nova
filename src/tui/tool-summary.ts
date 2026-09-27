@@ -98,6 +98,7 @@ const VERBS: Record<string, string> = {
   edit_file: 'Edit',
   append_file: 'Append',
   bash: 'Bash',
+  powershell: 'PowerShell',
   web_search: 'Search',
   web_fetch: 'Fetch',
   todo_write: 'Todos',

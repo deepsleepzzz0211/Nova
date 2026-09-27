@@ -5,9 +5,13 @@
  * startup. The composition root consumes the returned bag as-is.
  */
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { novaHome } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
-import { gatherEnvironment, loadProjectInstructions } from '../agent/environment.js';
+import { gatherEnvironment, loadProjectInstructions, type ShellFacts } from '../agent/environment.js';
+import { resolveShellFromProcess, summarizeShellPlan, defaultShellProbe } from '../tools/shell-routing.js';
+import { toSlashes } from '../shared/paths.js';
+import { resolvePowerShell } from '../tools/powershell.js';
 import { MCPManager } from '../mcp/manager.js';
 import { readMemorySections, createMemoryTool } from '../memory/store.js';
 import { PermissionPolicy } from '../permission/policy.js';
@@ -21,6 +25,7 @@ import { createListDirTool } from '../tools/list-dir.js';
 import { createWriteFileTool } from '../tools/write-file.js';
 import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
+import { createPowerShellTool, shouldRegisterPowerShell } from '../tools/powershell.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import { createTodoTool, type TodoState } from '../tools/todo.js';
@@ -63,6 +68,27 @@ export function runPinSkills(projectDir: string, pinSkillsDir: string): never {
   }
 }
 
+/** One-time interpreter facts for the system prompt (windows-shell 02). */
+export function collectShellFacts(platform: NodeJS.Platform = os.platform()): ShellFacts {
+  let facts: ShellFacts;
+  try {
+    const summary = summarizeShellPlan(resolveShellFromProcess());
+    facts = { shell: summary.shell, ...(summary.note !== undefined ? { shellNote: summary.note } : {}) };
+  } catch (err) {
+    facts = {
+      shell: `unresolved (${err instanceof Error ? err.message : String(err)})`,
+      shellNote: 'The bash tool refuses to run until this is fixed — point NOVA_SHELL at a valid interpreter or unset it.',
+    };
+  }
+  if (platform === 'win32') {
+    const ps = resolvePowerShell(defaultShellProbe);
+    facts.powershell = ps === null
+      ? 'not found (powershell tool unavailable)'
+      : `${ps.flavor === 'pwsh' ? 'pwsh 7' : 'Windows PowerShell'} available via the powershell tool (${toSlashes(ps.path)})`;
+  }
+  return facts;
+}
+
 export async function buildToolRuntime(opts: {
   config: AppConfig;
   llm: LLMProvider;
@@ -83,8 +109,10 @@ export async function buildToolRuntime(opts: {
   await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'), { onWarn: skillWarn });
   await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'), { onWarn: skillWarn });
 
-  // Environment facts + project instructions for the system prompt
-  const environment = gatherEnvironment(projectDir);
+  // Environment facts + project instructions for the system prompt. Shell
+  // facts are resolved ONCE here (DI glue; the agent layer stays free of
+  // tools-value imports) and frozen into the prompt with the rest.
+  const environment = gatherEnvironment(projectDir, { shellFacts: collectShellFacts() });
   const projectInstructions = loadProjectInstructions(projectDir);
 
   // Learned memory: user-level + project-level, read ONCE and frozen into
@@ -149,6 +177,11 @@ export async function buildToolRuntime(opts: {
     },
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));
+  // Windows-only native command channel (windows-shell 03); POSIX sessions
+  // never see this tool at all.
+  if (shouldRegisterPowerShell(os.platform())) {
+    toolRegistry.register(createPowerShellTool());
+  }
 
   // Start MCP servers
   const mcpManager = new MCPManager();
