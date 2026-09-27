@@ -35,6 +35,9 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      ripgrep:
+        specifier: 0.3.1
+        version: 0.3.1
       smol-toml:
         specifier: ^1.8.0
         version: 1.8.0
@@ -2241,6 +2244,10 @@ packages:
   retry@0.13.1:
     resolution: {integrity: sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==}
     engines: {node: '>= 4'}
+
+  ripgrep@0.3.1:
+    resolution: {integrity: sha512-6bDtNIBh1qPviVIU685/4uv0Ap5t8eS4wiJhy/tR2LdIeIey9CVasENlGS+ul3HnTmGANIp7AjnfsztsRmALfQ==}
+    hasBin: true
 
   rolldown@1.1.5:
     resolution: {integrity: sha512-t9z29cJjXf/vxQ8dyhCSpt6H6aSwHTk8cT5I3iy6SMXuFpk5mB6PL6XfC8PCwrPTx93udwKUm9HRteAlTGBLiA==}
@@ -4787,6 +4794,8 @@ snapshots:
       signal-exit: 3.0.7
 
   retry@0.13.1: {}
+
+  ripgrep@0.3.1: {}
 
   rolldown@1.1.5:
     dependencies:
