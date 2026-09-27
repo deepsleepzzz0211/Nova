@@ -1,6 +1,6 @@
-import { spawn } from 'child_process';
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
+import { runSpawnCommand } from './spawn-runner.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -62,49 +62,16 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): To
       announceFallbackOnce(plan);
       const invocation = buildSpawnInvocation(plan, command);
 
-      return new Promise<ToolResult>((resolve) => {
-        const child = spawn(invocation.file, invocation.args, {
-          cwd: context.workingDirectory,
-          signal: context.abortSignal,
-          stdio: [invocation.stdinText === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-          windowsHide: true,
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-        child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-        if (invocation.stdinText !== undefined && child.stdin) {
-          child.stdin.on('error', () => { /* EPIPE when the shell exits early */ });
-          child.stdin.end(invocation.stdinText);
-        }
-
-        const timer = setTimeout(() => {
-          child.kill('SIGTERM');
-          const killTimer = setTimeout(() => { child.kill('SIGKILL'); }, 5000);
-          child.on('close', () => { clearTimeout(killTimer); });
-        }, timeout);
-
-        child.on('close', (code) => {
-          clearTimeout(timer);
-          const output = [stdout, stderr].filter(Boolean).join('');
-          resolve({
-            content: output,
-            metadata: { exitCode: code ?? 1 },
-          });
-        });
-
-        child.on('error', (err) => {
-          clearTimeout(timer);
-          resolve({
-            content: err.message,
-            isError: true,
-            metadata: { exitCode: 1 },
-          });
-        });
+      const result = await runSpawnCommand(invocation, {
+        cwd: context.workingDirectory,
+        signal: context.abortSignal,
+        timeoutMs: timeout,
       });
+      return {
+        content: result.content,
+        ...(result.isError !== undefined ? { isError: true } : {}),
+        metadata: { exitCode: result.exitCode },
+      };
     },
   };
 }

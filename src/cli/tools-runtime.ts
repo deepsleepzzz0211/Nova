@@ -5,6 +5,7 @@
  * startup. The composition root consumes the returned bag as-is.
  */
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { novaHome } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
 import { gatherEnvironment, loadProjectInstructions } from '../agent/environment.js';
@@ -21,6 +22,7 @@ import { createListDirTool } from '../tools/list-dir.js';
 import { createWriteFileTool } from '../tools/write-file.js';
 import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
+import { createPowerShellTool, shouldRegisterPowerShell } from '../tools/powershell.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import { createTodoTool, type TodoState } from '../tools/todo.js';
@@ -149,6 +151,11 @@ export async function buildToolRuntime(opts: {
     },
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));
+  // Windows-only native command channel (windows-shell 03); POSIX sessions
+  // never see this tool at all.
+  if (shouldRegisterPowerShell(os.platform())) {
+    toolRegistry.register(createPowerShellTool());
+  }
 
   // Start MCP servers
   const mcpManager = new MCPManager();

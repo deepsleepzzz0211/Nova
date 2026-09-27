@@ -5,7 +5,8 @@ CLI AI Agent built with Ink and React — streaming LLM chat with tool use in th
 ## Features
 
 - **Streaming agent loop** — token-by-token output, multi-round tool calling with parallel execution
-- **Built-in tools** — `read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `list_dir`, `web_search` (Tavily), `web_fetch`, `todo_write`, `spawn_subagent` (plus `memory_write`, see below)
+- **Built-in tools** — `read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `list_dir`, `web_search` (Tavily), `web_fetch`, `todo_write`, `spawn_subagent` (plus `memory_write`, see below; plus `powershell`, registered only on Windows)
+- **Windows shell routing** — bash commands run through Git Bash (POSIX syntax, auto-detected; override with `NOVA_SHELL`, escape hatch `NOVA_SHELL=cmd`), with a first-class `powershell` tool (pwsh 7 preferred) for Windows-native commands
 - **Code search** — `grep` (ripgrep content search), `glob` (file-name matcher), `list_dir` (directory listing), all on the embedded ripgrep engine run off-thread with a bounded timeout — replacing bash `grep`/`find`/`ls` that broke on Windows
 - **MCP support** — connect Model Context Protocol servers, tools bridge into the same pipeline
 - **Context engineering** — reserve-based auto-compaction (zero-LLM tool-result clearing → structured summary → truncation fallback), reactive recovery on context overflow, tool-result truncation with `[PARTIAL]` markers, `/compact` manual trigger
