@@ -97,9 +97,13 @@ describe('Tool error-path contents', () => {
     expect(fs.readFileSync(file, 'utf-8')).toBe('onetwo');
   });
 
+  // Forward slashes: the win32 default plan is now Git Bash (windows-shell 01),
+  // which reads `D:\...` as escapes; posix paths work in both interpreters.
+  const nodeExe = () => process.execPath.split('\\').join('/');
+
   it('bash: failing command reports nonzero exit code in metadata', async () => {
     const result = await createBashTool().execute(
-      { command: `${process.execPath} -e "process.exit(7)"`, timeout: 10_000 },
+      { command: `${nodeExe()} -e "process.exit(7)"`, timeout: 10_000 },
       ctx(tmp),
     );
     expect(result.metadata?.exitCode).toBe(7);
@@ -108,7 +112,7 @@ describe('Tool error-path contents', () => {
   it('bash: combines stdout and stderr', async () => {
     const result = await createBashTool().execute(
       {
-        command: `${process.execPath} -e "console.log('out'); console.error('err')"`,
+        command: `${nodeExe()} -e "console.log('out'); console.error('err')"`,
         timeout: 10_000,
       },
       ctx(tmp),
