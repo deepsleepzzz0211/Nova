@@ -9,12 +9,27 @@ export interface PromptEnvironment {
   gitBranch?: string;
   gitStatus?: string;
   isGitRepo: boolean;
+  /** Resolved command interpreter for the bash tool (windows-shell 02). */
+  shell?: string;
+  /** Downgrade warning shown when the interpreter is a capability fallback. */
+  shellNote?: string;
+  /** PowerShell availability (win32 only). */
+  powershell?: string;
+}
+
+/** Shell facts gathered by the DI root (the agent layer never resolves shells itself). */
+export interface ShellFacts {
+  shell: string;
+  shellNote?: string;
+  powershell?: string;
 }
 
 /** Options for environment gathering (test seams). */
 export interface GatherOptions {
   /** Test seam: pretend the directory is not inside a git repository. */
   pretendNoGit?: boolean;
+  /** Pre-resolved interpreter facts (from the tools layer). */
+  shellFacts?: ShellFacts;
 }
 
 function runGit(args: string[], cwd: string): string | undefined {
@@ -40,6 +55,9 @@ export function gatherEnvironment(cwd: string, options?: GatherOptions): PromptE
     workingDirectory: cwd,
     platform: process.platform,
     isGitRepo: false,
+    ...(options?.shellFacts?.shell !== undefined ? { shell: options.shellFacts.shell } : {}),
+    ...(options?.shellFacts?.shellNote !== undefined ? { shellNote: options.shellFacts.shellNote } : {}),
+    ...(options?.shellFacts?.powershell !== undefined ? { powershell: options.shellFacts.powershell } : {}),
   };
 
   if (options?.pretendNoGit) {

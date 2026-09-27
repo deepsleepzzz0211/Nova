@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import * as os from 'node:os';
+import { toSlashes } from '../shared/paths.js';
 
 /**
  * Shell routing for command tools (windows-shell ticket 01), modeled on the
@@ -150,4 +151,23 @@ export function buildSpawnInvocation(plan: ShellPlan, command: string): SpawnInv
     return { file: plan.path, args: ['-s'], stdinText: `${command}\n` };
   }
   return { file: plan.path, args: ['-c', command] };
+}
+
+/**
+ * Human/model-facing one-line description of a resolved plan, for the
+ * environment section of the system prompt (windows-shell ticket 02).
+ * `note` is present only when the interpreter is a capability downgrade.
+ */
+export function summarizeShellPlan(plan: ShellPlan): { shell: string; note?: string } {
+  if (plan.kind === 'bash') {
+    return {
+      shell: `${plan.label.startsWith('custom') ? 'custom bash' : plan.label} (${toSlashes(plan.path)}) — POSIX-compatible bash; bash syntax (pipes, &&, $(), for) works`,
+    };
+  }
+  return {
+    shell: `cmd.exe [${plan.label}]`,
+    ...(plan.fallbackNotice !== undefined
+      ? { note: 'POSIX bash syntax (pipes to unix tools, $(), for-loops) will NOT work here — install Git for Windows or set NOVA_SHELL to a bash.exe path.' }
+      : {}),
+  };
 }

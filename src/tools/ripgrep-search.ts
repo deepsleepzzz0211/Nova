@@ -8,6 +8,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { toSlashes } from '../shared/paths.js';
 
 /** Result of one raw ripgrep invocation. */
 export interface RipgrepResult {
@@ -48,10 +49,8 @@ export interface SearchRequest {
 /** Default visible cap; 0 means unlimited. Mirrors the industry head_limit norm. */
 export const DEFAULT_HEAD_LIMIT = 250;
 
-/** Convert Windows separators to the forward slashes the WASM guest requires. */
-export function toSlashes(p: string): string {
-  return p.split('\\').join('/');
-}
+// Re-export the shared path helper so search callers keep a single import point.
+export { toSlashes };
 
 /** Build the ripgrep argv for one search request. */
 export function buildGrepArgs(req: SearchRequest): string[] {

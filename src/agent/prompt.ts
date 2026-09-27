@@ -146,6 +146,15 @@ export function buildSystemPrompt(
     parts.push('', '## Environment');
     parts.push(`Working directory: ${env.workingDirectory}`);
     parts.push(`Platform: ${env.platform}`);
+    if (env.shell) {
+      parts.push(`Shell: ${env.shell}`);
+      if (env.shellNote) {
+        parts.push(`Shell note: ${env.shellNote}`);
+      }
+    }
+    if (env.powershell) {
+      parts.push(`PowerShell: ${env.powershell}`);
+    }
     if (env.gitBranch) {
       parts.push(`Git branch: ${env.gitBranch}`);
     }
