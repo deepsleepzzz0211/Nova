@@ -104,4 +104,59 @@ describe('directory instruction injection through the loop', () => {
       process.chdir(prevCwd);
     }
   });
+
+  it('append-only: history bytes before the injection point are byte-identical to a run without the feature', async () => {
+    // Cache discipline: everything the provider saw BEFORE the injected
+    // system message must be identical, so the prompt-cache prefix survives.
+    let responses: StreamChunk[][] = [];
+
+    async function run(withFeature: boolean): Promise<Message[][]> {
+      const capture: Message[][] = [];
+      responses = [
+        call('c1', 'read_file', JSON.stringify({ path: path.join(root, 'sub', 'f.ts') })),
+        [{ type: 'text_delta', content: 'done' }],
+      ];
+      const registry = new ToolRegistry();
+      registry.register(createReadFileTool());
+      let respIdx = 0;
+      const llm: LLMProvider = {
+        name: 'fake',
+        capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
+        async *chat(msgs: Message[], _opts: ChatOptions): AsyncIterable<StreamChunk> {
+          capture.push([...msgs]);
+          for (const c of responses[respIdx++] ?? []) yield c;
+        },
+      };
+      const loop = new AgentLoop({
+        llm,
+        toolRegistry: registry,
+        toolExecutionPipeline: new ToolExecutionPipeline(new ToolResultCache(), policy),
+        config: { maxToolRounds: 5, model: 'test' },
+        directoryInstructions: withFeature ? new DirectoryInstructions({ rootDir: root }) : undefined,
+        onToken: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        onPermissionRequest: async () => true,
+      });
+      const prevCwd = process.cwd();
+      process.chdir(root);
+      try {
+        await loop.processUserInput('read it');
+      } finally {
+        process.chdir(prevCwd);
+      }
+      return [...capture];
+    }
+
+    const withRuns = await run(true);
+    const withoutRuns = await run(false);
+    // Round 2 (the post-tool round) is where the injection lands.
+    const withRound2 = withRuns[withRuns.length - 1];
+    const withoutRound2 = withoutRuns[withoutRuns.length - 1];
+    // Without the feature the history is [user, assistant(call), tool].
+    expect(withoutRound2.map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+    // With it, the same prefix bytes plus the appended system message.
+    expect(withRound2.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'system']);
+    expect(JSON.stringify(withRound2.slice(0, 3))).toBe(JSON.stringify(withoutRound2));
+  });
 });

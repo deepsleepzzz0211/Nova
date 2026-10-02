@@ -7,7 +7,7 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
-import { DirectoryInstructions } from '../../agent/directory-instructions.js';
+import type { DirectoryInstructions } from '../../agent/directory-instructions.js';
 import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
@@ -47,6 +47,7 @@ export interface UseAgentConfig {
   initialHistory?: Message[];
   /** Skill registry for progressive disclosure. */
   skills?: SkillRegistry;
+  directoryInstructions?: DirectoryInstructions;
   /** Extra system prompt parts (environment facts, project instructions). */
   promptOptions?: BuildPromptOptions;
   /** Extra prompt section from config. */
@@ -131,8 +132,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     contextTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
-  // Session compaction totals for /status (cache-hit ticket 05); read at
-  // report time, so no re-render is needed.
+  // Session compaction totals for /status (cache-hit ticket 05), read at report time.
   const compactionTotalsRef = useRef<CompactionTotals>({ events: 0, reclaimedTokens: 0 });
   const [modelInfo, setModelInfo] = useState<{
     model: string;
@@ -157,8 +157,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     setApprovalMode(next);
     return next;
   };
-  // Bumped whenever the displayed conversation is replaced wholesale (/undo):
-  // Ink's static region is append-only and must be remounted to reprint.
+  // Bumped on wholesale conversation replacement (/undo): Ink's static region is append-only and must remount to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
 
   // Split-out concerns (p1-p2 11): streaming draft machine + approval gate.
@@ -187,11 +186,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       toolExecutionPipeline: config.toolExecutionPipeline,
       session: config.sessionStore,
       skills: config.skills,
-      // Lazy per-directory AGENTS.md (context-economics ticket 02). Root is
-      // the environment fact's working directory (same basis as read_file).
-      directoryInstructions: new DirectoryInstructions({
-        rootDir: config.promptOptions?.environment?.workingDirectory ?? process.cwd(),
-      }),
+      directoryInstructions: config.directoryInstructions,
       promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
       context:
         config.contextWindow !== undefined

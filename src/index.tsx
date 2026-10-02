@@ -12,6 +12,7 @@ import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
+import { DirectoryInstructions } from './agent/directory-instructions.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatWelcomeCard } from './tui/header.js';
@@ -135,6 +136,9 @@ async function main(): Promise<void> {
     sessionStore: session.sessionStore,
     initialHistory: session.initialHistory,
     skills: runtime.skillRegistry,
+    directoryInstructions: new DirectoryInstructions({
+      rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    }),
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,
