@@ -86,10 +86,15 @@ export class SessionStore {
     return path.basename(this.filePath, '.jsonl');
   }
 
+  /** File name for a new session (single source for create + resume decision). */
+  static nextFileName(now = new Date()): string {
+    const timestamp = now.toISOString().replace(/[:.]/g, '-');
+    return `session-${timestamp}.jsonl`;
+  }
+
   /** Create a store for a new session inside the given directory. */
   static create(dir: string, now = new Date()): SessionStore {
-    const timestamp = now.toISOString().replace(/[:.]/g, '-');
-    return new SessionStore(path.join(dir, `session-${timestamp}.jsonl`));
+    return new SessionStore(path.join(dir, SessionStore.nextFileName(now)));
   }
 
   /** Append an entry (message or checkpoint). Writes are chained to preserve ordering. */

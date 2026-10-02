@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   const printPrompt = typeof values.print === 'string' ? values.print : null;
   if (printPrompt !== null) {
     if (values['with-files'] === true) {
-      console.error('[undo] print mode keeps conversation-only revert; --with-files applies to the interactive /undo');
+      console.error('[undo] print mode records file checkpoints but never reverts them; code revert lives in the interactive /undo');
     }
     await runPrintMode({
       printPrompt,
