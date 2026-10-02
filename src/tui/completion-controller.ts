@@ -1,4 +1,5 @@
 import { detectCompletion, completeCommands, fuzzyMatchFiles, type CompletionContext } from './completions.js';
+import type { UserCommand } from '../commands/user-commands.js';
 
 /**
  * Completion popup state machine (tui-refactor ticket 17), extracted from
@@ -117,8 +118,8 @@ export class CompletionController {
   }
 
   /** Slash-completion items, shaped like the registry's command list. */
-  static commandItems(query: string): CompletionItem[] {
-    return completeCommands(query).map((command) => ({
+  static commandItems(query: string, userCommands: readonly UserCommand[] = []): CompletionItem[] {
+    return completeCommands(query, userCommands).map((command) => ({
       label: `/${command.name} — ${command.description}`,
       insert: command.acceptsArgs ? `/${command.name} ` : `/${command.name}`,
     }));

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { SLASH_COMMANDS } from './commands.js';
+import type { UserCommand } from '../commands/user-commands.js';
 
 import * as path from 'node:path';
 
@@ -52,13 +53,20 @@ export function detectCompletion(text: string, cursor: number): CompletionContex
 /** Prefix-filter slash commands (case-insensitive). */
 export function completeCommands(
   query: string,
+  userCommands: readonly UserCommand[] = [],
 ): Array<{ name: string; description: string; acceptsArgs: boolean }> {
   const q = query.toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({
-    name: c.name,
-    description: c.description,
-    acceptsArgs: c.acceptsArgs === true,
-  }));
+  const builtinNames = new Set(SLASH_COMMANDS.map((c) => c.name));
+  return [
+    ...SLASH_COMMANDS,
+    ...userCommands.filter((u) => !builtinNames.has(u.name)),
+  ]
+    .filter((c) => c.name.toLowerCase().startsWith(q))
+    .map((c) => ({
+      name: c.name,
+      description: c.description,
+      acceptsArgs: true,
+    }));
 }
 
 /**

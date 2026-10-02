@@ -6,6 +6,8 @@
  * needs no React/loop imports.
  */
 
+import type { UserCommand } from '../commands/user-commands.js';
+
 /** UI callbacks a command may use. Implemented by useAgent. */
 export interface SlashCommandContext {
   /** Append a user-echo message (the dispatcher echoes, not handlers). */
@@ -37,6 +39,8 @@ export interface SlashCommandContext {
   update(): Promise<{ message: string }>;
   /** Composed `/status` report (model, context, usage, cwd/branch, MCP). */
   statusReport(): string;
+  /** Loaded user commands, for /help's custom group (ticket 04). */
+  userCommands(): readonly UserCommand[];
 }
 
 export interface SlashCommand {
@@ -133,18 +137,55 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
       ctx.appendSystemMessage(ctx.statusReport());
     },
   },
+  {
+    name: 'help',
+    description: 'list built-in and custom slash commands',
+    run(ctx) {
+      const lines = ['Slash commands:'];
+      for (const c of SLASH_COMMANDS) lines.push(`  /${c.name} — ${c.description}`);
+      const customs = ctx.userCommands().filter((u) => !SLASH_COMMANDS.some((c) => c.name === u.name));
+      if (customs.length > 0) {
+        lines.push('', 'Custom commands (~/.nova/commands):');
+        for (const u of customs) {
+          const hint = u.argumentHint !== undefined ? ` ${u.argumentHint}` : '';
+          lines.push(`  /${u.name}${hint} — ${u.description}`);
+        }
+      }
+      ctx.appendSystemMessage(lines.join('\n'));
+    },
+  },
 ];
 
+
+/**
+ * Default clash reporter for findCommand: diagnostics go to stderr, and one
+ * shadowed name is reported once per process rather than on every submit.
+ */
+const reportedClashes = new Set<string>();
+export function reportClashOnce(message: string): void {
+  if (reportedClashes.has(message)) return;
+  reportedClashes.add(message);
+  process.stderr.write(`${message}\n`);
+}
+
 export interface FoundCommand {
-  command: SlashCommand;
+  command?: SlashCommand;
+  /** Slash line hit a user command (ticket 04) instead of a built-in. */
+  user?: UserCommand;
   args: string;
 }
 
 /**
  * Parse a submitted line into a command + raw arguments, or null when the
- * line is not a known command. Only a leading slash counts.
+ * line is not a known command. Only a leading slash counts. User commands
+ * (ticket 04) are consulted when no built-in matches; a name clash is
+ * reported through `clash` (built-ins always win).
  */
-export function findCommand(text: string): FoundCommand | null {
+export function findCommand(
+  text: string,
+  userCommands: readonly UserCommand[] = [],
+  clash: (message: string) => void = () => {},
+): FoundCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
   const body = trimmed.slice(1);
@@ -152,7 +193,14 @@ export function findCommand(text: string): FoundCommand | null {
   const name = space === -1 ? body : body.slice(0, space);
   const args = space === -1 ? '' : body.slice(space + 1).trim();
   const command = SLASH_COMMANDS.find((c) => c.name === name);
-  return command === undefined ? null : { command, args };
+  if (command !== undefined) {
+    if (userCommands.some((u) => u.name === name)) {
+      clash(`[commands] built-in "/${name}" shadows your custom command of the same name`);
+    }
+    return { command, args };
+  }
+  const user = userCommands.find((u) => u.name === name);
+  return user === undefined ? null : { user, args };
 }
 
 

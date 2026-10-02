@@ -35,8 +35,16 @@ nova --resume           # continue the last session
 nova --model <id>       # one-off model override
 ```
 
-TUI commands: `/model`, `/compact`, `/undo [n]`, `/update`
+TUI commands: `/model`, `/undo [n]`, `/compact`, `/update`, `/status`, `/help`
 
+User-defined slash commands: drop a markdown file at `~/.nova/commands/<name>.md`
+(migrated with `NOVA_HOME`). Optional front-matter (`description`, `argument_hint`)
+drives `/help` and completion; the body is a prompt template with `$1..$9` and
+`$ARGUMENTS` slots filled from the argument line (unfilled placeholders stay as
+typed). Running `/name args` sends the EXPANDED template as a normal user
+message — same trust path as typing it out. Names must be kebab-case; built-in
+commands always win a clash (one stderr note per shadowed name); empty or
+invalid files are skipped with a warning and never block startup.
 ```bash
 nova --list             # list previous sessions (scriptable)
 nova --resume           # interactive session picker (Enter = most recent)

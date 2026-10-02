@@ -5,6 +5,7 @@ import type {
   DisplayModelInfo,
   RestoredMessage,
 } from './display-types.js';
+import type { UserCommand } from '../commands/user-commands.js';
 import type { SlashCommandContext } from './commands.js';
 
 /** Dependencies the command context adapts onto the loop + UI state. */
@@ -38,6 +39,8 @@ export interface CommandContextDeps {
   requestUndoChoice?: (files: string[]) => Promise<'files' | 'chat' | 'cancel'>;
   /** --with-files: /undo restores code without asking. */
   undoWithFilesDefault?: boolean;
+  /** Loaded user commands, surfaced to /help (ticket 04). */
+  userCommands?: readonly UserCommand[];
 }
 
 /** UI-only conversation entries (drops tool/system rows for /undo restore). */
@@ -105,5 +108,6 @@ export function createCommandContext(deps: CommandContextDeps): SlashCommandCont
     },
     update: async () => deps.runUpdate(),
     statusReport: () => deps.buildStatusReport?.() ?? 'Status unavailable.',
+    userCommands: () => deps.userCommands ?? [],
   };
 }

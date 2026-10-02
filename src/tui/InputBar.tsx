@@ -24,6 +24,7 @@ import {
   type EditorState,
 } from './editor-state.js';
 import { buildFileIndex } from './completions.js';
+import type { UserCommand } from '../commands/user-commands.js';
 import {
   CompletionController,
   type ActiveCompletion,
@@ -56,6 +57,8 @@ export interface InputBarProps {
   onExit?: () => void;
   /** Root directory for @ file completions (defaults to cwd; test seam). */
   fileIndexRoot?: string;
+  /** User-defined slash commands merged into the / completion list (ticket 04). */
+  userCommands?: readonly UserCommand[];
   /** Model info for the inner status row (tui-redesign ticket 03). */
   modelInfo?: { providerName?: string; model: string; thinkingLevel?: string };
 }
@@ -79,6 +82,7 @@ export function InputBar({
   disabled,
   onExit,
   fileIndexRoot,
+  userCommands = [],
   modelInfo,
 }: InputBarProps): React.ReactElement {
   const [editor, setEditor] = useState<EditorState>(createEditorState);
@@ -93,7 +97,7 @@ export function InputBar({
   const completionRef = useRef<CompletionController | null>(null);
   if (completionRef.current === null) {
     completionRef.current = new CompletionController({
-      commands: (query) => CompletionController.commandItems(query),
+      commands: (query) => CompletionController.commandItems(query, userCommands),
       loadFiles: () => buildFileIndex(fileIndexRoot ?? process.cwd()),
       onChange: (state) => setCompletion(state),
     });

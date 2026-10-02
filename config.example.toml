@@ -77,6 +77,12 @@ workspace_write = true
 # command = "node scripts/note-filesize.js"   # reads the JSON, prints a note
 # timeout_ms = 10000                     # default; pre hooks fail closed on timeout
 
+# User-defined slash commands do NOT live in this file: they are markdown
+# files in ~/.nova/commands/<name>.md (NOVA_HOME-migrated) with optional
+# front-matter (description, argument_hint) and a prompt-template body
+# ($1..$9 / $ARGUMENTS slots). Built-ins always win a name clash; /help
+# lists both groups. See README.
+
 # MCP servers configuration
 [[mcp_servers]]
 name = "example-server"

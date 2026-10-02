@@ -9,13 +9,15 @@ import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
 import type { DirectoryInstructions } from '../../agent/directory-instructions.js';
 import type { FileHistory } from '../../agent/file-history.js';
+import type { UserCommand } from '../../commands/user-commands.js';
+import { expandUserCommand } from '../../commands/user-commands.js';
 import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
 import { runNpmUpdate } from '../../update/run-update.js';
-import { findCommand } from '../commands.js';
+import { findCommand, reportClashOnce } from '../commands.js';
 import { createCommandContext } from '../command-context.js';
-import { formatStatusReport, type CompactionTotals } from '../status-format.js';
+import { EMPTY_CACHE_STATS, cacheStatsOf, formatStatusReport, type CompactionTotals } from '../status-format.js';
 import { nextApprovalMode, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
 
 // UI display types live in a neutral module so the command/context layers
@@ -50,6 +52,8 @@ export interface UseAgentConfig {
   skills?: SkillRegistry;
   directoryInstructions?: DirectoryInstructions;
   fileHistory?: FileHistory;
+  /** User-defined slash commands (ticket 04). */
+  userCommands?: UserCommand[];
   /** App-owned two-way /undo gate (context-economics ticket 03). */
   requestUndoChoice?: (files: string[]) => Promise<'files' | 'chat' | 'cancel'>;
   /** --with-files: /undo restores code without asking. */
@@ -128,15 +132,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<PendingPermission | null>(null);
-  const [cacheStats, setCacheStats] = useState<CacheStatsView>({
-    hitRate: 0,
-    latestHitRate: 0,
-    totalCachedTokens: 0,
-    totalCacheWriteTokens: 0,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    contextTokens: 0,
-  });
+  const [cacheStats, setCacheStats] = useState<CacheStatsView>(EMPTY_CACHE_STATS);
   const metricsRef = useRef(new PromptCacheMetrics());
   // Session compaction totals for /status (cache-hit ticket 05), read at report time.
   const compactionTotalsRef = useRef<CompactionTotals>({ events: 0, reclaimedTokens: 0 });
@@ -217,16 +213,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       },
       onUsage: (usage) => {
         metricsRef.current.record(usage);
-        const m = metricsRef.current;
-        setCacheStats({
-          hitRate: m.hitRate,
-          latestHitRate: m.latestHitRate,
-          totalCachedTokens: m.totalCachedTokens,
-          totalCacheWriteTokens: m.totalCacheWriteTokens,
-          totalInputTokens: m.totalInputTokens,
-          totalOutputTokens: m.totalOutputTokens,
-          contextTokens: m.lastInputTokens,
-        });
+        setCacheStats(cacheStatsOf(metricsRef.current));
       },
       onCompaction: (info) => {
         // Net accumulation: a pass that GROWS the context subtracts rather than being clamped (review).
@@ -304,65 +291,16 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     });
   }, []);
 
-  const sendMessage = useCallback((input: string): void => {
-    const trimmed = input.trim();
-    if (!trimmed || isStreaming) return;
-
+  /** Append the user row (if any), then run the model input as a turn. */
+  const startTurn = useCallback((display: string | null, modelInput: string): void => {
     const loop = loopRef.current;
-    if (!loop) return;
-
-    // Slash commands: single registry (ticket 15); handlers receive UI callbacks here.
-    const found = findCommand(trimmed);
-    if (found !== null) {
-      const ctx = createCommandContext({
-        loop,
-        listModels: config.listModels,
-        resolveSwitch: config.resolveSwitch,
-        updateMessages: (updater) => setMessages(updater),
-        onConversationReplaced: () => setStaticEpoch((n) => n + 1),
-        setModelInfo,
-        runUpdate: runNpmUpdate,
-        requestUndoChoice: config.requestUndoChoice,
-        undoWithFilesDefault: config.undoWithFiles === true,
-        buildStatusReport: () =>
-          formatStatusReport({
-            providerName: modelInfo.providerName,
-            model: modelInfo.model,
-            thinkingLevel: config.thinkingLevel,
-            contextWindow: modelInfo.contextWindow,
-            contextStrategy: config.contextStrategy,
-            cacheStats,
-            modelCost: modelInfo.cost,
-            compaction: compactionTotalsRef.current,
-            extras: config.statusExtras?.(),
-          }),
-      });
-      const echoLine =
-        found.args === '' ? `/${found.command.name}` : `/${found.command.name} ${found.args}`;
-      // Handlers must not fail silently (AGENTS: implement errors); the echo is
-      // appended AFTER the handler so an /undo restore cannot swallow it.
-      void Promise.resolve(found.command.run(ctx, found.args))
-        .then(() => {
-          if (found.command.echoesInput === true) ctx.appendUserMessage(echoLine);
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          ctx.appendSystemMessage(`[error] ${msg}`);
-        });
-      return;
-    }
-
-    setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
-
-    // Reset current assistant tracking
+    if (loop === null) return;
+    if (display !== null) setMessages((prev) => [...prev, { role: 'user', content: display }]);
     currentAssistantRef.current = null;
     setIsStreaming(true);
-
-    // Run the agent loop (fire-and-forget; state updates happen via callbacks)
-    loop.processUserInput(trimmed).then(
+    loop.processUserInput(modelInput).then(
       () => {
-        // Force-flush any coalesced deltas, then start a fresh assistant
-        // message for the next round (streaming ticket 06).
+        // Force-flush coalesced deltas, then start a fresh assistant message.
         batcher.flushNow();
         currentAssistantRef.current = null;
         setIsThinking(false);
@@ -380,7 +318,67 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         settleDanglingPermission();
       },
     );
-  }, [isStreaming]);
+  }, [batcher, settleDanglingPermission]);
+
+  const sendMessage = useCallback((input: string): void => {
+    const trimmed = input.trim();
+    if (!trimmed || isStreaming) return;
+
+    const loop = loopRef.current;
+    if (!loop) return;
+
+    // Slash commands: single registry (ticket 15); handlers receive UI callbacks here.
+    const found = findCommand(trimmed, config.userCommands ?? [], reportClashOnce);
+    if (found !== null && found.user !== undefined && found.command === undefined) {
+      // User command: echo the typed line, send the EXPANDED template down
+      // the normal message path (same trust level as typing it out).
+      const echoLine = found.args === '' ? `/${found.user.name}` : `/${found.user.name} ${found.args}`;
+      startTurn(echoLine, expandUserCommand(found.user.template, found.args));
+      return;
+    }
+    if (found !== null && found.command !== undefined) {
+      const builtin = found.command;
+      const ctx = createCommandContext({
+        loop,
+        listModels: config.listModels,
+        resolveSwitch: config.resolveSwitch,
+        updateMessages: (updater) => setMessages(updater),
+        onConversationReplaced: () => setStaticEpoch((n) => n + 1),
+        setModelInfo,
+        runUpdate: runNpmUpdate,
+        requestUndoChoice: config.requestUndoChoice,
+        undoWithFilesDefault: config.undoWithFiles === true,
+        userCommands: config.userCommands ?? [],
+        buildStatusReport: () =>
+          formatStatusReport({
+            providerName: modelInfo.providerName,
+            model: modelInfo.model,
+            thinkingLevel: config.thinkingLevel,
+            contextWindow: modelInfo.contextWindow,
+            contextStrategy: config.contextStrategy,
+            cacheStats,
+            modelCost: modelInfo.cost,
+            compaction: compactionTotalsRef.current,
+            extras: config.statusExtras?.(),
+          }),
+      });
+      const echoLine =
+        found.args === '' ? `/${builtin.name}` : `/${builtin.name} ${found.args}`;
+      // Handlers must not fail silently (AGENTS: implement errors); the echo is
+      // appended AFTER the handler so an /undo restore cannot swallow it.
+      void Promise.resolve(builtin.run(ctx, found.args))
+        .then(() => {
+          if (builtin.echoesInput === true) ctx.appendUserMessage(echoLine);
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          ctx.appendSystemMessage(`[error] ${msg}`);
+        });
+      return;
+    }
+
+    startTurn(trimmed, trimmed);
+  }, [isStreaming, startTurn]);
 
   return {
     messages,

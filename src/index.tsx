@@ -22,6 +22,7 @@ import { buildModelRuntime } from './cli/model-wiring.js';
 import { runSessionStartup } from './cli/sessions.js';
 import { buildToolRuntime, runPinSkills } from './cli/tools-runtime.js';
 import { runPrintMode } from './cli/print-mode.js';
+import { loadUserCommands } from './commands/user-commands.js';
 
 async function main(): Promise<void> {
   const projectDir = process.cwd();
@@ -149,6 +150,13 @@ async function main(): Promise<void> {
       historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
     }),
     undoWithFiles: values['with-files'] === true,
+    // User-defined slash commands (ticket 04): ~/.nova/commands/*.md under the
+    // NOVA_HOME tree; malformed files warn to stderr and never block startup.
+    userCommands: loadUserCommands(
+      path.join(novaHome(), '.nova', 'commands'),
+      (message) => process.stderr.write(`${message}
+`),
+    ),
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,

@@ -41,6 +41,7 @@ function fakeCtx(o: FakeOpts) {
     compact: async () => ({ note: '' }),
     update: async () => ({ message: '' }),
     statusReport: () => '',
+    userCommands: () => [],
   };
   return { ctx, system, calls };
 }
@@ -112,6 +113,7 @@ describe('/undo two-way ask', () => {
       compact: async () => ({ note: '' }),
       update: async () => ({ message: '' }),
       statusReport: () => '',
+      userCommands: () => [],
     };
     await undo.run(ctx, '');
     expect(touched).toContain('[nothing to undo]');
