@@ -41,6 +41,30 @@ describe('buildPipelineHooks', () => {
     expect(decision).toEqual({ deny: true, reason: 'policy say no' });
   });
 
+  it('deny-JSON on stdout denies at ANY exit code (ticket 03 dual channel)', async () => {
+    // A hook that prints the structured verdict but exits 1 (not 2) asked
+    // to deny; the pass-through-on-nonzero path must not swallow it.
+    const hooks = buildPipelineHooks(
+      [{ ...pre }],
+      spawner({ code: 1, stdout: JSON.stringify({ deny: true, reason: 'nope' }), stderr: 'noise' }, []),
+    );
+    const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
+    expect(decision?.deny).toBe(true);
+    expect(decision?.reason).toContain('nope');
+  });
+
+  it('non-zero WITHOUT deny-JSON still passes through with a note', async () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const hooks = buildPipelineHooks([{ ...pre }], spawner({ code: 1, stdout: 'just chatter', stderr: 'boom' }, []));
+      const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
+      expect(decision?.deny).toBeUndefined();
+      expect(decision?.note).toMatch(/failed \(exit 1\)/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('pre hook exit 0 passes; non-2 failures pass through but stay visible (stderr + note, ticket 03 transcript promise)', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
