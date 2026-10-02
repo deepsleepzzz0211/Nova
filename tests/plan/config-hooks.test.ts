@@ -49,26 +49,25 @@ describe('buildPipelineHooks', () => {
       spawner({ code: 1, stdout: JSON.stringify({ deny: true, reason: 'nope' }), stderr: 'noise' }, []),
     );
     const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
-    expect(decision?.deny).toBe(true);
-    expect(decision?.reason).toContain('nope');
+    expect(decision).toEqual({ deny: true, reason: 'nope' });
   });
 
-  it('non-zero WITHOUT deny-JSON still passes through with a note', async () => {
-    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const hooks = buildPipelineHooks([{ ...pre }], spawner({ code: 1, stdout: 'just chatter', stderr: 'boom' }, []));
-      const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
-      expect(decision?.deny).toBeUndefined();
-      expect(decision?.note).toMatch(/failed \(exit 1\)/);
-    } finally {
-      warn.mockRestore();
-    }
+  it('exit 2 AND deny-JSON with conflicting reasons: the structured verdict wins', async () => {
+    // Pin the dual-channel precedence: deny outcome is the same either way,
+    // but when both channels speak, reason comes from the JSON, not stderr.
+    const hooks = buildPipelineHooks(
+      [{ ...pre }],
+      spawner({ code: 2, stdout: JSON.stringify({ deny: true, reason: 'from JSON' }), stderr: 'from stderr' }, []),
+    );
+    const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
+    expect(decision).toEqual({ deny: true, reason: 'from JSON' });
   });
 
   it('pre hook exit 0 passes; non-2 failures pass through but stay visible (stderr + note, ticket 03 transcript promise)', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const hooks = buildPipelineHooks([{ ...pre }], spawner({ code: 1, stderr: 'boom' }, []));
+      // Non-JSON stdout ('just chatter') must not crash the deny parser.
+      const hooks = buildPipelineHooks([{ ...pre }], spawner({ code: 1, stdout: 'just chatter', stderr: 'boom' }, []));
       const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
       expect(decision?.deny).toBeUndefined();
       expect(decision?.note).toMatch(/hook pre "check.sh" failed \(exit 1\): boom/);
