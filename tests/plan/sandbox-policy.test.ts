@@ -72,7 +72,11 @@ describe('normalizeWritePath', () => {
   let real: string;
 
   const setup = () => {
-    root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'sbx-'));
+    // The expectation side must use the SAME normalizer as production
+    // (realpathSync.native): on Windows, plain realpathSync does NOT expand
+    // 8.3 short ancestors (CI runners: C:\Users\RUNNER~1\...), so
+    // string-prefix comparisons against native-resolved paths diverge.
+    root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'sbx-'));
     real = path.join(root, 'deep', 'nested');
     fs.mkdirSync(real, { recursive: true });
     fs.writeFileSync(path.join(real, 'f.txt'), 'x');
@@ -86,7 +90,7 @@ describe('normalizeWritePath', () => {
       // Case-insensitive compare: realpathSync.native may return stored
       // segment case (Temp vs temp) on Windows — same tree either way.
       const fold = (x: string) => (process.platform === 'win32' ? x.toLowerCase() : x);
-      expect(fold(p).startsWith(fold(fs.realpathSync(real)))).toBe(true);
+      expect(fold(p).startsWith(fold(fs.realpathSync.native(real)))).toBe(true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -94,7 +98,7 @@ describe('normalizeWritePath', () => {
 
   it('a symlink that escapes the workspace resolves to its target for the check', () => {
     setup();
-    const outside = fs.realpathSync(path.join(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'sbx-out-'))));
+    const outside = fs.realpathSync.native(path.join(fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'sbx-out-'))));
     const link = path.join(root, 'link-out');
     try {
       try {
@@ -114,7 +118,7 @@ describe('normalizeWritePath', () => {
   it('case-difference on win32 still maps to the same tree (no false escape)', () => {
     setup();
     try {
-      const base = fs.realpathSync(root);
+      const base = fs.realpathSync.native(root);
       const flipped = base.charAt(0).toLowerCase() + base.slice(1);
       const p = normalizeWritePath(path.join(flipped, 'deep', 'f.txt'), base);
       const s = settings(base);
@@ -129,7 +133,7 @@ describe('evaluateSandbox', () => {
   let root: string;
 
   const fresh = () => {
-    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-eval-')));
+    root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-eval-')));
     fs.mkdirSync(path.join(root, 'sub'));
   };
 
@@ -204,7 +208,7 @@ describe('PermissionPolicy sandbox layer (tier-1 wiring)', () => {
   let root: string;
   const basePerm = { autoApproveFileWrite: false, autoApproveBash: false, alwaysAllowCommands: [] as string[] };
 
-  const fresh = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-pol-')));
+  const fresh = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sbx-pol-')));
 
   it('sandbox deny beats the user always-allow list (no escape hatch)', () => {
     root = fresh();
