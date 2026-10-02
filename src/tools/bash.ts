@@ -109,6 +109,12 @@ export function createBashTool(deps: {
         if (deps.jobs === undefined) {
           return { content: 'Background jobs are not available in this session.', isError: true };
         }
+        // Refuse BEFORE spawning: a capped request must never leave an
+        // untracked live process behind the refusal message.
+        const refusal = deps.jobs.capacityRefusal();
+        if (refusal !== undefined) {
+          return { content: refusal, isError: true };
+        }
         let handle: JobHandle;
         try {
           handle = spawnBg(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, { cwd: context.workingDirectory });
@@ -120,6 +126,9 @@ export function createBashTool(deps: {
         }
         const started = deps.jobs.start(command, handle);
         if (!started.started) {
+          // Unreachable after the precheck (no await gap), but if the cap
+          // logic ever diverges: never leave the spawned handle orphaned.
+          handle.kill('SIGTERM');
           return { content: started.reason, isError: true };
         }
         const preview =

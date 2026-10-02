@@ -199,6 +199,30 @@ describe('job tools surface', () => {
     expect(result.content).toMatch(/limit/i);
   });
 
+  it('bash background refuses BEFORE spawning — a capped request leaves no orphan process', async () => {
+    const jobs = new JobRegistry({ logDir: tmp, maxRunning: 1 });
+    startJob(jobs, 'busy', makeHandle(20));
+    const spawnBackground = vi.fn(() => makeHandle(21));
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground });
+    const result = await tool.execute(
+      { command: 'sleep 60', background: true },
+      { workingDirectory: tmp, abortSignal: new AbortController().signal },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/limit/i);
+    // The defect this pins: start() used to refuse AFTER the spawn, leaving
+    // an untracked live process behind a refusal message.
+    expect(spawnBackground).not.toHaveBeenCalled();
+  });
+
+  it('capacityRefusal exposes the cap decision for a pre-spawn gate', () => {
+    const jobs = new JobRegistry({ logDir: tmp, maxRunning: 2 });
+    expect(jobs.capacityRefusal()).toBeUndefined();
+    startJob(jobs, 'a', makeHandle(22));
+    startJob(jobs, 'b', makeHandle(23));
+    expect(jobs.capacityRefusal()).toMatch(/2\/2 running/);
+  });
+
   it('foreground bash keeps working when background jobs are not wired', async () => {
     const tool = createBashTool({ resolvePlan: () => plan });
     const result = await tool.execute(

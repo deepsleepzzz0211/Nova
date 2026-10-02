@@ -83,17 +83,28 @@ export class JobRegistry {
     this.terminate = options.terminate ?? ((handle) => { handle.kill('SIGTERM'); });
   }
 
-  /** Register a spawned handle; refuses past the running cap. */
-  start(command: string, handle: JobHandle): JobStartResult {
+  /**
+   * Cap decision WITHOUT consuming a slot: callers that must not spawn
+   * before refusing (bash background:true) gate on this. Synchronous
+   * sequence (check -> start, no await gap) makes the check race-free.
+   */
+  capacityRefusal(): string | undefined {
     let running = 0;
     for (const job of this.jobs.values()) if (job.running) running++;
     if (running >= this.maxRunning) {
-      return {
-        started: false,
-        reason:
-          `Background job limit reached (${running}/${this.maxRunning} running). ` +
-          'Wait for a job to finish (job_output shows its exit code) or terminate one with job_kill first.',
-      };
+      return (
+        `Background job limit reached (${running}/${this.maxRunning} running). ` +
+        'Wait for a job to finish (job_output shows its exit code) or terminate one with job_kill first.'
+      );
+    }
+    return undefined;
+  }
+
+  /** Register a spawned handle; refuses past the running cap. */
+  start(command: string, handle: JobHandle): JobStartResult {
+    const refusal = this.capacityRefusal();
+    if (refusal !== undefined) {
+      return { started: false, reason: refusal };
     }
     const id = `job-${++this.seq}`;
     const record: JobRecord = {
