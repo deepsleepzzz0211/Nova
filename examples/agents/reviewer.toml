@@ -1,13 +1,13 @@
 # Named subagent definition — copy to ~/.nova/agents/reviewer.toml
 # (the whole ~/.nova tree migrates with NOVA_HOME).
 # A definition can only NARROW a subagent: the tool whitelist removes tools
-# from the child surface (never adds), readOnly physically strips every
+# from the child surface (never adds), read_only physically strips every
 # fileAccess=write capability tool, and recursion (spawn_subagent) stays
 # blocked regardless of what is listed.
 
 description = "read-only code reviewer"
 tools = ["read_file", "grep", "glob", "list_dir"]
-readOnly = true
+read_only = true
 # model = "cheap-model"        # optional; absent inherits normal routing
 
 prompt = """

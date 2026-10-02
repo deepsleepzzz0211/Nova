@@ -52,7 +52,7 @@ export function parseAgentFile(
     warn(`[agents] skipped ${fileName}: invalid TOML (${err instanceof Error ? err.message : String(err)})`);
     return null;
   }
-  const { description, tools, model, prompt, readOnly } = raw;
+  const { description, tools, model, prompt, read_only: readOnly } = raw;
   if (typeof description !== 'string' || description.trim() === '') {
     warn(`[agents] skipped ${fileName}: description must be a non-empty string`);
     return null;
@@ -70,7 +70,7 @@ export function parseAgentFile(
     return null;
   }
   if (readOnly !== undefined && typeof readOnly !== 'boolean') {
-    warn(`[agents] skipped ${fileName}: readOnly must be a boolean`);
+    warn(`[agents] skipped ${fileName}: read_only must be a boolean`);
     return null;
   }
   return {

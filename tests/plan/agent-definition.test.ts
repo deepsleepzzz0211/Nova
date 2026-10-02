@@ -25,7 +25,7 @@ describe('parseAgentFile', () => {
         'description = "read-only code reviewer"',
         'tools = ["grep", "glob", "read_file"]',
         'model = "cheap-model"',
-        'readOnly = true',
+        'read_only = true',
         'prompt = """',
         'Review the diff. Never modify files.',
         'Report findings as a list.',
@@ -45,6 +45,24 @@ describe('parseAgentFile', () => {
     const def = parseAgentFile('a.toml', 'description = "d"\ntools = ["read_file"]\nprompt = "p"\n');
     expect(def?.readOnly).toBe(false);
     expect(def?.model).toBeUndefined();
+  });
+
+  it('the canonical TOML key is snake_case read_only (camelCase is not a config alias)', () => {
+    const camel = parseAgentFile('a.toml', 'description = "d"\ntools = ["read_file"]\nprompt = "p"\nreadOnly = true');
+    expect(camel?.readOnly).toBe(false);
+    const snake = parseAgentFile('b.toml', 'description = "d"\ntools = ["read_file"]\nprompt = "p"\nread_only = true');
+    expect(snake?.readOnly).toBe(true);
+  });
+
+  it('rejects a non-boolean read_only with a warning naming the key', () => {
+    const warnings: string[] = [];
+    const def = parseAgentFile(
+      'x.toml',
+      'description = "d"\ntools = ["read_file"]\nprompt = "p"\nread_only = "yes"',
+      (m) => warnings.push(m),
+    );
+    expect(def).toBeNull();
+    expect(warnings.join('')).toMatch(/read_only/);
   });
 
   it('rejects non-kebab names with a warning', () => {
@@ -76,7 +94,7 @@ describe('loadAgentDefinitions', () => {
   });
 
   it('loads valid files, skips invalid ones with warnings, keyed by name', () => {
-    fs.writeFileSync(path.join(dir, 'reviewer.toml'), 'description = "r"\ntools = ["read_file"]\nprompt = "rp"\nreadOnly = true');
+    fs.writeFileSync(path.join(dir, 'reviewer.toml'), 'description = "r"\ntools = ["read_file"]\nprompt = "rp"\nread_only = true');
     fs.writeFileSync(path.join(dir, 'broken.toml'), 'description = "b"');
     const warnings: string[] = [];
     const map = loadAgentDefinitions(dir, (m) => warnings.push(m));
