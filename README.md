@@ -5,7 +5,7 @@ CLI AI Agent built with Ink and React — streaming LLM chat with tool use in th
 ## Features
 
 - **Streaming agent loop** — token-by-token output, multi-round tool calling with parallel execution
-- **Built-in tools** — `read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `list_dir`, `web_search` (Tavily), `web_fetch`, `todo_write`, `spawn_subagent` (plus `memory_write`, see below; plus `powershell`, registered only on Windows)
+- **Built-in tools** — `read_file`, `write_file`, `edit_file`, `bash` (background jobs + named sessions), `job_output`, `job_kill`, `grep`, `glob`, `list_dir`, `web_search` (Tavily), `web_fetch`, `todo_write`, `spawn_subagent` (plus `memory_write`, see below; plus `powershell`, registered only on Windows)
 - **Windows shell routing** — bash commands run through Git Bash (POSIX syntax, auto-detected; override with `NOVA_SHELL`, escape hatch `NOVA_SHELL=cmd`), with a first-class `powershell` tool (pwsh 7 preferred) for Windows-native commands
 - **Code search** — `grep` (ripgrep content search), `glob` (file-name matcher), `list_dir` (directory listing), all on the embedded ripgrep engine run off-thread with a bounded timeout — replacing bash `grep`/`find`/`ls` that broke on Windows
 - **MCP support** — connect Model Context Protocol servers, tools bridge into the same pipeline
@@ -13,11 +13,16 @@ CLI AI Agent built with Ink and React — streaming LLM chat with tool use in th
 - **Cross-session memory** — `memory_write` persists durable facts to `MEMORY.md` (user + project level), auto-loaded into the next session's prompt
 - **Session management** — `--list` prints sessions, `--resume` opens an interactive picker, compaction checkpoints survive resume
 - **Undo** — `/undo [n]` reverts the last n turns; when those turns changed files, a dialog asks whether to also restore the code from the session's pre-write checkpoints (`~/.nova/file-history/<sessionId>/`, migrated with `NOVA_HOME`, survives `--resume`; externally-edited files are skipped, never clobbered). Launch with `--with-files` to default the dialog to conversation + code. Fully isolated from git: no commits, no `.git` writes.
+- **Two-tier sandbox** — `[sandbox] workspace_write = false` turns approvals into a hard path policy (writes outside workspace + `~/.nova` denied, argv-injection-resistant, fail-closed); `os_level = "auto"` additionally drops every shell child to Windows LOW integrity so even script-inlined writes outside the roots are refused by the OS itself (grants auto-restored on exit)
+- **Declarative hooks** — `[[hooks]]` in config: `pre_tool_use` can veto a tool call (exit 2 or deny-JSON on stdout, timeouts fail closed), `post_tool_use` output flows back to the model as a note — submit-before-lint / edit-then-test without touching code
+- **Your workflows as commands** — `~/.nova/commands/*.md` become slash commands with `$1`/`$ARGUMENTS` prompt templates; `~/.nova/agents/*.toml` define named subagents that can only narrow tools/model/prompt
+- **Background jobs & persistent shells** — `bash background:true` returns a job id (`job_output` cursor reads, `job_kill` tree-kills); `bash session:"name"` keeps one live shell per name across calls (cwd/env/functions persist; dead shells rebuild with a `[session restarted]` marker)
+- **Machine-readable output** — `nova -p --output-format jsonl` streams v:1 NDJSON events (start/text/tool_call/tool_result/compaction/usage/result/error) with truthful exit codes, so external programs can drive one turn
 - **Hierarchical instructions** — project `AGENTS.md` (or `CLAUDE.md`) loads at startup; subdirectory `AGENTS.md` files are injected lazily, append-only, when the agent touches a file under them (32 KiB session budget, deepest-first truncation)
 - **Prompt-cache friendly** — frozen system prompt, append-only history, Anthropic `cache_control` breakpoints, live R/W/CH metrics
 - **Permission system** — policy-based gating with per-tool confirmation dialogs, dangerous-command detection
 - **Skills** — progressive disclosure of `SKILL.md` knowledge packs
-- **Subagents** — independent-context delegation via `spawn_subagent` with derivation guardrails (no recursion, concurrency cap), per-call model routing, live progress events, cancellation, per-agent transcripts and resume (`resumeAgentId`), and prompt-injection output scanning
+- **Subagents** — independent-context delegation via `spawn_subagent` with derivation guardrails (no recursion, concurrency cap), per-call model routing, live progress events, cancellation, per-agent transcripts and resume (`resumeAgentId`), prompt-injection output scanning, and named `~/.nova/agents` definitions that can only narrow tools/model/prompt
 - **Data-driven model catalog** — declare providers/models in `~/.nova/models.json`, switch at runtime with `/model`
 - **Session persistence** — JSONL rollout with `--resume`
 
