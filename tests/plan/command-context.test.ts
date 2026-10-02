@@ -126,4 +126,23 @@ describe('command context adapter (tui-refactor 15 review fixes)', () => {
     });
     expect(await ctx2.compact()).toEqual({ note: '[nothing to compact — context is small]' });
   });
+
+  it('undo delegation rides the loop: file plan + withFiles opts pass through (ticket 03)', () => {
+    const undoTurns = vi.fn(() => ({ undone: true, undoneTurns: 1, files: { restored: ['a.ts'], skipped: [] } }));
+    const touched = vi.fn(() => ['a.ts']);
+    const ctx = createCommandContext({
+      loop: makeLoop({ undoTurns, touchedFilesInUndoWindow: touched }),
+      updateMessages: vi.fn(),
+      setModelInfo: vi.fn(),
+      runUpdate: vi.fn(async () => ({ message: 'ok' })),
+      requestUndoChoice: async () => 'files',
+      undoWithFilesDefault: true,
+    });
+    expect(ctx.undoFilePlan(1)).toEqual(['a.ts']);
+    expect(touched).toHaveBeenCalledWith(1);
+    const r = ctx.undoTurns(1, { withFiles: true });
+    expect(undoTurns).toHaveBeenCalledWith(1, { withFiles: true });
+    expect(r.files).toEqual({ restored: ['a.ts'], skipped: [] });
+    expect(ctx.defaultUndoWithFiles).toBe(true);
+  });
 });
