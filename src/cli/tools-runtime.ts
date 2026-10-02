@@ -231,7 +231,8 @@ export async function buildToolRuntime(opts: {
         tier2 = { wrap: (inv, cwd) => wrapInvocation(w.exePath, inv, cwd) };
         process.once('exit', () => restoreRoots(winDeps));
       } else {
-        console.error('[sandbox] tier-2 setup failed after probe — continuing with tier-1 path policy only');
+        const why = w.ok ? `grant failed on: ${g.failed.join(', ')}` : w.reason;
+        console.error(`[sandbox] tier-2 could not activate (${why}) — continuing with tier-1 path policy only`);
       }
     }
   }

@@ -37,6 +37,22 @@ export interface WinWrapDeps {
 
 /** Production deps: real fs + synchronous process runs. */
 export function defaultWinWrapDeps(novaHome: string): WinWrapDeps {
+  return buildDeps(novaHome, runPlain);
+}
+
+/** Plain spawnSync join is fine for icacls/csc token args (spike-verified). */
+function runPlain(
+  cmd: string,
+  args: string[],
+): { code: number; stdout: string; stderr: string } {
+  const r = spawnSync(cmd, args, { encoding: 'utf-8', windowsHide: true, timeout: 60_000 });
+  return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+function buildDeps(
+  novaHome: string,
+  runner: (cmd: string, args: string[]) => { code: number; stdout: string; stderr: string },
+): WinWrapDeps {
   const sandboxDir = path.join(novaHome, '.nova', 'sandbox');
   return {
     sandboxDir,
@@ -59,14 +75,7 @@ export function defaultWinWrapDeps(novaHome: string): WinWrapDeps {
         return undefined;
       }
     },
-    run: (cmd, args) => {
-      const r = spawnSync(cmd, args, { encoding: 'utf-8', windowsHide: true, timeout: 60_000 });
-      return {
-        code: r.status ?? 1,
-        stdout: r.stdout ?? '',
-        stderr: r.stderr ?? '',
-      };
-    },
+    run: runner,
   };
 }
 
