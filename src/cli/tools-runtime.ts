@@ -35,6 +35,8 @@ import { SubagentSpawner } from '../subagent/spawner.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { ResolveSpecResult } from './model-wiring.js';
+import { buildPipelineHooks } from '../hooks/config-hooks.js';
+import { spawnHook } from './hook-spawner.js';
 
 export interface ToolRuntime {
   toolRegistry: ToolRegistry;
@@ -106,7 +108,12 @@ export async function buildToolRuntime(opts: {
     workspaceRoot: projectDir,
     allowRoots: [path.join(novaHome(), '.nova')],
   });
-  const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy);
+  // Declarative hooks (batch-B ticket 03): config [[hooks]] entries become
+  // pipeline hooks through the CLI-owned spawner. Cast is config-boundary
+  // shaped (schema owns validation at load).
+  const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy, {
+    hooks: buildPipelineHooks(config.hooks, spawnHook),
+  });
 
   // Skills: scan user-level and project-level skill directories. Locked
   // repos (installed via the installer) are integrity-checked; drift/unpinned
