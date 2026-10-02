@@ -75,6 +75,19 @@ export interface SandboxConfig {
   workspaceWrite: boolean;
 }
 
+/**
+ * One declarative hook entry ([[hooks]] array of TOML). The command receives
+ * the event JSON on stdin; pre_tool_use denies via exit 2 or a
+ * {"deny":true} stdout; post_tool_use stdout surfaces as a note (ticket 03).
+ */
+export interface HookConfig {
+  event: 'pre_tool_use' | 'post_tool_use';
+  /** Exact tool name or '*' for every tool. */
+  matcher: string;
+  command: string;
+  timeoutMs?: number;
+}
+
 /** Configuration for an MCP server. */
 export interface MCPServerConfig {
   name: string;
@@ -91,5 +104,6 @@ export interface AppConfig {
   search: SearchConfig;
   permission: PermissionConfig;
   sandbox: SandboxConfig;
+  hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
 }

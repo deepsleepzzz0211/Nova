@@ -66,6 +66,17 @@ always_allow_commands = ["git status", "git diff", "ls", "pwd"]
 # write target cannot be resolved statically are refused too.
 workspace_write = true
 
+# Declarative hooks ([[hooks]] is an array of tables). The command receives
+# the event JSON on stdin ({tool, params, result?}). pre_tool_use denies with
+# exit code 2 (stderr becomes the reason) or {"deny": true, "reason": "..."}
+# on stdout; post_tool_use stdout is appended to the tool result as a
+# [post-tool-use] note the model can react to.
+# [[hooks]]
+# event = "post_tool_use"
+# matcher = "write_file"                 # or "*" for every tool
+# command = "node scripts/note-filesize.js"   # reads the JSON, prints a note
+# timeout_ms = 10000                     # default; pre hooks fail closed on timeout
+
 # MCP servers configuration
 [[mcp_servers]]
 name = "example-server"

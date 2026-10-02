@@ -38,5 +38,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     // Tier 1 off by default: behavior is today's until the user opts in.
     workspaceWrite: true,
   },
+  hooks: [],
   mcpServers: [],
 };

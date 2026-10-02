@@ -191,16 +191,22 @@ export class ToolExecutionPipeline {
         await this.cache.set(cacheKey, truncated);
       }
 
-      // 7. Post-tool-use hooks (observation only)
+      // 7. Post-tool-use hooks: observation, plus optional notes appended to
+      // the result so the model can react (ticket 03). Notes are NOT cached.
+      const notes: string[] = [];
       for (const hook of this.hooks.post ?? []) {
         try {
-          await hook({ tool: tool.name, params: resolvedParams, result: truncated });
+          const observation = await hook({ tool: tool.name, params: resolvedParams, result: truncated });
+          if (observation?.note) notes.push(observation.note);
         } catch {
           // A crashing hook must not change the result
         }
       }
-
-      return truncated;
+      if (notes.length === 0) return truncated;
+      return {
+        ...truncated,
+        content: `${truncated.content}\n${notes.map((n) => `[post-tool-use ${tool.name}] ${n}`).join('\n')}`,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

@@ -24,8 +24,21 @@ export interface PostToolUseInput {
   result: ToolResult;
 }
 
-/** Runs after tool execution; observation only. */
-export type PostToolUseHook = (input: PostToolUseInput) => void | Promise<void>;
+/**
+ * Optional observation from a post hook (batch-B ticket 03): `note` is
+ * appended to the tool result content so the model can react to it.
+ */
+export interface PostToolUseObservation {
+  note?: string;
+}
+
+/**
+ * Runs after tool execution; observation only (cannot alter the result the
+ * model sees, except surfacing a note).
+ */
+export type PostToolUseHook = (
+  input: PostToolUseInput,
+) => void | PostToolUseObservation | Promise<void | PostToolUseObservation>;
 
 /** Hook bundle installed on the pipeline. */
 export interface PipelineHooks {
