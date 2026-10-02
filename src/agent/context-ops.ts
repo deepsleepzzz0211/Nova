@@ -4,7 +4,7 @@ import type { Compactor, CompactResult } from './compaction.js';
 import { CompactionGuard } from './compaction-guard.js';
 import { ContextManager } from './context.js';
 import { microcompactMessages } from './microcompact.js';
-import { collectTouchedWritePaths, type FileHistory, type UndoReport } from './file-history.js';
+import { collectTouchedWritePaths, type FileHistory, type UndoReport, type WriteToolNames } from './file-history.js';
 import type { ContextDecisionReason, LoopContextConfig } from './loop-types.js';
 
 /**
@@ -26,6 +26,8 @@ export interface ContextOpsDeps {
   session: SessionWriter | null;
   /** Session file checkpoints for /undo --withFiles (ticket 03). */
   fileHistory?: FileHistory | null;
+  /** Registry-derived write-tool names, re-evaluated per call (MCP-safe). */
+  fileWriteTools?: () => WriteToolNames;
   onCompaction?: (info: {
     strategy: 'truncate' | 'compact' | 'microcompact';
     beforeTokens: number;
@@ -182,9 +184,14 @@ export class ContextOps {
 
     const undoneTurns = Math.min(n, userIdxs.length);
     const cut = undoneTurns === userIdxs.length ? 0 : userIdxs[userIdxs.length - undoneTurns];
-    const files = this.restoreFilesIn(cut, opts?.withFiles === true);
+    // The undone window must be read BEFORE truncation (the messages are
+    // gone right after — a slice-after-the-fact would find nothing).
+    const window = messages.slice(cut);
     const after = messages.slice(0, cut);
+    // Conversation truncation lands first: a restore failure must never
+    // leave the undo half-applied (per-file faults already become skips).
     this.deps.setMessages(after);
+    const files = this.restoreFilesIn(window, opts?.withFiles === true);
     void this.deps.session?.appendCompaction(after, files);
     return { undone: true, undoneTurns, files };
   }
@@ -203,9 +210,9 @@ export class ContextOps {
     return this.touchedSince(cut);
   }
 
-  private restoreFilesIn(cut: number, withFiles: boolean): UndoReport | undefined {
+  private restoreFilesIn(window: Message[], withFiles: boolean): UndoReport | undefined {
     if (!withFiles || !this.deps.fileHistory) return undefined;
-    const touched = this.touchedSince(cut);
+    const touched = this.touchedIn(window);
     if (touched.length === 0) {
       return { restored: [], skipped: [] };
     }
@@ -213,7 +220,13 @@ export class ContextOps {
   }
 
   private touchedSince(cut: number): string[] {
-    const touched = collectTouchedWritePaths(this.deps.getMessages().slice(cut), process.cwd());
+    return this.touchedIn(this.deps.getMessages().slice(cut));
+  }
+
+  /** Write-tool paths inside the given message window that have checkpoints. */
+  private touchedIn(window: Message[]): string[] {
+    const names = this.deps.fileWriteTools?.() ?? new Set<string>();
+    const touched = collectTouchedWritePaths(window, process.cwd(), names);
     const history = this.deps.fileHistory;
     const tracked = history ? history.trackedPaths() : new Set<string>();
     return [...new Set(touched.filter((p) => tracked.has(p)))];

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
-import { FileHistory, FILE_WRITE_TOOLS } from '../../src/agent/file-history.js';
+import { FileHistory } from '../../src/agent/file-history.js';
 
 // context-economics ticket 03: session file checkpoints. Before every
 // successful edit_file/write_file the pre-change content lands under
@@ -31,10 +31,6 @@ describe('FileHistory', () => {
     fs.writeFileSync(p, content, 'utf-8');
     return p;
   };
-
-  it('tracks the write tools through the shared name list', () => {
-    expect(FILE_WRITE_TOOLS).toEqual(['edit_file', 'write_file']);
-  });
 
   it('restores the pre-edit content captured by snapshotBefore', () => {
     const p = make('a.ts', 'ONE');

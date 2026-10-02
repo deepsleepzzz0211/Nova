@@ -6,6 +6,7 @@ export function createEditFileTool(): Tool {
   return {
     name: 'edit_file',
     display: { kind: 'path', diff: 'edit' },
+    fileAccess: 'write',
     permission: { mode: 'auto' },
     description: 'Replace an exact string in a file. Errors if the string is not found or is ambiguous.',
     parameters: {

@@ -167,7 +167,7 @@ describe('undo with files through the loop', () => {
 });
 
 describe('collectTouchedWritePaths', () => {
-  it('extracts write-tool paths, resolves against cwd, ignores malformed calls', () => {
+  it('extracts registry-declared write-tool paths, ignores malformed calls', () => {
     const messages = [
       {
         role: 'assistant' as const,
@@ -179,6 +179,8 @@ describe('collectTouchedWritePaths', () => {
         ],
       },
     ] as unknown as Message[];
-    expect(collectTouchedWritePaths(messages, '/proj')).toEqual([path.resolve('/proj', 'sub/f.ts')]);
+    expect(collectTouchedWritePaths(messages, '/proj', new Set(['edit_file', 'write_file']))).toEqual([
+      path.resolve('/proj', 'sub/f.ts'),
+    ]);
   });
 });

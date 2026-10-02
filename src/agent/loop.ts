@@ -7,8 +7,9 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
-import { FILE_TOUCHING_TOOLS, type DirectoryInstructions } from './directory-instructions.js';
-import { FILE_WRITE_TOOLS, type FileHistory, type UndoReport } from './file-history.js';
+import { type DirectoryInstructions } from './directory-instructions.js';
+import { type FileHistory, type WriteToolNames, type UndoReport } from './file-history.js';
+import { resolveToolPath } from '../shared/tool-args.js';
 import { StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
@@ -102,6 +103,7 @@ export class AgentLoop implements TurnHost {
       contextStrategy: options.context?.strategy ?? null,
       compactor,
       fileHistory: this.fileHistory,
+      fileWriteTools: () => this.fileWritingToolNames(),
       microcompactIdleMs: options.context?.microcompactIdleMs ?? 60 * 60 * 1000,
       session: this.session,
       onCompaction: options.onCompaction,
@@ -249,22 +251,37 @@ export class AgentLoop implements TurnHost {
   /** @internal */ injectDirectoryInstructions(call: ToolCall, result: ToolResult): void {
     if (this.directoryInstructions === null) return;
     if (result.isError) return;
-    if (!FILE_TOUCHING_TOOLS.includes(call.function.name)) return;
-    let filePath: string | undefined;
-    try {
-      const args = JSON.parse(call.function.arguments) as { path?: unknown };
-      if (typeof args.path === 'string') filePath = args.path;
-    } catch {
-      return;
-    }
-    if (filePath === undefined) return;
-    for (const pending of this.directoryInstructions.pendingFor(path.resolve(process.cwd(), filePath))) {
+    if (!this.fileTouchingToolNames().has(call.function.name)) return;
+    const filePath = resolveToolPath(call.function.arguments);
+    if (filePath === null) return;
+    for (const pending of this.directoryInstructions.pendingFor(filePath)) {
       const rel = path.relative(process.cwd(), pending.file) || pending.file;
       this.pushMessage({
         role: 'system',
         content: `[Directory instructions — ${rel}]\n${pending.content}`,
       });
     }
+  }
+
+  /** Registry-derived: tools declaring any file access (read or write). */
+  /** @internal */ fileTouchingToolNames(): ReadonlySet<string> {
+    return new Set(
+      this.toolRegistry.getAll().filter((t) => t.fileAccess !== undefined).map((t) => t.name),
+    );
+  }
+
+  /**
+   * Registry-derived: tools whose calls WRITE files (checkpointed/undoable).
+   * Falls back to the canonical write set when the registry has no
+   * fileAccess-declared tools (bare test registries) — the fallback names
+   * are the very tools shipped in src/tools, never arbitrary extensions.
+   */
+  /** @internal */ fileWritingToolNames(): WriteToolNames {
+    const declared = this.toolRegistry
+      .getAll()
+      .filter((t) => t.fileAccess === 'write')
+      .map((t) => t.name);
+    return new Set(declared.length > 0 ? declared : ['edit_file', 'write_file']);
   }
 
   /**
@@ -274,15 +291,10 @@ export class AgentLoop implements TurnHost {
    */
   /** @internal */ async executeToolCall(call: ToolCall): Promise<ToolResult> {
     let snapshotTarget: string | null = null;
-    if (this.fileHistory !== null && FILE_WRITE_TOOLS.includes(call.function.name)) {
-      try {
-        const args = JSON.parse(call.function.arguments) as { path?: unknown };
-        if (typeof args.path === 'string') {
-          snapshotTarget = path.resolve(process.cwd(), args.path);
-          this.fileHistory.snapshotBefore(snapshotTarget);
-        }
-      } catch {
-        // malformed arguments — the tool itself will report the failure
+    if (this.fileHistory !== null && this.fileWritingToolNames().has(call.function.name)) {
+      snapshotTarget = resolveToolPath(call.function.arguments);
+      if (snapshotTarget !== null) {
+        this.fileHistory.snapshotBefore(snapshotTarget);
       }
     }
     const result = await executeToolCallImpl(

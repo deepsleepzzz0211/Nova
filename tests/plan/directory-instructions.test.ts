@@ -63,23 +63,22 @@ describe('DirectoryInstructions', () => {
     expect(di.pendingFor(path.join(root, 'packages', 'b.ts'))).toEqual([]);
   });
 
-  it('32 KiB budget: deepest files truncate or drop with an explicit note', () => {
+  it('32 KiB budget: crossing file truncates WITHIN the cap; deeper dirs stay silent', () => {
     // packages fills 30 KiB of the 32 KiB budget; core (4 KiB) crosses the
-    // remaining 2 KiB and must truncate with a marker; src then sees zero
-    // remaining and must drop with a note.
+    // remaining 2 KiB and must truncate with a marker counted INSIDE the cap;
+    // src is then skipped silently (no dropped-note transcript spam).
     fs.writeFileSync(path.join(root, 'packages', 'AGENTS.md'), 'B'.repeat(30 * 1024));
     fs.writeFileSync(path.join(root, 'packages', 'core', 'AGENTS.md'), 'C'.repeat(4 * 1024));
     const di = new DirectoryInstructions({ rootDir: root, maxTotalBytes: 32 * 1024 });
     const pending = di.pendingFor(path.join(root, 'packages', 'core', 'src', 'a.ts'));
-    expect(rel(pending)).toEqual([
-      'packages/AGENTS.md',
-      'packages/core/AGENTS.md',
-      'packages/core/src/CLAUDE.md',
-    ]);
+    expect(rel(pending)).toEqual(['packages/AGENTS.md', 'packages/core/AGENTS.md']);
     expect(pending[0].content).toBe('B'.repeat(30 * 1024));
     expect(pending[1].content).toMatch(/\[truncated at 32768-byte budget\]$/);
-    expect(Buffer.byteLength(pending[1].content.split('\n')[0], 'utf-8')).toBe(2048);
-    expect(pending[2].content).toMatch(/^\[dropped: budget exhausted/);
+    let total = 0;
+    for (const p of pending) total += Buffer.byteLength(p.content, 'utf-8');
+    expect(total).toBeLessThanOrEqual(32 * 1024);
+    // Later dirs under the exhausted budget inject nothing at all.
+    expect(di.pendingFor(path.join(root, 'packages', 'core', 'src', 'b.ts'))).toEqual([]);
   });
 
   it('unreadable instruction file is skipped, never throws', () => {

@@ -30,12 +30,6 @@ export interface PendingInstruction {
 const DEFAULT_NAMES = ['AGENTS.md', 'CLAUDE.md'];
 const DEFAULT_BUDGET = 32 * 1024;
 
-/**
- * Tools whose successful calls reveal a file path worth checking for
- * directory instructions. Single source of truth for the loop hook.
- */
-export const FILE_TOUCHING_TOOLS: readonly string[] = ['read_file', 'edit_file', 'write_file'];
-
 export class DirectoryInstructions {
   private readonly rootDir: string;
   private readonly budget: number;
@@ -65,22 +59,30 @@ export class DirectoryInstructions {
         continue; // unreadable — skip, never break the turn
       }
       if (text.trim().length === 0) continue;
+      // The budget is a HARD cap on injected bytes: the truncation marker
+      // is reserved out of the remaining space before clipping, so content
+      // + marker never exceeds it (review fix — the marker used to ride on
+      // top of the cap).
+      const MARKER_RESERVE = 96;
       const remaining = this.budget - this.usedBytes;
-      if (remaining <= 0) {
-        out.push({
-          file: found,
-          content: `[dropped: budget exhausted — ${this.budget} bytes of directory instructions already injected]`,
-        });
+      if (remaining <= MARKER_RESERVE) {
+        // Budget exhausted: silently skip the rest. A per-directory
+        // "[dropped]" notice would spam the transcript with a system message
+        // for every new directory touched after the cap (review fix); the
+        // truncation marker on the crossing file already tells the story.
+        this.usedBytes = this.budget;
         continue;
       }
       const bytes = Buffer.byteLength(text, 'utf-8');
-      if (bytes > remaining) {
-        const clipped = Buffer.from(text, 'utf-8').subarray(0, remaining).toString('utf-8');
-        this.usedBytes = this.budget;
-        out.push({ file: found, content: `${clipped}\n[truncated at ${this.budget}-byte budget]` });
-      } else {
+      if (bytes <= remaining) {
         this.usedBytes += bytes;
         out.push({ file: found, content: text });
+      } else {
+        const cut = safeUtf8Boundary(Buffer.from(text, 'utf-8'), remaining - MARKER_RESERVE);
+        const content = Buffer.from(text, 'utf-8').subarray(0, cut).toString('utf-8');
+        const marker = `\n[truncated at ${this.budget}-byte budget]`;
+        this.usedBytes += Buffer.byteLength(content + marker, 'utf-8');
+        out.push({ file: found, content: `${content}${marker}` });
       }
     }
     return out;
@@ -107,5 +109,15 @@ export class DirectoryInstructions {
       }
     }
     return null;
+  }
+}
+
+/** Largest byte index <= cap that does NOT split a UTF-8 sequence. */
+function safeUtf8Boundary(buf: Buffer, cap: number): number {
+  let i = Math.min(cap, buf.length);
+  for (;;) {
+    const byte = buf[i];
+    if (byte === undefined || (byte & 0xc0) !== 0x80) return i; // sequence start / end
+    i--;
   }
 }

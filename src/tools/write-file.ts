@@ -6,6 +6,7 @@ export function createWriteFileTool(): Tool {
   return {
     name: 'write_file',
     display: { kind: 'path', diff: 'write' },
+    fileAccess: 'write',
     permission: { mode: 'ask', message: 'File write requires confirmation' },
     description: 'Write content to a file. Supports overwrite and append modes.',
     parameters: {

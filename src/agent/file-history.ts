@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Message } from '../llm/types.js';
+import { resolveToolPath } from '../shared/tool-args.js';
 
 /**
  * Session file checkpoints (context-economics ticket 03, Claude Code-style).
@@ -19,8 +20,9 @@ import type { Message } from '../llm/types.js';
  * current content) and such files are SKIPPED by default.
  */
 
-/** Tools whose writes are checkpointed (single source of truth). */
-export const FILE_WRITE_TOOLS: readonly string[] = ['edit_file', 'write_file'];
+/** Tools whose writes are checkpointed — derived from the registry's
+ *  `fileAccess` capability by the loop, never a hardcoded name list. */
+export type WriteToolNames = ReadonlySet<string>;
 
 /** Default per-session snapshot cap (oldest evicted). */
 export const DEFAULT_MAX_SNAPSHOTS = 100;
@@ -68,23 +70,22 @@ function sha256(buf: Buffer): string {
 /**
  * Collect the files that successful write-tool calls touched in these
  * messages, resolved against `cwd` (the same basis the tools used).
+ * `writeToolNames` comes from the registry's fileAccess capability.
  * Unparseable arguments are skipped — a checkpoint heuristic must never
  * throw inside a revert.
  */
-export function collectTouchedWritePaths(messages: Message[], cwd: string): string[] {
+export function collectTouchedWritePaths(
+  messages: Message[],
+  cwd: string,
+  writeToolNames: WriteToolNames,
+): string[] {
   const out: string[] = [];
   for (const msg of messages) {
     if (msg.role !== 'assistant' || !('tool_calls' in msg) || !msg.tool_calls) continue;
     for (const tc of msg.tool_calls) {
-      if (!FILE_WRITE_TOOLS.includes(tc.function.name)) continue;
-      try {
-        const args = JSON.parse(tc.function.arguments) as { path?: unknown };
-        if (typeof args.path === 'string') {
-          out.push(path.resolve(cwd, args.path));
-        }
-      } catch {
-        // ignore malformed arguments
-      }
+      if (!writeToolNames.has(tc.function.name)) continue;
+      const resolved = resolveToolPath(tc.function.arguments, cwd);
+      if (resolved !== null) out.push(resolved);
     }
   }
   return out;
@@ -219,12 +220,18 @@ export class FileHistory {
         }
       }
       if (entry.existsBefore && entry.snapshot) {
-        fs.copyFileSync(path.join(this.historyDir, entry.snapshot), abs);
+        try {
+          fs.copyFileSync(path.join(this.historyDir, entry.snapshot), abs);
+        } catch {
+          report.skipped.push(abs); // locked/busy target — keep the entry, retry later
+          continue;
+        }
       } else {
         try {
           fs.rmSync(abs, { force: true });
         } catch {
-          // already gone — the desired end state holds
+          report.skipped.push(abs);
+          continue;
         }
       }
       // Consume the entry: a second undo of the same window must not

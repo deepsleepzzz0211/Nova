@@ -71,6 +71,13 @@ export interface Tool {
   parameters: JSONSchema;
   /** Optional UI display metadata (command/path argument kind). */
   display?: ToolDisplay;
+  /**
+   * Registry capability: this tool reads or writes project files via its
+   * `path` argument. The agent loop derives its file-touching / file-writing
+   * tool sets from this flag instead of hardcoded name lists (code-review
+   * finding on AGENTS.md "never hardcode tool names in multiple places").
+   */
+  fileAccess?: 'read' | 'write';
   /** Declared permission requirement (defaults to 'auto'). */
   permission?: ToolPermission;
   /** Optional pipeline metadata; defaults to non-cacheable with a default timeout. */
