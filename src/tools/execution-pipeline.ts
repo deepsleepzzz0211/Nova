@@ -100,11 +100,11 @@ export class ToolExecutionPipeline {
     options?: ExecuteOptions,
   ): Promise<ToolResult> {
     // 1. Policy decision
-    const permission = this.permissionChecker.check(tool.name, params, tool);
+    const permission = this.permissionChecker.check(tool.name, params, tool, context.workingDirectory);
 
     if (permission.decision === 'deny') {
       return {
-        content: `Permission denied for tool "${tool.name}".`,
+        content: joinMessages(`Permission denied for tool "${tool.name}".`, permission.message) ?? '',
         isError: true,
       };
     }
@@ -146,9 +146,12 @@ export class ToolExecutionPipeline {
         // Arguments were edited: re-run the policy on the new input, then loop
         // so prepareApproval re-evaluates and an 'ask' re-prompts.
         resolvedParams = outcome.params;
-        decision = this.permissionChecker.check(tool.name, resolvedParams, tool);
+        decision = this.permissionChecker.check(tool.name, resolvedParams, tool, context.workingDirectory);
         if (decision.decision === 'deny') {
-          return { content: `Permission denied for tool "${tool.name}" (edited arguments).`, isError: true };
+          return {
+            content: joinMessages(`Permission denied for tool "${tool.name}" (edited arguments).`, decision.message) ?? '',
+            isError: true,
+          };
         }
       }
     }

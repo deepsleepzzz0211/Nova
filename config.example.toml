@@ -59,6 +59,13 @@ auto_approve_bash = false
 # Commands that are always allowed without confirmation
 always_allow_commands = ["git status", "git diff", "ls", "pwd"]
 
+[sandbox]
+# Tier-1 workspace path policy. true (default) = today's approval behavior.
+# false = hard policy: writes outside the workspace (except the nova home
+# tree) are DENIED — the always-allow list cannot escape it; commands whose
+# write target cannot be resolved statically are refused too.
+workspace_write = true
+
 # MCP servers configuration
 [[mcp_servers]]
 name = "example-server"

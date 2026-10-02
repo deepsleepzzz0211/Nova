@@ -34,5 +34,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     autoApproveBash: false,
     alwaysAllowCommands: [],
   },
+  sandbox: {
+    // Tier 1 off by default: behavior is today's until the user opts in.
+    workspaceWrite: true,
+  },
   mcpServers: [],
 };

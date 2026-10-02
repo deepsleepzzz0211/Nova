@@ -15,6 +15,11 @@ export interface PromptEnvironment {
   shellNote?: string;
   /** PowerShell availability (win32 only). */
   powershell?: string;
+  /**
+   * Sandbox tier note (batch-B ticket 01). Only present when the tier-1
+   * workspace path policy is ACTIVE — the default prompt stays byte-stable.
+   */
+  sandbox?: string;
 }
 
 /** Shell facts gathered by the DI root (the agent layer never resolves shells itself). */
@@ -30,6 +35,8 @@ export interface GatherOptions {
   pretendNoGit?: boolean;
   /** Pre-resolved interpreter facts (from the tools layer). */
   shellFacts?: ShellFacts;
+  /** Sandbox tier note rendered into the env facts when the policy is on. */
+  sandboxNote?: string;
 }
 
 function runGit(args: string[], cwd: string): string | undefined {
@@ -58,6 +65,7 @@ export function gatherEnvironment(cwd: string, options?: GatherOptions): PromptE
     ...(options?.shellFacts?.shell !== undefined ? { shell: options.shellFacts.shell } : {}),
     ...(options?.shellFacts?.shellNote !== undefined ? { shellNote: options.shellFacts.shellNote } : {}),
     ...(options?.shellFacts?.powershell !== undefined ? { powershell: options.shellFacts.powershell } : {}),
+    ...(options?.sandboxNote !== undefined ? { sandbox: options.sandboxNote } : {}),
   };
 
   if (options?.pretendNoGit) {

@@ -98,7 +98,14 @@ export async function buildToolRuntime(opts: {
 }): Promise<ToolRuntime> {
   const { config, llm, projectDir, subagentsDir, resolveSpec } = opts;
 
-  const permissionPolicy = new PermissionPolicy(config.permission);
+  const permissionPolicy = new PermissionPolicy(config.permission, {
+    // Tier-1 sandbox (ticket 01): inactive unless the user opts in via
+    // [sandbox] workspace_write = false. The NOVA_HOME tree stays writable
+    // (sessions, file-history, memory all live there).
+    enabled: !config.sandbox.workspaceWrite,
+    workspaceRoot: projectDir,
+    allowRoots: [path.join(novaHome(), '.nova')],
+  });
   const toolExecutionPipeline = new ToolExecutionPipeline(new ToolResultCache(), permissionPolicy);
 
   // Skills: scan user-level and project-level skill directories. Locked
@@ -112,7 +119,12 @@ export async function buildToolRuntime(opts: {
   // Environment facts + project instructions for the system prompt. Shell
   // facts are resolved ONCE here (DI glue; the agent layer stays free of
   // tools-value imports) and frozen into the prompt with the rest.
-  const environment = gatherEnvironment(projectDir, { shellFacts: collectShellFacts() });
+  const environment = gatherEnvironment(projectDir, {
+    shellFacts: collectShellFacts(),
+    ...(config.sandbox.workspaceWrite
+      ? {}
+      : { sandboxNote: `workspace-policy ON: writes outside ${projectDir} (except the nova home tree) are denied by policy` }),
+  });
   const projectInstructions = loadProjectInstructions(projectDir);
 
   // Learned memory: user-level + project-level, read ONCE and frozen into

@@ -64,6 +64,17 @@ export interface PermissionConfig {
   alwaysAllowCommands: string[];
 }
 
+/**
+ * Sandbox configuration (batch-B ticket 01, gap G2 tier 1).
+ * workspaceWrite=true (default) leaves the sandbox layer inactive —
+ * today's approval-based behavior. false turns on the hard workspace path
+ * policy: writes outside the workspace (plus the NOVA_HOME allow-list) are
+ * DENIED by policy, not by dialog; always-allow rules cannot escape it.
+ */
+export interface SandboxConfig {
+  workspaceWrite: boolean;
+}
+
 /** Configuration for an MCP server. */
 export interface MCPServerConfig {
   name: string;
@@ -79,5 +90,6 @@ export interface AppConfig {
   agent: AgentConfig;
   search: SearchConfig;
   permission: PermissionConfig;
+  sandbox: SandboxConfig;
   mcpServers: MCPServerConfig[];
 }
