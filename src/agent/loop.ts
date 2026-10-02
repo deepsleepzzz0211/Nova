@@ -81,6 +81,11 @@ export class AgentLoop implements TurnHost {
       ? new Compactor(options.llm, options.config.model, {
           keepRecentTokens: options.context.keepRecentTokens,
           triggerTokens: this.contextManager?.triggerTokens,
+          // G19: summary requests ride the main chain's cached prefix.
+          getMainPrefix: () => ({
+            systemPrompt: this.frozenSystemPrompt,
+            tools: this.toolRegistry.toToolDefinitions(),
+          }),
         })
       : null;
     this.session = options.session ?? null;

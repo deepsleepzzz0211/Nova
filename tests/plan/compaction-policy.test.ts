@@ -118,8 +118,12 @@ function makeLLM(summary: 'fail' | 'ok'): { llm: LLMProvider; counts: Counts } {
   const llm: LLMProvider = {
     name: 'fake',
     capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-    async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-      if (opts.systemPrompt === undefined) {
+    async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+      // G19 prefix-parity mode sends the SAME systemPrompt/tools as the main
+      // chain, so shape-based signals are dead; the appended instruction
+      // message is the reliable marker.
+      const last = String(msgs[msgs.length - 1]?.content ?? '');
+      if (last.startsWith('Summarize the conversation')) {
         counts.summary++;
         if (summary === 'fail') {
           yield { type: 'error', error: 'summary endpoint exploded' };

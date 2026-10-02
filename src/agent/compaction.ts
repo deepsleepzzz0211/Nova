@@ -1,5 +1,5 @@
 import type { LLMProvider } from '../llm/provider.js';
-import type { Message } from '../llm/types.js';
+import type { Message, ToolDefinition, StreamChunk } from '../llm/types.js';
 import { MICROCOMPACT_MARKER } from './microcompact.js';
 
 /** Marker that prefixes the synthesized summary message. */
@@ -37,6 +37,14 @@ export interface CompactorOptions {
    * the LLM summary is skipped entirely.
    */
   triggerTokens?: number;
+  /**
+   * Main-chain request prefix (G19). When provided, the summarization request
+   * sends the LIVE message array byte-identical to the previous main-chain
+   * request plus an appended instruction message — the provider then serves
+   * the whole history from its prompt cache instead of re-billing a
+   * serialized transcript. Omitting it keeps the legacy serialized mode.
+   */
+  getMainPrefix?: () => { systemPrompt: string; tools: ToolDefinition[] };
 }
 
 /** Framing overhead assumed per message in token estimates. */
@@ -75,6 +83,7 @@ export class Compactor {
   private readonly keepRecentTokens: number;
   private readonly countTokens: (text: string) => number;
   private readonly triggerTokens?: number;
+  private readonly getMainPrefix?: () => { systemPrompt: string; tools: ToolDefinition[] };
 
   constructor(llm: LLMProvider, model: string, options: CompactorOptions = {}) {
     this.llm = llm;
@@ -82,6 +91,7 @@ export class Compactor {
     this.keepRecentTokens = options.keepRecentTokens ?? 20_000;
     this.countTokens = options.countTokens ?? ((text: string) => Math.ceil(text.length / 4));
     this.triggerTokens = options.triggerTokens;
+    this.getMainPrefix = options.getMainPrefix;
   }
 
   /** Rough token estimate for one message (content + tool call args). */
@@ -180,7 +190,9 @@ export class Compactor {
       }
     }
 
-    const summary = await this.summarize(toSummarize);
+    const summary = this.getMainPrefix
+      ? await this.summarizeWithMainPrefix(messages)
+      : await this.summarize(toSummarize);
     if (summary === null) {
       return null;
     }
@@ -193,6 +205,38 @@ export class Compactor {
       ],
       method: 'summary',
     };
+  }
+
+  /**
+   * G19 mode: send the live array byte-identical to the previous main-chain
+   * request (the cached prefix) with the instruction appended, carrying the
+   * same system prompt and tool definitions for full prefix parity.
+   */
+  private async summarizeWithMainPrefix(messages: Message[]): Promise<string | null> {
+    const { systemPrompt, tools } = this.getMainPrefix!();
+    try {
+      const stream = this.llm.chat(
+        [...messages, { role: 'user' as const, content: SUMMARY_INSTRUCTION }],
+        { model: this.model, systemPrompt, tools },
+      );
+      return await this.collectSummary(stream);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Shared stream-to-summary collection for both request modes. */
+  private async collectSummary(stream: AsyncIterable<StreamChunk>): Promise<string | null> {
+    let summary = '';
+    for await (const chunk of stream) {
+      if (chunk.type === 'text_delta') {
+        summary += chunk.content;
+      } else if (chunk.type === 'error') {
+        return null;
+      }
+    }
+    const trimmed = summary.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   /** Summarize a list of messages; returns null on failure or empty output. */
@@ -231,17 +275,7 @@ export class Compactor {
         { model: this.model },
       );
 
-      let summary = '';
-      for await (const chunk of stream) {
-        if (chunk.type === 'text_delta') {
-          summary += chunk.content;
-        } else if (chunk.type === 'error') {
-          return null;
-        }
-      }
-
-      const trimmed = summary.trim();
-      return trimmed.length > 0 ? trimmed : null;
+      return await this.collectSummary(stream);
     } catch {
       return null;
     }
