@@ -94,7 +94,7 @@ export class JobRegistry {
     if (running >= this.maxRunning) {
       return (
         `Background job limit reached (${running}/${this.maxRunning} running). ` +
-        'Wait for a job to finish (job_output shows its exit code) or terminate one with job_kill first.'
+        'Wait for a job to finish (' + JOB_OUTPUT_TOOL_NAME + ' shows its exit code) or terminate one with ' + JOB_KILL_TOOL_NAME + ' first.'
       );
     }
     return undefined;
@@ -247,7 +247,7 @@ export function createJobKillTool(registry: JobRegistry): Tool {
         case 'kill-requested':
           return { content: `Termination for ${jobId} was already requested; waiting for it to close.` };
         case 'killed':
-          return { content: `Termination requested for ${jobId} (process tree). Read final output with job_output.` };
+          return { content: `Termination requested for ${jobId} (process tree). Read final output with ${JOB_OUTPUT_TOOL_NAME}.` };
       }
     },
   };
