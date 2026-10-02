@@ -18,12 +18,19 @@ export interface SlashCommandContext {
   listModels(): string;
   /** Apply a model switch; returns the user-facing result. */
   switchModel(spec: string): { message: string };
-  /** Revert the last n conversation turns. */
-  undoTurns(n: number): {
+  /** Revert the last n conversation turns; withFiles also restores checkpointed files. */
+  undoTurns(n: number, opts: { withFiles: boolean }): {
     undone: boolean;
     undoneTurns: number;
     restored: Array<{ role: 'user' | 'assistant'; content: string }>;
+    files?: { restored: string[]; skipped: string[] };
   };
+  /** Files a withFiles undo of the last n turns would restore (empty = no ask). */
+  undoFilePlan(n: number): string[];
+  /** The two-way /undo question: code+conversation, conversation only, or abort. */
+  requestUndoChoice(files: string[]): Promise<'files' | 'chat' | 'cancel'>;
+  /** --with-files: /undo takes the code+code-restore branch without asking. */
+  defaultUndoWithFiles: boolean;
   /** Force a context compaction pass (empty note = loop already announced). */
   compact(): Promise<{ note: string }>;
   /** Run the global update flow. */
@@ -60,20 +67,42 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   },
   {
     name: 'undo',
-    description: 'revert the last n conversation turns',
+    description: 'revert the last n turns (conversation; code too when checkpoints exist)',
     acceptsArgs: true,
     echoesInput: true,
     async run(ctx, args) {
       const n = Number.parseInt(args.trim(), 10);
       const turns = Number.isFinite(n) && n >= 1 ? n : 1;
-      const result = ctx.undoTurns(turns);
-      if (result.undone) {
-        ctx.replaceConversation(result.restored);
+      const plan = ctx.undoFilePlan(turns);
+      let withFiles = false;
+      if (plan.length > 0) {
+        if (ctx.defaultUndoWithFiles) {
+          withFiles = true;
+        } else {
+          const choice = await ctx.requestUndoChoice(plan);
+          if (choice === 'cancel') {
+            ctx.appendSystemMessage('[undo cancelled — nothing changed]');
+            return;
+          }
+          withFiles = choice === 'files';
+        }
+      }
+      const result = ctx.undoTurns(turns, { withFiles });
+      if (!result.undone) {
+        ctx.appendSystemMessage('[nothing to undo]');
+        return;
+      }
+      ctx.replaceConversation(result.restored);
+      if (withFiles && result.files !== undefined) {
+        let note = `[undone ${result.undoneTurns} turn(s) — conversation reverted; code: restored ${result.files.restored.length} file(s)`;
+        if (result.files.skipped.length > 0) {
+          note += `; skipped ${result.files.skipped.length} file(s) changed outside the session: ${result.files.skipped.join(', ')}`;
+        }
+        ctx.appendSystemMessage(`${note}]`);
+      } else {
         ctx.appendSystemMessage(
           `[undone ${result.undoneTurns} turn(s) — conversation reverted; code changes are NOT reverted, check git status]`,
         );
-      } else {
-        ctx.appendSystemMessage('[nothing to undo]');
       }
     },
   },

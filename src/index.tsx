@@ -13,6 +13,7 @@ import { render } from 'ink';
 import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
 import { DirectoryInstructions } from './agent/directory-instructions.js';
+import { FileHistory, fileHistoryDir } from './agent/file-history.js';
 import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatWelcomeCard } from './tui/header.js';
@@ -69,6 +70,9 @@ async function main(): Promise<void> {
 
   const printPrompt = typeof values.print === 'string' ? values.print : null;
   if (printPrompt !== null) {
+    if (values['with-files'] === true) {
+      console.error('[undo] print mode keeps conversation-only revert; --with-files applies to the interactive /undo');
+    }
     await runPrintMode({
       printPrompt,
       autoApprove: values.yes === true,
@@ -139,6 +143,12 @@ async function main(): Promise<void> {
     directoryInstructions: new DirectoryInstructions({
       rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
     }),
+    // Session file checkpoints (/undo code revert, ticket 03): keyed by the
+    // session file's name so --resume keeps the same history directory.
+    fileHistory: new FileHistory({
+      historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
+    }),
+    undoWithFiles: values['with-files'] === true,
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,

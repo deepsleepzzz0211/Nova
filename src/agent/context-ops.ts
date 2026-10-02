@@ -4,6 +4,7 @@ import type { Compactor, CompactResult } from './compaction.js';
 import { CompactionGuard } from './compaction-guard.js';
 import { ContextManager } from './context.js';
 import { microcompactMessages } from './microcompact.js';
+import { collectTouchedWritePaths, type FileHistory, type UndoReport } from './file-history.js';
 import type { ContextDecisionReason, LoopContextConfig } from './loop-types.js';
 
 /**
@@ -23,6 +24,8 @@ export interface ContextOpsDeps {
   compactor: Compactor | null;
   microcompactIdleMs: number;
   session: SessionWriter | null;
+  /** Session file checkpoints for /undo --withFiles (ticket 03). */
+  fileHistory?: FileHistory | null;
   onCompaction?: (info: {
     strategy: 'truncate' | 'compact' | 'microcompact';
     beforeTokens: number;
@@ -156,13 +159,18 @@ export class ContextOps {
 
   /**
    * Undo the last N conversation turns (a turn = one user message and
-   * everything after it until the next user message). Conversation-only:
-   * file changes made by tools are NOT reverted (use git for those).
-   * Persistence stays append-only: the post-undo state is written as a
-   * checkpoint, which --resume replays as the truncated history.
-   * N is clamped to the number of available turns.
+   * everything after it until the next user message). Conversation-only by
+   * default; `{ withFiles: true }` also restores the files the undone range
+   * touched from their pre-turn snapshots (externally-changed files are
+   * skipped, not clobbered). Persistence stays append-only: the post-undo
+   * state is written as a checkpoint (carrying the code-undo report), which
+   * --resume replays as the truncated history. N is clamped to available.
    */
-  undoTurns(n = 1): { undone: boolean; undoneTurns: number } {
+  undoTurns(n = 1, opts?: { withFiles?: boolean }): {
+    undone: boolean;
+    undoneTurns: number;
+    files?: UndoReport;
+  } {
     const messages = this.deps.getMessages();
     const userIdxs: number[] = [];
     for (let i = 0; i < messages.length; i++) {
@@ -174,10 +182,41 @@ export class ContextOps {
 
     const undoneTurns = Math.min(n, userIdxs.length);
     const cut = undoneTurns === userIdxs.length ? 0 : userIdxs[userIdxs.length - undoneTurns];
+    const files = this.restoreFilesIn(cut, opts?.withFiles === true);
     const after = messages.slice(0, cut);
     this.deps.setMessages(after);
-    void this.deps.session?.appendCompaction(after); // append-only checkpoint; replay truncates
-    return { undone: true, undoneTurns };
+    void this.deps.session?.appendCompaction(after, files);
+    return { undone: true, undoneTurns, files };
+  }
+
+  /** Write-tool files touched by the last n turns (for the /undo two-way ask). */
+  touchedFilesInUndoWindow(n: number): string[] {
+    const messages = this.deps.getMessages();
+    if (!this.deps.fileHistory) return [];
+    const userIdxs: number[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'user') userIdxs.push(i);
+    }
+    if (userIdxs.length === 0 || n < 1) return [];
+    const undoneTurns = Math.min(n, userIdxs.length);
+    const cut = undoneTurns === userIdxs.length ? 0 : userIdxs[userIdxs.length - undoneTurns];
+    return this.touchedSince(cut);
+  }
+
+  private restoreFilesIn(cut: number, withFiles: boolean): UndoReport | undefined {
+    if (!withFiles || !this.deps.fileHistory) return undefined;
+    const touched = this.touchedSince(cut);
+    if (touched.length === 0) {
+      return { restored: [], skipped: [] };
+    }
+    return this.deps.fileHistory.restore(touched);
+  }
+
+  private touchedSince(cut: number): string[] {
+    const touched = collectTouchedWritePaths(this.deps.getMessages().slice(cut), process.cwd());
+    const history = this.deps.fileHistory;
+    const tracked = history ? history.trackedPaths() : new Set<string>();
+    return [...new Set(touched.filter((p) => tracked.has(p)))];
   }
 
   /**

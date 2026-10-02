@@ -8,6 +8,7 @@ import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
 import { FILE_TOUCHING_TOOLS, type DirectoryInstructions } from './directory-instructions.js';
+import { FILE_WRITE_TOOLS, type FileHistory, type UndoReport } from './file-history.js';
 import { StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
@@ -43,6 +44,7 @@ export class AgentLoop implements TurnHost {
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
   /** @internal */ readonly directoryInstructions: DirectoryInstructions | null;
+  /** @internal */ readonly fileHistory: FileHistory | null;
   private readonly promptOptions: BuildPromptOptions;
   private readonly onUsage: AgentLoopConfig['onUsage'];
   /** @internal */ readonly onContextSize: AgentLoopConfig['onContextSize'];
@@ -92,12 +94,14 @@ export class AgentLoop implements TurnHost {
         })
       : null;
     this.session = options.session ?? null;
+    this.fileHistory = options.fileHistory ?? null;
     this.ctxOps = new ContextOps({
       getMessages: () => this.messages,
       setMessages: (messages: Message[]) => { this.messages = messages; },
       contextManager: this.contextManager,
       contextStrategy: options.context?.strategy ?? null,
       compactor,
+      fileHistory: this.fileHistory,
       microcompactIdleMs: options.context?.microcompactIdleMs ?? 60 * 60 * 1000,
       session: this.session,
       onCompaction: options.onCompaction,
@@ -152,14 +156,24 @@ export class AgentLoop implements TurnHost {
 
   /**
    * Undo the last N conversation turns (a turn = one user message and
-   * everything after it until the next user message). Conversation-only:
-   * file changes made by tools are NOT reverted (use git for those).
-   * Persistence stays append-only: the post-undo state is written as a
-   * checkpoint, which --resume replays as the truncated history.
-   * N is clamped to the number of available turns.
+   * everything after it until the next user message). By default
+   * conversation-only. With `{ withFiles }` the files the undone turns
+   * touched are restored to their pre-turn snapshots (externally-changed
+   * files are skipped). Persistence stays append-only: the post-undo state
+   * is written as a checkpoint, which --resume replays as the truncated
+   * history. N is clamped to the number of available turns.
    */
-  undoTurns(n = 1): { undone: boolean; undoneTurns: number } {
-    return this.ctxOps.undoTurns(n);
+  undoTurns(n = 1, opts?: { withFiles?: boolean }): {
+    undone: boolean;
+    undoneTurns: number;
+    files?: UndoReport;
+  } {
+    return this.ctxOps.undoTurns(n, opts);
+  }
+
+  /** Write-tool files restorable when undoing the last n turns (/undo ask). */
+  touchedFilesInUndoWindow(n: number): string[] {
+    return this.ctxOps.touchedFilesInUndoWindow(n);
   }
 
   /**
@@ -253,9 +267,25 @@ export class AgentLoop implements TurnHost {
     }
   }
 
-  /** Execute one tool call through the pipeline and notify the UI. */
+  /**
+   * Execute one tool call through the pipeline and notify the UI. Write
+   * tools additionally take the pre-change snapshot (ticket 03): capture
+   * BEFORE the call, mark written only on success.
+   */
   /** @internal */ async executeToolCall(call: ToolCall): Promise<ToolResult> {
-    return executeToolCallImpl(
+    let snapshotTarget: string | null = null;
+    if (this.fileHistory !== null && FILE_WRITE_TOOLS.includes(call.function.name)) {
+      try {
+        const args = JSON.parse(call.function.arguments) as { path?: unknown };
+        if (typeof args.path === 'string') {
+          snapshotTarget = path.resolve(process.cwd(), args.path);
+          this.fileHistory.snapshotBefore(snapshotTarget);
+        }
+      } catch {
+        // malformed arguments — the tool itself will report the failure
+      }
+    }
+    const result = await executeToolCallImpl(
       {
         toolRegistry: this.toolRegistry,
         toolExecutionPipeline: this.toolExecutionPipeline,
@@ -265,6 +295,10 @@ export class AgentLoop implements TurnHost {
       },
       call,
     );
+    if (snapshotTarget !== null && !result.isError) {
+      this.fileHistory?.noteWritten(snapshotTarget);
+    }
+    return result;
   }
 
   /** Current conversation history (introspection/testing). */

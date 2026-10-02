@@ -34,6 +34,10 @@ export interface CommandContextDeps {
   runUpdate: () => Promise<{ message: string }>;
   /** Compose the `/status` report from live model/usage state. */
   buildStatusReport?: () => string;
+  /** Two-way /undo question implemented by the UI (ticket 03). */
+  requestUndoChoice?: (files: string[]) => Promise<'files' | 'chat' | 'cancel'>;
+  /** --with-files: /undo restores code without asking. */
+  undoWithFilesDefault?: boolean;
 }
 
 /** UI-only conversation entries (drops tool/system rows for /undo restore). */
@@ -81,14 +85,16 @@ export function createCommandContext(deps: CommandContextDeps): SlashCommandCont
       }
       return { message: result?.message ?? 'Model switching unavailable.' };
     },
-    undoTurns: (n) => {
-      const result = deps.loop.undoTurns(n);
+    undoTurns: (n, opts) => {
+      const result = deps.loop.undoTurns(n, opts);
       return {
-        undone: result.undone,
-        undoneTurns: result.undoneTurns,
+        ...result,
         restored: result.undone ? restoredConversation(deps.loop) : [],
       };
     },
+    undoFilePlan: (n) => deps.loop.touchedFilesInUndoWindow(n),
+    requestUndoChoice: deps.requestUndoChoice ?? (async () => 'chat'),
+    defaultUndoWithFiles: deps.undoWithFilesDefault === true,
     compact: async () => {
       const result = await deps.loop.compactNow();
       // Successful compactions are announced by the loop's onCompaction

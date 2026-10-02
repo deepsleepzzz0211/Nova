@@ -13,6 +13,7 @@ import type { ModelCost } from '../llm/catalog.js';
 import type { ToolDisplay } from '../tools/types.js';
 import type { TodoState } from '../tools/todo.js';
 import { useAgent, type UseAgentConfig } from './hooks/useAgent.js';
+import { useUndoGate } from './hooks/undo-gate.js';
 import { latestExpandableId } from './message-partition.js';
 import {
   MOUSE_DISABLE,
@@ -29,6 +30,7 @@ import type { WelcomeCard } from './header.js';
 import { ChatView } from './ChatView.js';
 import { InputBar } from './InputBar.js';
 import { PermissionDialog } from './PermissionDialog.js';
+import { UndoChoiceDialog } from './UndoChoiceDialog.js';
 import { TodoView } from './TodoView.js';
 
 /** Props for the App component. */
@@ -48,7 +50,10 @@ export interface AppProps {
 }
 export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.ReactElement {
   const updateNotice = useUpdateNotice();
-  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity, approvalMode, cycleApprovalMode } = useAgent(agent);
+  // /undo two-way question gate (ticket 03): owned here, promised to commands.
+  const undoGate = useUndoGate();
+  useEffect(() => () => undoGate.settle('cancel'), [undoGate.settle]);
+  const { messages, isStreaming, isThinking, staticEpoch, sendMessage, interrupt, pendingPermission, cacheStats, modelInfo, subagentActivity, approvalMode, cycleApprovalMode } = useAgent({ ...agent, requestUndoChoice: undoGate.requestChoice });
 
   // Shift+Tab approval-mode cycling (tui-redesign 10): the badge lives on
   // the bottom status line; a switch briefly toasts the new mode instead.
@@ -102,7 +107,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
   useInput((inputChar, key) => {
     // Shift+Tab (bare Tab must still reach the editor's completion accept).
     // Yield to open modals and search, same ownership rule as Esc.
-    if (key.tab && key.shift && pendingPermission === null && search === null) {
+    if (key.tab && key.shift && pendingPermission === null && undoGate.pending === null && search === null) {
       const nextMode = cycleApprovalMode();
       setModeToast(`${modeBadge(nextMode).symbol} ${modeBadge(nextMode).label}`);
       return;
@@ -200,6 +205,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
       />
 
       <PermissionDialog pending={pendingPermission} displayKind={displayKind} />
+      <UndoChoiceDialog pending={undoGate.pending} onSettle={undoGate.settle} />
 
       <InputBar
         onSubmit={(text) => {
@@ -210,7 +216,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
         isStreaming={isStreaming}
         workingState={isThinking ? 'thinking' : isStreaming ? 'streaming' : 'idle'}
         onInterrupt={interrupt}
-        modalOpen={pendingPermission !== null}
+        modalOpen={pendingPermission !== null || undoGate.pending !== null}
         disabled={search !== null}
         onExit={() => process.exit(0)}
         modelInfo={{

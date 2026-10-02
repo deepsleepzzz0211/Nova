@@ -6,6 +6,7 @@ import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { DirectoryInstructions } from './directory-instructions.js';
+import type { FileHistory } from './file-history.js';
 import type { BuildPromptOptions } from './prompt.js';
 import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
 
@@ -61,6 +62,12 @@ export interface AgentLoopConfig {
    * not-yet-seen directory instructions as append-only system messages.
    */
   directoryInstructions?: DirectoryInstructions;
+  /**
+   * Session file checkpoints (context-economics ticket 03). When set,
+   * successful edit_file/write_file calls snapshot the pre-change content;
+   * undoTurns({ withFiles }) restores it.
+   */
+  fileHistory?: FileHistory;
   /** Extra system prompt parts (environment facts, project instructions, custom). */
   promptOptions?: BuildPromptOptions;
   /** Maximum matched skills whose full body is injected per turn. Default 2. */

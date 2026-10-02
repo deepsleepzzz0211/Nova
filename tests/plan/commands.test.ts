@@ -13,6 +13,9 @@ function makeCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
     listModels: vi.fn(() => 'model listing'),
     switchModel: vi.fn(() => ({ ok: true, message: 'switched', model: 'm2' })),
     undoTurns: vi.fn(() => ({ undone: true, undoneTurns: 1, restored: [] })),
+    undoFilePlan: vi.fn(() => [] as string[]),
+    requestUndoChoice: vi.fn(async () => 'chat' as const),
+    defaultUndoWithFiles: false,
     compact: vi.fn(async () => ({ compacted: true, note: 'compacted' })),
     update: vi.fn(async () => ({ message: 'update ok' })),
     statusReport: vi.fn(() => 'status report'),
@@ -75,7 +78,7 @@ describe('slash commands registry (tui-refactor 15)', () => {
         undoTurns: vi.fn(() => ({ undone: true, undoneTurns: 2, restored })),
       });
       await findCommand('/undo 2')!.command.run(ctx, '2');
-      expect(ctx.undoTurns).toHaveBeenCalledWith(2);
+      expect(ctx.undoTurns).toHaveBeenCalledWith(2, { withFiles: false });
       expect(ctx.replaceConversation).toHaveBeenCalledWith(restored);
       expect(ctx.appendSystemMessage).toHaveBeenCalledWith(expect.stringContaining('undone 2 turn'));
     });
@@ -83,7 +86,7 @@ describe('slash commands registry (tui-refactor 15)', () => {
     it('/undo defaults to one turn and reports nothing to undo', async () => {
       const ctx = makeCtx({ undoTurns: vi.fn(() => ({ undone: false, undoneTurns: 0, restored: [] })) });
       await findCommand('/undo')!.command.run(ctx, '');
-      expect(ctx.undoTurns).toHaveBeenCalledWith(1);
+      expect(ctx.undoTurns).toHaveBeenCalledWith(1, { withFiles: false });
       expect(ctx.appendSystemMessage).toHaveBeenCalledWith(expect.stringContaining('nothing to undo'));
     });
 
