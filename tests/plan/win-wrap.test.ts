@@ -10,6 +10,7 @@ import {
   LOW_LABEL_SID,
   type WinWrapDeps,
 } from '../../src/tools/win-wrap.js';
+import { smokeProbe, createShellGate } from '../../src/tools/win-smoke.js';
 
 // Batch-B ticket 02: the win32 realization layer for tier-2 OS sandbox.
 // Side effects (fs + process runs) are injected; tests pin the decision
@@ -104,8 +105,11 @@ describe('grant/restore lifecycle', () => {
     for (const run of d.runs) {
       expect(run.cmd).toBe('icacls');
       expect(run.args).toContain(`/grant`);
-      expect(run.args.join(' ')).toContain(LOW_LABEL_SID);
-      expect(run.args.join(' ')).toContain('(OI)(CI)(M)');
+      // Pinned verbatim: the trustee MUST be the Low mandatory-label SID
+      // (S-1-16-4096). A wrong-but-syntactic SID (S-1-5-21-0-0-0-4096) is
+      // rejected by icacls with ERROR_UNKNOWN_SID, failing every grant.
+      expect(run.args.join(' ')).toContain('*S-1-16-4096:(OI)(CI)(M)');
+      expect(LOW_LABEL_SID).toBe('S-1-16-4096');
     }
     expect(d.files.get('C:/home/.nova/sandbox/acl-state.json')).toContain('D:/ws');
   });
@@ -181,5 +185,115 @@ describe('wrapInvocation argv assembly', () => {
       stdinText: undefined,
     }, 'C:/w');
     expect(wrapped.args[3]).toBe('powershell.exe -Command "Write-Output \'a b\'"');
+  });
+});
+
+describe('smokeProbe (runtime reality check before trusting the wrap)', () => {
+  it('passes when the wrapped shell echoes AND writes into a granted root', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        return { code: 0, stdout: 'nova-t2-smoke nova-t2-write', stderr: '' };
+      },
+    });
+    const r = smokeProbe(d, 'C:/home/.nova/sandbox/nova-wrap.exe', 'D:/Git/bin/bash.exe', 'D:/ws');
+    expect(r.ok).toBe(true);
+    // The write attempt lives in a materialized probe script (quoting an
+    // inline node -e across cmd/bash/powershell is unresolvable; PowerShell
+    // 5.1 has no && either). It must target the granted root.
+    const probe = [...d.files.entries()].find(([p]) => p.includes('t2-probe.js'));
+    expect(probe?.[1]).toContain('D:/ws/.nova-t2-probe');
+    const last = d.runs[d.runs.length - 1]!;
+    expect(last.cmd).toBe('C:/home/.nova/sandbox/nova-wrap.exe');
+    expect(last.args.join(' ')).toContain('D:/Git/bin/bash.exe');
+    expect(last.args.join(' ')).toContain('nova-t2-smoke');
+    expect(last.args.join(' ')).toContain('t2-probe.js');
+  });
+
+  it('powershell gets a ;-separated probe (5.1 has no && operator)', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        return { code: 0, stdout: 'nova-t2-smoke nova-t2-write', stderr: '' };
+      },
+    });
+    smokeProbe(d, 'w.exe', 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', 'D:/ws');
+    const line = d.runs[d.runs.length - 1]!.args.join(' ');
+    expect(line).toContain('; node');
+    expect(line).not.toContain('&&');
+  });
+
+  it('cmd.exe keeps the && separator', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        return { code: 0, stdout: 'nova-t2-smoke nova-t2-write', stderr: '' };
+      },
+    });
+    smokeProbe(d, 'w.exe', 'C:/Windows/System32/cmd.exe', 'D:/ws');
+    const line = d.runs[d.runs.length - 1]!.args.join(' ');
+    expect(line).toContain('&& node');
+  });
+
+  it('fails when the shell cannot start low (msys BaseNamedObjects fatal)', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        return {
+          code: 1,
+          stdout: '',
+          stderr: 'bash: *** fatal error - NtCreateDirectoryObject(BaseNamedObjects): 0xC0000022',
+        };
+      },
+    });
+    const r = smokeProbe(d, 'w.exe', 'D:/Git/bin/bash.exe', 'D:/ws');
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/NtCreateDirectoryObject/);
+  });
+
+  it('fails when the shell starts but cannot write the granted root (ML wall)', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        return { code: 0, stdout: 'nova-t2-smoke', stderr: '' };
+      },
+    });
+    const r = smokeProbe(d, 'w.exe', 'bash.exe', 'D:/ws');
+    expect(r.ok).toBe(false);
+    expect(r.detail).toMatch(/write/i);
+  });
+});
+
+describe('createShellGate (per-binary wrap eligibility, memoized)', () => {
+  it('wraps shells that pass the probe and leaves failing ones unwrapped', () => {
+    const d = memDeps({
+      run: (cmd, args) => {
+        d.runs.push({ cmd, args });
+        const line = args.join(' ');
+        return line.includes('good.exe')
+          ? { code: 0, stdout: 'nova-t2-smoke nova-t2-write', stderr: '' }
+          : { code: 1, stdout: '', stderr: 'fatal error - NtCreateDirectoryObject' };
+      },
+    });
+    const gate = createShellGate(d, 'w.exe', 'D:/ws');
+    expect(gate('C:/sh/good.exe')).toBe(true);
+    expect(gate('D:/Git/bin/bash.exe')).toBe(false);
+    const probes = d.runs.length;
+    expect(gate('C:/sh/good.exe')).toBe(true); // memoized
+    expect(gate('D:/Git/bin/bash.exe')).toBe(false);
+    expect(d.runs.length).toBe(probes);
+  });
+
+  it('reports each degraded binary once via onDegrade (visible, not silent)', () => {
+    const d = memDeps({
+      run: () => ({ code: 1, stdout: '', stderr: 'fatal error - NtCreateDirectoryObject' }),
+    });
+    const seen: Array<[string, string]> = [];
+    const gate = createShellGate(d, 'w.exe', 'D:/ws', (file, detail) => seen.push([file, detail]));
+    expect(gate('D:/Git/bin/bash.exe')).toBe(false);
+    expect(gate('D:/Git/bin/bash.exe')).toBe(false); // memoized: no second notice
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe('D:/Git/bin/bash.exe');
+    expect(seen[0]![1]).toMatch(/NtCreateDirectoryObject/);
   });
 });

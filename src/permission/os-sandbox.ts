@@ -76,7 +76,7 @@ export function planOsSandbox(
     return {
       enabled: true,
       roots,
-      notice: `OS-level sandbox enabled (win32 low-ACL): writes outside ${roots.length} roots fail at the OS layer.`,
+      notice: `OS-level sandbox (win32 low-ACL): grants active on ${roots.length} roots; each shell is probed before wrapping and degrades visibly to tier-1 if it fails.`,
     };
   }
   const reason = result.platform === 'win32'

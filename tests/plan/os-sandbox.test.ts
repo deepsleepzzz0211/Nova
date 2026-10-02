@@ -52,6 +52,12 @@ describe('planOsSandbox', () => {
     );
     expect(plan.enabled).toBe(true);
     expect(plan.roots).toEqual(['D:/ws', 'C:/Users/x/.nova', 'C:/temp']);
+    // Honest wording: at plan time only the probe passed; per-shell wrap
+    // eligibility is still ahead. The notice must not claim OS refusals
+    // are already in effect ("green-lighting itself" is the anti-pattern).
+    expect(plan.notice).toMatch(/grants active/i);
+    expect(plan.notice).toMatch(/degrade/i);
+    expect(plan.notice).not.toMatch(/fail at the OS layer/);
   });
 
   it('auto on win32 without the wrapper falls back visibly, never blocks', () => {

@@ -47,6 +47,7 @@ import {
   restoreRoots,
   wrapInvocation,
 } from '../tools/win-wrap.js';
+import { createShellGate } from '../tools/win-smoke.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
@@ -222,17 +223,29 @@ export async function buildToolRuntime(opts: {
           : { platform: process.platform, wrapperAvailable: false, reason: w.reason };
       },
     );
+    // The enabled notice is only earned AFTER the grant lands — printing it
+    // up front would green-light a sandbox that may never wrap anything.
     const notice = takeNotice(plan);
-    if (notice !== undefined) console.error(`[sandbox] ${notice}`);
-    if (plan.enabled) {
+    if (!plan.enabled) {
+      if (notice !== undefined) console.error(`[sandbox] ${notice}`);
+    } else {
       const w = ensureWrapper(winDeps);
-      const g = w.ok ? grantRoots(winDeps, plan.roots) : { ok: false, failed: [] };
-      if (w.ok && g.ok) {
-        tier2 = { wrap: (inv, cwd) => wrapInvocation(w.exePath, inv, cwd) };
-        process.once('exit', () => restoreRoots(winDeps));
+      if (!w.ok) {
+        console.error(`[sandbox] tier-2 could not activate (${w.reason}) — continuing with tier-1 path policy only`);
       } else {
-        const why = w.ok ? `grant failed on: ${g.failed.join(', ')}` : w.reason;
-        console.error(`[sandbox] tier-2 could not activate (${why}) — continuing with tier-1 path policy only`);
+        const g = grantRoots(winDeps, plan.roots);
+        if (!g.ok) {
+          restoreRoots(winDeps);
+          console.error(`[sandbox] tier-2 could not activate (grant failed on: ${g.failed.join(', ')}) — continuing with tier-1 path policy only`);
+        } else {
+          if (notice !== undefined) console.error(`[sandbox] ${notice}`);
+          const gate = createShellGate(winDeps, w.exePath, plan.roots[0] ?? projectDir, (file, detail) => {
+            console.error(`[sandbox] tier-2 not wrapping ${path.basename(file)} (${detail}) — that shell stays on tier-1 path policy`);
+          });
+          const exe = w.exePath;
+          tier2 = { wrap: (inv, cwd) => (gate(inv.file) ? wrapInvocation(exe, inv, cwd) : inv) };
+          process.once('exit', () => restoreRoots(winDeps));
+        }
       }
     }
   }

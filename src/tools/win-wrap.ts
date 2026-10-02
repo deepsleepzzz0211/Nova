@@ -16,8 +16,8 @@ import type { SpawnInvocation } from './shell-routing.js';
  * `defaultWinWrapDeps`.
  */
 
-/** Low mandatory integrity label SID (S-1-16-4096). */
-export const LOW_LABEL_SID = 'S-1-5-21-0-0-0-4096';
+/** Low mandatory integrity label SID (SECURITY_MANDATORY_LABEL_AUTHORITY S-1-16, Low RID 0x1000). */
+export const LOW_LABEL_SID = 'S-1-16-4096';
 
 const CSC_RELATIVE = 'Microsoft.NET/Framework64/v4.0.30319/csc.exe';
 const STATE_FILE = 'acl-state.json';
@@ -287,7 +287,9 @@ class NovaWrap
 
         var tml = new TOKEN_MANDATORY_LABEL();
         tml.Label.Sid = low;
-        tml.Label.Attributes = 0x00000020; // SECURITY_MANDATORY_NO_EXECUTE_UP
+        // Attributes 0 = default policy (NO_WRITE_UP): reads anywhere still
+        // work, writes need the object label to be <= Low AND a DACL grant.
+        tml.Label.Attributes = 0x00000000;
         uint len = (uint)Marshal.SizeOf(typeof(TOKEN_MANDATORY_LABEL));
         if (!SetTokenInformation(dup, TokenIntegrityLevel, ref tml, len))
         { Console.Error.WriteLine("nova-wrap: SetTokenInformation err=" + Marshal.GetLastWin32Error()); return 6; }
