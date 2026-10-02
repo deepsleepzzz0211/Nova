@@ -5,6 +5,7 @@
  * startup. The composition root consumes the returned bag as-is.
  */
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { novaHome } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
@@ -25,6 +26,8 @@ import { createListDirTool } from '../tools/list-dir.js';
 import { createWriteFileTool } from '../tools/write-file.js';
 import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
+import { JobRegistry, createJobOutputTool, createJobKillTool } from '../tools/jobs.js';
+import { killProcessTree } from '../tools/spawn-runner.js';
 import { createPowerShellTool, shouldRegisterPowerShell } from '../tools/powershell.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
@@ -151,7 +154,17 @@ export async function buildToolRuntime(opts: {
   toolRegistry.register(createListDirTool());
   toolRegistry.register(createWriteFileTool());
   toolRegistry.register(createEditFileTool());
-  toolRegistry.register(createBashTool());
+  // Background jobs (ticket 06): in-process table for this session; the
+  // full output of each job also lands in a per-job log under the home tree.
+  const jobsLogDir = path.join(novaHome(), '.nova', 'jobs');
+  fs.mkdirSync(jobsLogDir, { recursive: true });
+  const jobRegistry = new JobRegistry({
+    logDir: jobsLogDir,
+    terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
+  });
+  toolRegistry.register(createBashTool({ jobs: jobRegistry }));
+  toolRegistry.register(createJobOutputTool(jobRegistry));
+  toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({
     tavilyApiKey: config.search.tavilyApiKey,
   }));

@@ -1,6 +1,7 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
-import { runSpawnCommand } from './spawn-runner.js';
+import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
+import type { JobHandle, JobRegistry } from './jobs.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -20,8 +21,9 @@ function announceFallbackOnce(plan: ShellPlan): void {
  * `resolvePlan` is injectable for tests and for the powershell tool's shared
  * spawn plumbing; production resolves the real environment (windows-shell 01).
  */
-export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): Tool {
+export function createBashTool(deps: { resolvePlan?: () => ShellPlan; jobs?: JobRegistry; spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle } = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
+  const spawnBg = deps.spawnBackground ?? spawnBackground;
   return {
     name: 'bash',
     display: { kind: 'command' },
@@ -34,6 +36,7 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): To
       properties: {
         command: { type: 'string', description: 'Shell command to execute' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 60000)' },
+        background: { type: 'boolean', description: 'Run without waiting: returns a job id immediately; read output with job_output and stop with job_kill' },
       },
       required: ['command'],
     },
@@ -61,6 +64,35 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): To
       }
       announceFallbackOnce(plan);
       const invocation = buildSpawnInvocation(plan, command);
+
+      if (params.background === true) {
+        if (deps.jobs === undefined) {
+          return { content: 'Background jobs are not available in this session.', isError: true };
+        }
+        let handle: JobHandle;
+        try {
+          handle = spawnBg(invocation, { cwd: context.workingDirectory });
+        } catch (err) {
+          return {
+            content: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+        const started = deps.jobs.start(command, handle);
+        if (!started.started) {
+          return { content: started.reason, isError: true };
+        }
+        const preview =
+          command.length > PREVIEW_MAX_CHARS
+            ? `${command.slice(0, PREVIEW_MAX_CHARS)}…`
+            : command;
+        return {
+          content:
+            `Started background job ${started.jobId} (pid ${started.pid}): ${preview}\n` +
+            'The command is still running. Read incremental output with job_output {jobId, cursor} ' +
+            'and terminate it with job_kill.',
+        };
+      }
 
       const result = await runSpawnCommand(invocation, {
         cwd: context.workingDirectory,
