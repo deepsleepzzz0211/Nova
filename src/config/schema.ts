@@ -41,6 +41,8 @@ export interface AgentConfig {
   subagentModel?: string;
   /** Max concurrently running subagents. Default 3. */
   subagentMaxConcurrent?: number;
+  /** Idle recycle window for named persistent shell sessions (ticket 07). Default 600000; <= 0 disables. */
+  shellSessionIdleMs?: number;
   /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
   thinkingLevel: string;
   /**

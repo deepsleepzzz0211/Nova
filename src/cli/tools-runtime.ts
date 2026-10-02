@@ -5,6 +5,7 @@
  * startup. The composition root consumes the returned bag as-is.
  */
 import * as path from 'node:path';
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { novaHome } from '../config/loader.js';
@@ -28,6 +29,7 @@ import { createEditFileTool } from '../tools/edit-file.js';
 import { createBashTool } from '../tools/bash.js';
 import { JobRegistry, createJobOutputTool, createJobKillTool } from '../tools/jobs.js';
 import { killProcessTree } from '../tools/spawn-runner.js';
+import { ShellSessionRegistry, type ShellProc } from '../tools/shell-session.js';
 import { createPowerShellTool, shouldRegisterPowerShell } from '../tools/powershell.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
@@ -93,6 +95,20 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
       : `${ps.flavor === 'pwsh' ? 'pwsh 7' : 'Windows PowerShell'} available via the powershell tool (${toSlashes(ps.path)})`;
   }
   return facts;
+}
+
+/** Spawn one persistent session shell (bash-family only; ticket 07 spike). */
+function spawnSessionShell(cwd: string): ShellProc {
+  const plan = resolveShellFromProcess();
+  if (plan.kind !== 'bash') {
+    throw new Error(`persistent sessions require a bash shell, got ${plan.label}`);
+  }
+  const child = spawn(
+    plan.path,
+    ['--noediting', '--noprofile', '--norc'],
+    { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+  );
+  return child as unknown as ShellProc;
 }
 
 export async function buildToolRuntime(opts: {
@@ -162,7 +178,14 @@ export async function buildToolRuntime(opts: {
     logDir: jobsLogDir,
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
-  toolRegistry.register(createBashTool({ jobs: jobRegistry }));
+  // Named persistent shell sessions (ticket 07): one long-lived bash per
+  // name, sentinel-framed. The shells die with the process by contract.
+  const shellSessions = new ShellSessionRegistry({
+    idleMs: config.agent.shellSessionIdleMs,
+    spawn: ({ cwd }) => spawnSessionShell(cwd),
+  });
+  process.once('exit', () => shellSessions.disposeAll());
+  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions }));
   toolRegistry.register(createJobOutputTool(jobRegistry));
   toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({

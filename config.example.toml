@@ -38,6 +38,8 @@ context_strategy = "truncate"
 # context_keep_recent_tokens = 20000
 # Default model spec for subagents (call param > this > parent model).
 # subagent_model = ""
+# Idle recycle window (ms) for named persistent bash sessions (ticket 07).
+# shell_session_idle_ms = 600000   # default; 0 or negative disables recycling
 # Max concurrently running subagents. Default 3.
 # subagent_max_concurrent = 3
 # Token ceiling for the Available-Skills listing in the system prompt;

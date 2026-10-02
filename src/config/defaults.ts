@@ -23,6 +23,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     contextKeepRecentTokens: 20000,
     subagentModel: '',
     subagentMaxConcurrent: 3,
+    shellSessionIdleMs: 600_000,
     thinkingLevel: 'off',
     skillsBudgetTokens: 2000,
   },

@@ -2,6 +2,7 @@ import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
 import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
 import type { JobHandle, JobRegistry } from './jobs.js';
+import type { ShellSessionRegistry } from './shell-session.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -21,7 +22,12 @@ function announceFallbackOnce(plan: ShellPlan): void {
  * `resolvePlan` is injectable for tests and for the powershell tool's shared
  * spawn plumbing; production resolves the real environment (windows-shell 01).
  */
-export function createBashTool(deps: { resolvePlan?: () => ShellPlan; jobs?: JobRegistry; spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle } = {}): Tool {
+export function createBashTool(deps: {
+  resolvePlan?: () => ShellPlan;
+  jobs?: JobRegistry;
+  sessions?: ShellSessionRegistry;
+  spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle;
+} = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
   const spawnBg = deps.spawnBackground ?? spawnBackground;
   return {
@@ -37,6 +43,8 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan; jobs?: Job
         command: { type: 'string', description: 'Shell command to execute' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 60000)' },
         background: { type: 'boolean', description: 'Run without waiting: returns a job id immediately; read output with job_output and stop with job_kill' },
+        session: { type: 'string', description: 'Named persistent shell: same name reuses one bash process, keeping cwd/env/functions across calls. Commands must not read stdin.' },
+        session_reset: { type: 'boolean', description: 'With session: drop that shell first and start from a clean one' },
       },
       required: ['command'],
     },
@@ -63,6 +71,35 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan; jobs?: Job
         return { content: `Shell resolution failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
       announceFallbackOnce(plan);
+      const sessionName =
+        typeof params.session === 'string' && params.session.trim() !== ''
+          ? params.session.trim()
+          : undefined;
+      if (sessionName !== undefined) {
+        if (deps.sessions === undefined) {
+          return { content: 'Persistent shell sessions are not available in this session.', isError: true };
+        }
+        if (plan.kind !== 'bash') {
+          return {
+            content: 'Persistent shell sessions require a bash-family shell; the resolved shell is not bash.',
+            isError: true,
+          };
+        }
+        if (params.session_reset === true) deps.sessions.reset(sessionName);
+        const res = await deps.sessions.run(sessionName, command, context.workingDirectory, timeout);
+        // exit -1 is the registry's transport-failure sentinel (death/timeout),
+        // never a real $? (bash reports 255 for exit -1).
+        return {
+          content:
+            (res.restarted ? '[session restarted]' + String.fromCharCode(10) : '') +
+            res.out +
+            (res.exitCode > 0 ? `
+[exit ${res.exitCode}]` : ''),
+          ...(res.exitCode === -1 ? { isError: true } : {}),
+          metadata: { exitCode: res.exitCode },
+        };
+      }
+
       const invocation = buildSpawnInvocation(plan, command);
 
       if (params.background === true) {

@@ -62,6 +62,15 @@ name list), and the definition's prompt replaces the generic subagent
 guidance. Definitions can only narrow — recursion stays blocked and unknown
 agent names error instead of falling back. Example: [examples/agents/reviewer.toml](examples/agents/reviewer.toml).
 
+Persistent shell sessions: `bash` accepts `session: "<name>"` — the same name
+reuses one long-lived bash process (cwd, env vars and functions carry over
+between calls; `cd build && make` then `./app --check` just works). Commands
+are framed by a sentinel line carrying `$?` (spike-proven under Git Bash
+pipes); `session_reset: true` drops the shell for a clean start. Idle shells
+are recycled after `shell_session_idle_ms` (default 600000) and a shell that
+dies mid-session rebuilds on the next call with a `[session restarted]`
+marker. Session commands must not read stdin.
+
 ### Print mode (non-interactive)
 
 Run a single turn without the TUI — useful in scripts and for the E2E suite:
