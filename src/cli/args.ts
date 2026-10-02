@@ -17,6 +17,7 @@ export interface CliValues {
   'no-header'?: unknown;
   'with-files'?: unknown;
   'tui-mode'?: unknown;
+  'output-format'?: unknown;
   print?: unknown;
   yes?: unknown;
   thinking?: unknown;
@@ -37,6 +38,7 @@ export function parseCliArgs(): CliValues {
       'no-header': { type: 'boolean' },
       'with-files': { type: 'boolean' },
       'tui-mode': { type: 'string' },
+      'output-format': { type: 'string' },
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },

@@ -74,6 +74,16 @@ async function main(): Promise<void> {
     if (values['with-files'] === true) {
       console.error('[undo] print mode records file checkpoints but never reverts them; code revert lives in the interactive /undo');
     }
+    const outputFormatRaw = values['output-format'];
+    let outputFormat: 'text' | 'jsonl' = 'text';
+    if (typeof outputFormatRaw === 'string' && outputFormatRaw !== '') {
+      if (outputFormatRaw !== 'text' && outputFormatRaw !== 'jsonl') {
+        process.stderr.write(`[args] unknown --output-format "${outputFormatRaw}" (expected text|jsonl)
+`);
+        process.exit(1);
+      }
+      outputFormat = outputFormatRaw;
+    }
     await runPrintMode({
       printPrompt,
       autoApprove: values.yes === true,
@@ -83,6 +93,7 @@ async function main(): Promise<void> {
       runtime,
       session,
       mcpManager,
+      outputFormat,
     });
   }
 

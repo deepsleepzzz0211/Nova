@@ -82,8 +82,23 @@ nova -p "hi" --model weixin/Deepseek-v4-flash  # provider/model routing
 ```
 
 The answer streams to stdout, tool calls run through the normal pipeline
-(anything needing permission is denied unless `--yes` is passed), and the
-process exits non-zero when the provider reports an error.
+(anything needing permission is denied unless `--yes` is passed), and a
+hard provider failure exits non-zero.
+
+For programs that drive nova, `--output-format jsonl` replaces the plain
+stream with NDJSON events on stdout (one JSON object per line, schema `v:1`):
+`start` → `text`/`tool_call`/`tool_result`/`compaction`/`usage`* → `result`
+(or `error` on a hard failure). Events above 64KB are content-truncated with
+`truncated:true`, and in jsonl mode the exit code is truthful (`result`
+carries `exit_code`, and a turn containing an `[Error:]` token exits 1).
+Consuming one run:
+
+```bash
+nova --yes -p "read fact.txt and answer the number" --output-format jsonl \\
+  | node -e 'require("readline").createInterface({input:process.stdin})
+      .on("line", (l) => { const e = JSON.parse(l);
+        if (e.ev === "result") console.log(e.text); })'
+```
 
 ## Configuration
 
