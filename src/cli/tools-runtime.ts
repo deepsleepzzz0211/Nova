@@ -32,6 +32,7 @@ import { createTodoTool, type TodoState } from '../tools/todo.js';
 import { SkillRegistry } from '../skills/registry.js';
 import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from '../skills/skill-lock.js';
 import { SubagentSpawner } from '../subagent/spawner.js';
+import { loadAgentDefinitions } from '../subagent/agents.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { ResolveSpecResult } from './model-wiring.js';
@@ -172,10 +173,18 @@ export async function buildToolRuntime(opts: {
     defaultModel: config.agent.subagentModel,
     resolveModelSpec: resolveSpec,
     transcriptsDir: subagentsDir,
+    // Named agent definitions (ticket 05): ~/.nova/agents/*.toml under the
+    // NOVA_HOME tree; invalid files warn to stderr and are skipped.
+    agents: loadAgentDefinitions(
+      path.join(novaHome(), '.nova', 'agents'),
+      (message) => process.stderr.write(`${message}
+`),
+    ),
     onEvent: (event) => {
       if (event.type === 'start') {
         const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
-        subagentSink.notify?.(`[subagent ${event.agentId} started] ${task}`);
+        const who = event.agentName ?? event.agentId;
+        subagentSink.notify?.(`[subagent ${who} started] ${task}`);
       } else if (event.type === 'end') {
         subagentLiveSink.set?.(null);
         subagentSink.notify?.(`[subagent ${event.agentId} finished: ${event.rounds} rounds]`);
@@ -183,7 +192,7 @@ export async function buildToolRuntime(opts: {
         const call = event.payload as { function?: { name?: string } } | undefined;
         const tool = call?.function?.name ?? 'tool';
         subagentSink.notify?.(`[subagent ${event.agentId}] ▸ ${tool}`);
-        subagentLiveSink.set?.(`${event.agentId} ▸ ${tool}`);
+        subagentLiveSink.set?.(`${event.agentName ?? event.agentId} ▸ ${tool}`);
       } else if (event.type === 'tool_result') {
         const result = event.payload as { isError?: boolean } | undefined;
         subagentSink.notify?.(

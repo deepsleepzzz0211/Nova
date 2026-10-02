@@ -53,6 +53,15 @@ nova --resume           # interactive session picker (Enter = most recent)
 Test layers (unit / print-mode E2E / PTY TUI E2E, and why real-LLM cases stay
 local) are documented in [tests/e2e/README.md](tests/e2e/README.md).
 
+Named subagents: `~/.nova/agents/<name>.toml` declares a constrained
+subagent (`description`, `tools` whitelist, optional `model`, multiline
+`prompt`, `readOnly`). `spawn_subagent` gains an `agent` parameter that
+routes through the definition: the child only ever sees whitelisted tools,
+`readOnly` strips every write-capability tool (the `fileAccess` bit, not a
+name list), and the definition's prompt replaces the generic subagent
+guidance. Definitions can only narrow — recursion stays blocked and unknown
+agent names error instead of falling back. Example: [examples/agents/reviewer.toml](examples/agents/reviewer.toml).
+
 ### Print mode (non-interactive)
 
 Run a single turn without the TUI — useful in scripts and for the E2E suite:
