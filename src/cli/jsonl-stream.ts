@@ -22,20 +22,27 @@ export interface JsonlSink {
 
 const TRUNCATION_ELLIPSIS = '…';
 
+/** Shrink margin for the ellipsis + truncated flag themselves. */
+const TRUNCATION_HEADROOM_CHARS = 64;
+/** Extra characters dropped per shrink pass (UTF-8 bytes != chars). */
+const CHARS_PER_SHRINK_PASS = 512;
+/** Shrink is bounded so a pathological payload still terminates. */
+const MAX_SHRINK_PASSES = 8;
+
 export function createJsonlSink(writeLine: (line: string) => void): JsonlSink {
   /** Serialize with a hard byte cap on the payload-bearing field. */
   const emit = (obj: Record<string, unknown>, capField?: string): void => {
     let line = JSON.stringify(obj);
     if (capField !== undefined && Buffer.byteLength(line, 'utf8') > MAX_EVENT_BYTES) {
       const full = String(obj[capField] ?? '');
-      let keep = Math.max(0, full.length - Math.ceil((Buffer.byteLength(line, 'utf8') - MAX_EVENT_BYTES) / 1) - 64);
-      for (let i = 0; i < 8 && Buffer.byteLength(line, 'utf8') > MAX_EVENT_BYTES; i++) {
+      let keep = Math.max(0, full.length - (Buffer.byteLength(line, 'utf8') - MAX_EVENT_BYTES) - TRUNCATION_HEADROOM_CHARS);
+      for (let i = 0; i < MAX_SHRINK_PASSES && Buffer.byteLength(line, 'utf8') > MAX_EVENT_BYTES; i++) {
         line = JSON.stringify({
           ...obj,
           [capField]: full.slice(0, keep) + TRUNCATION_ELLIPSIS,
           truncated: true,
         });
-        keep = Math.max(0, keep - 512);
+        keep = Math.max(0, keep - CHARS_PER_SHRINK_PASS);
       }
     }
     writeLine(line);

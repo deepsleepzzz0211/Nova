@@ -68,11 +68,14 @@ always_allow_commands = ["git status", "git diff", "ls", "pwd"]
 # write target cannot be resolved statically are refused too.
 workspace_write = true
 # Tier-2 OS enforcement (ticket 02). off = default (tier-1 policy only).
-# auto = on win32, shell children run at LOW integrity: writes outside
-# workspace + ~/.nova + temp are refused by the OS itself (script-inlined
-# writes included), with session-scoped icacls grants restored on exit.
-# On POSIX, auto prints a one-time stderr notice that landlock is not wired
-# yet and keeps tier 1. Re-run after changing; grants are cleaned on exit.
+# auto = on win32, shell children are wrapped in a LOW-integrity token AFTER
+# a per-shell smoke probe (starts AND writes the granted roots). Wrapped
+# shells get OS-level refusal outside workspace + ~/.nova + temp (script-
+# inlined writes included), with session-scoped icacls grants restored on
+# exit. Shells that fail the probe (Git Bash cannot start at Low; writing a
+# Medium-labeled root needs relabel privileges) run unwrapped with a visible
+# notice and stay on tier-1. On POSIX, auto prints a one-time stderr notice
+# that landlock is not wired yet and keeps tier 1. Re-run after changing.
 # os_level = "off"
 
 # Declarative hooks ([[hooks]] is an array of tables). The command receives

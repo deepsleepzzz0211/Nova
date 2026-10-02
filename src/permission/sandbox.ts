@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Sandbox tier 1 (batch-B ticket 021 / gap G2-P1): a workspace path policy
+ * Sandbox tier 1 (batch-B ticket 01 / gap G2-P1): a workspace path policy
  * enforced BEFORE the approval layer. With `sandbox.workspaceWrite = false`
  * (i.e. the sandbox is ON), any write targeting outside the workspace — plus
  * the explicit allow-list (the NOVA_HOME tree) — is DENIED outright: no

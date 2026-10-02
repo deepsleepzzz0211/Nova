@@ -3,10 +3,11 @@ import * as path from 'path';
 
 /**
  * User-defined slash commands (batch-B ticket 04): markdown files in
- * `~/.nova/commands/` (and the project-level `.nova/commands/`) become
- * prompt templates invocable as `/name args`. Execution routes the EXPANDED
- * template through the normal user-message path — the model sees exactly
- * what the user typed would have produced, so no new trust level exists.
+ * `~/.nova/commands/` become prompt templates invocable as `/name args`
+ * (the project-level `./.nova/commands/` is a recorded gap, not loaded yet).
+ * Execution routes the EXPANDED template through the normal user-message
+ * path — the model sees exactly what the user typed would have produced, so
+ * no new trust level exists.
  */
 
 /** One loaded user command. */

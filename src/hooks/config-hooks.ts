@@ -66,15 +66,10 @@ async function runPreHook(spec: HookSpec, input: PreInput, spawn: SpawnHook) {
     // A gate that cannot answer is NOT a pass: fail closed, visibly.
     return { deny: true, reason: `pre-tool-use hook "${spec.command}" timed out — denied under the sandbox gate` };
   }
-  if (res.code === 2) {
-    return { deny: true, reason: (res.stderr.trim() || `blocked by hook "${spec.command}"`) };
-  }
-  if (res.code !== 0) {
-    // Pass-through, but not silent: stderr for logs AND a note that the
-    // pipeline carries into the tool result (ticket 03 transcript promise).
-    console.error(`[hook] pre "${spec.command}" failed (exit ${res.code}) — passing through: ${res.stderr.trim()}`);
-    return { note: `hook pre "${spec.command}" failed (exit ${res.code}): ${res.stderr.trim()}` };
-  }
+  // Deny is a DUAL channel (ticket 03): exit 2 OR {"deny":true} on stdout.
+  // The structured verdict wins at any exit code — a hook that printed it
+  // but crashed afterwards still asked to deny, and pass-through would
+  // silently widen the sandbox.
   const stdout = res.stdout.trim();
   if (stdout !== '') {
     try {
@@ -83,8 +78,17 @@ async function runPreHook(spec: HookSpec, input: PreInput, spawn: SpawnHook) {
         return { deny: true, reason: typeof parsed.reason === 'string' ? parsed.reason : `blocked by hook "${spec.command}"` };
       }
     } catch {
-      // Non-JSON stdout from a passing pre hook is just chatter.
+      // Non-JSON stdout is chatter; the exit codes below decide.
     }
+  }
+  if (res.code === 2) {
+    return { deny: true, reason: (res.stderr.trim() || `blocked by hook "${spec.command}"`) };
+  }
+  if (res.code !== 0) {
+    // Pass-through, but not silent: stderr for logs AND a note that the
+    // pipeline carries into the tool result (ticket 03 transcript promise).
+    console.error(`[hook] pre "${spec.command}" failed (exit ${res.code}) — passing through: ${res.stderr.trim()}`);
+    return { note: `hook pre "${spec.command}" failed (exit ${res.code}): ${res.stderr.trim()}` };
   }
   return undefined;
 }
@@ -102,7 +106,7 @@ async function runPostHook(
   });
   if (res.timedOut === true || res.code !== 0) {
     const what = res.timedOut ? 'timed out' : `failed (exit ${res.code})`;
-    console.error(`[hook] post "${spec.command}” ${what} — result stands, note surfaces in transcript`);
+    console.error(`[hook] post "${spec.command}" ${what} — result stands, note surfaces in transcript`);
     return { note: `hook post "${spec.command}" ${what}${res.stderr.trim() === '' ? '' : `: ${res.stderr.trim()}`}` };
   }
   const note = res.stdout.trim();
