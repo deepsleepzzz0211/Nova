@@ -23,6 +23,27 @@ export interface SessionStartup {
   subagentsDir: string;
 }
 
+/**
+ * Resume continuity (PR #108 review fix): a resumed session CONTINUES the
+ * picked JSONL file so its session id — the identity of the file-history
+ * directory (~/.nova/file-history/<sessionId>) — stays stable. Fresh runs
+ * open a new timestamped rollout. Pure so it is unit-testable without the
+ * interactive picker.
+ */
+export function shouldContinueSessionFile(resuming: boolean): boolean {
+  return resuming;
+}
+
+export function sessionFilePathForMode(sessionsDir: string, pickedFile: string | null, resuming: boolean): string {
+  if (shouldContinueSessionFile(resuming)) {
+    if (pickedFile === null) {
+      throw new Error('resume requested without a picked session file');
+    }
+    return pickedFile;
+  }
+  return path.join(sessionsDir, SessionStore.nextFileName());
+}
+
 export async function runSessionStartup(values: CliValues): Promise<SessionStartup> {
   const sessionsDir = path.join(novaHome(), '.nova', 'sessions');
   const sweepAndReport = (dir: string, label: string): void => {
@@ -73,6 +94,7 @@ export async function runSessionStartup(values: CliValues): Promise<SessionStart
   }
 
   let initialHistory: Message[] = [];
+  let resumedFile: string | null = null;
   if (values.resume) {
     const sessions = SessionStore.listSummaries(sessionsDir);
     if (sessions.length === 0) {
@@ -92,8 +114,18 @@ export async function runSessionStartup(values: CliValues): Promise<SessionStart
         process.exit(0);
       }
       initialHistory = SessionStore.load(picked.file);
+      resumedFile = picked.file;
     }
   }
 
-  return { initialHistory, sessionStore: SessionStore.create(sessionsDir), subagentsDir };
+  // Ticket 03 review fix: --resume CONTINUES the picked session file instead
+  // of opening a new one (see sessionFilePathForMode — the session id keys
+  // the file-history directory, so a fresh name would orphan checkpoints).
+  const resuming = resumedFile !== null;
+  const storePath = sessionFilePathForMode(sessionsDir, resumedFile, resuming);
+  return {
+    initialHistory,
+    sessionStore: new SessionStore(storePath),
+    subagentsDir,
+  };
 }

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Message } from '../llm/types.js';
+import type { UndoReport } from './file-history.js';
 
 /** Default retention window for session files (days). */
 export const SESSION_RETENTION_DAYS = 30;
@@ -12,7 +13,7 @@ export const SESSION_RETENTION_DAYS = 30;
  */
 export interface SessionWriter {
   append(entry: SessionEntry): Promise<void>;
-  appendCompaction(messages: Message[]): Promise<void>;
+  appendCompaction(messages: Message[], codeUndo?: UndoReport): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -53,6 +54,8 @@ export interface CompactionEntry {
   type: 'compaction';
   /** Full post-compaction message state (summary + kept messages). */
   messages: Message[];
+  /** Present only on /undo checkpoints that also restored files (ticket 03). */
+  codeUndo?: UndoReport;
 }
 
 /** Anything storable on one JSONL line of the session log. */
@@ -78,10 +81,20 @@ export class SessionStore {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
+  /** Session identifier: the JSONL file's basename (names the file-history dir). */
+  get sessionId(): string {
+    return path.basename(this.filePath, '.jsonl');
+  }
+
+  /** File name for a new session (single source for create + resume decision). */
+  static nextFileName(now = new Date()): string {
+    const timestamp = now.toISOString().replace(/[:.]/g, '-');
+    return `session-${timestamp}.jsonl`;
+  }
+
   /** Create a store for a new session inside the given directory. */
   static create(dir: string, now = new Date()): SessionStore {
-    const timestamp = now.toISOString().replace(/[:.]/g, '-');
-    return new SessionStore(path.join(dir, `session-${timestamp}.jsonl`));
+    return new SessionStore(path.join(dir, SessionStore.nextFileName(now)));
   }
 
   /** Append an entry (message or checkpoint). Writes are chained to preserve ordering. */
@@ -100,8 +113,8 @@ export class SessionStore {
    * state. On replay this replaces the accumulated history, keeping the
    * resumed session slim (see class docs).
    */
-  appendCompaction(messages: Message[]): Promise<void> {
-    const entry: CompactionEntry = { type: 'compaction', messages };
+  appendCompaction(messages: Message[], codeUndo?: UndoReport): Promise<void> {
+    const entry: CompactionEntry = { type: 'compaction', messages, ...(codeUndo ? { codeUndo } : {}) };
     return this.append(entry);
   }
 

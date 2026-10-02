@@ -7,6 +7,7 @@ function makeLoop(overrides: Record<string, unknown> = {}): never {
     setProvider: vi.fn(),
     setModel: vi.fn(),
     undoTurns: vi.fn(() => ({ undone: true, undoneTurns: 1 })),
+    touchedFilesInUndoWindow: vi.fn(() => []),
     compactNow: vi.fn(async () => ({ compacted: true, beforeTokens: 100, afterTokens: 10 })),
     getMessages: vi.fn(() => [
       { role: 'system', content: 'sys' },
@@ -90,7 +91,7 @@ describe('command context adapter (tui-refactor 15 review fixes)', () => {
       setModelInfo: vi.fn(),
       runUpdate: vi.fn(async () => ({ message: 'ok' })),
     });
-    const r = ctx.undoTurns(1);
+    const r = ctx.undoTurns(1, { withFiles: false });
     expect(r.undone).toBe(true);
     expect(r.restored).toEqual([
       { role: 'user', content: 'hi' },
@@ -104,7 +105,7 @@ describe('command context adapter (tui-refactor 15 review fixes)', () => {
       setModelInfo: vi.fn(),
       runUpdate: vi.fn(async () => ({ message: 'ok' })),
     });
-    expect(ctx2.undoTurns(1)).toEqual({ undone: false, undoneTurns: 0, restored: [] });
+    expect(ctx2.undoTurns(1, { withFiles: false })).toEqual({ undone: false, undoneTurns: 0, restored: [] });
   });
 
   it('compact stays silent on success (the loop already announced it)', async () => {
@@ -124,5 +125,24 @@ describe('command context adapter (tui-refactor 15 review fixes)', () => {
       runUpdate: vi.fn(async () => ({ message: 'ok' })),
     });
     expect(await ctx2.compact()).toEqual({ note: '[nothing to compact — context is small]' });
+  });
+
+  it('undo delegation rides the loop: file plan + withFiles opts pass through (ticket 03)', () => {
+    const undoTurns = vi.fn(() => ({ undone: true, undoneTurns: 1, files: { restored: ['a.ts'], skipped: [] } }));
+    const touched = vi.fn(() => ['a.ts']);
+    const ctx = createCommandContext({
+      loop: makeLoop({ undoTurns, touchedFilesInUndoWindow: touched }),
+      updateMessages: vi.fn(),
+      setModelInfo: vi.fn(),
+      runUpdate: vi.fn(async () => ({ message: 'ok' })),
+      requestUndoChoice: async () => 'files',
+      undoWithFilesDefault: true,
+    });
+    expect(ctx.undoFilePlan(1)).toEqual(['a.ts']);
+    expect(touched).toHaveBeenCalledWith(1);
+    const r = ctx.undoTurns(1, { withFiles: true });
+    expect(undoTurns).toHaveBeenCalledWith(1, { withFiles: true });
+    expect(r.files).toEqual({ restored: ['a.ts'], skipped: [] });
+    expect(ctx.defaultUndoWithFiles).toBe(true);
   });
 });

@@ -7,6 +7,8 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
+import type { DirectoryInstructions } from '../../agent/directory-instructions.js';
+import type { FileHistory } from '../../agent/file-history.js';
 import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
@@ -46,6 +48,12 @@ export interface UseAgentConfig {
   initialHistory?: Message[];
   /** Skill registry for progressive disclosure. */
   skills?: SkillRegistry;
+  directoryInstructions?: DirectoryInstructions;
+  fileHistory?: FileHistory;
+  /** App-owned two-way /undo gate (context-economics ticket 03). */
+  requestUndoChoice?: (files: string[]) => Promise<'files' | 'chat' | 'cancel'>;
+  /** --with-files: /undo restores code without asking. */
+  undoWithFiles?: boolean;
   /** Extra system prompt parts (environment facts, project instructions). */
   promptOptions?: BuildPromptOptions;
   /** Extra prompt section from config. */
@@ -130,8 +138,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     contextTokens: 0,
   });
   const metricsRef = useRef(new PromptCacheMetrics());
-  // Session compaction totals for /status (cache-hit ticket 05); read at
-  // report time, so no re-render is needed.
+  // Session compaction totals for /status (cache-hit ticket 05), read at report time.
   const compactionTotalsRef = useRef<CompactionTotals>({ events: 0, reclaimedTokens: 0 });
   const [modelInfo, setModelInfo] = useState<{
     model: string;
@@ -146,8 +153,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   });
 
   const [isThinking, setIsThinking] = useState(false);
-  // Shift+Tab approval mode (tui-redesign 10): state for the badge, ref for
-  // the async permission callback which must read the LATEST value.
+  // Shift+Tab approval mode (tui-redesign 10): badge state + ref for the latest async value.
   const [approvalMode, setApprovalMode] = useState<ApprovalModeId>('default');
   const approvalModeRef = useRef<ApprovalModeId>('default');
   const cycleApprovalMode = (): ApprovalModeId => {
@@ -156,8 +162,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     setApprovalMode(next);
     return next;
   };
-  // Bumped whenever the displayed conversation is replaced wholesale (/undo):
-  // Ink's static region is append-only and must be remounted to reprint.
+  // Bumped on wholesale conversation replacement (/undo): Ink's static region is append-only and must remount to reprint.
   const [staticEpoch, setStaticEpoch] = useState(0);
 
   // Split-out concerns (p1-p2 11): streaming draft machine + approval gate.
@@ -165,8 +170,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   const { currentAssistantRef, batcher } = stream;
   const setToolCallStatus = (callId: string, status: DisplayToolCall['status']): void =>
     setToolCallStatusVia(setMessages, callId, status);
-  // Tool display kinds come from the registry (ticket 14) — no hardcoded
-  // tool names in the TUI layer.
+  // Tool display kinds come from the registry (ticket 14) — no hardcoded tool names in the TUI layer.
   const kindOf = (n: string): import('../../tools/types.js').ToolDisplay | undefined =>
     config.toolRegistry.displayFor(n);
   const onPermissionRequest = createPermissionGate({
@@ -186,6 +190,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       toolExecutionPipeline: config.toolExecutionPipeline,
       session: config.sessionStore,
       skills: config.skills,
+      directoryInstructions: config.directoryInstructions,
+      fileHistory: config.fileHistory,
       promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
       context:
         config.contextWindow !== undefined
@@ -223,8 +229,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         });
       },
       onCompaction: (info) => {
-        // Net accumulation: a pass that GROWS the context subtracts rather
-        // than being clamped to 0, which would hide regressions (review).
+        // Net accumulation: a pass that GROWS the context subtracts rather than being clamped (review).
         compactionTotalsRef.current = {
           events: compactionTotalsRef.current.events + 1,
           reclaimedTokens:
@@ -259,9 +264,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     }
   }
 
-  // Wire the subagent progress sink once mounted (index.tsx feeds events
-  // from the spawner): tool activity → a live StatusLine line, start/end →
-  // system messages.
+  // Wire the subagent progress sink once mounted (index.tsx feeds events from
+  // the spawner): live StatusLine line + start/end system messages.
   const [subagentActivity, setSubagentActivity] = useState<string | null>(null);
   useEffect(() => {
     if (config.subagentSink) {
@@ -290,9 +294,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
   }, []);
 
   /**
-   * Resolve any permission request that is still pending when a turn ends
-   * (interrupt, error, or completion): the dialog would otherwise stay on
-   * screen forever and its promise would never settle (E2E finding).
+   * Resolve any permission request still pending when a turn ends (interrupt,
+   * error, completion) — the dialog would hang forever otherwise (E2E finding).
    */
   const settleDanglingPermission = useCallback((): void => {
     setPendingPermission((current) => {
@@ -308,8 +311,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
     const loop = loopRef.current;
     if (!loop) return;
 
-    // Slash commands: single registry (ticket 15) — completion and dispatch
-    // share one declaration; handlers receive UI callbacks here.
+    // Slash commands: single registry (ticket 15); handlers receive UI callbacks here.
     const found = findCommand(trimmed);
     if (found !== null) {
       const ctx = createCommandContext({
@@ -320,6 +322,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         onConversationReplaced: () => setStaticEpoch((n) => n + 1),
         setModelInfo,
         runUpdate: runNpmUpdate,
+        requestUndoChoice: config.requestUndoChoice,
+        undoWithFilesDefault: config.undoWithFiles === true,
         buildStatusReport: () =>
           formatStatusReport({
             providerName: modelInfo.providerName,
@@ -335,9 +339,8 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       });
       const echoLine =
         found.args === '' ? `/${found.command.name}` : `/${found.command.name} ${found.args}`;
-      // Handlers must not fail silently (AGENTS: error handling is
-      // implemented, not deferred); the echo is appended AFTER the handler
-      // so an /undo restore cannot swallow it.
+      // Handlers must not fail silently (AGENTS: implement errors); the echo is
+      // appended AFTER the handler so an /undo restore cannot swallow it.
       void Promise.resolve(found.command.run(ctx, found.args))
         .then(() => {
           if (found.command.echoesInput === true) ctx.appendUserMessage(echoLine);
@@ -349,7 +352,6 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       return;
     }
 
-    // Add user message to display
     setMessages((prev) => [...prev, { role: 'user', content: trimmed }]);
 
     // Reset current assistant tracking
@@ -372,8 +374,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         currentAssistantRef.current = null;
         setIsThinking(false);
         setIsStreaming(false);
-        // Errors must be visible, never swallowed (AGENTS: error handling
-        // is implemented, not deferred).
+        // Errors must be visible, never swallowed (AGENTS: implemented error handling).
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${msg}` }]);
         settleDanglingPermission();

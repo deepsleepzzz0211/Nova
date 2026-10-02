@@ -45,6 +45,16 @@ function toolCallChunks(id: string, name: string, text: string): StreamChunk[] {
   ];
 }
 
+/** Summarizer-call discriminator (G19 prefix-parity mode): the instruction is
+ *  the LAST user message of the live history; legacy mode keeps it as the
+ *  leading system message. tools are NO LONGER a valid signal (both requests
+ *  now carry the main-chain tool definitions). */
+function isSummaryChat(msgs: Message[]): boolean {
+  const head = String(msgs[0]?.content ?? '');
+  const tail = String(msgs[msgs.length - 1]?.content ?? '');
+  return head.startsWith('Summarize the conversation') || tail.startsWith('Summarize the conversation');
+}
+
 describe('AgentLoop parallel tool execution', () => {
   it('executes multiple tool calls of a round concurrently', async () => {
     // toolA returns fast, toolB is slow; if executed sequentially the total
@@ -142,8 +152,8 @@ describe('AgentLoop.compactNow', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (isSummaryChat(msgs)) {
           yield { type: 'text_delta', content: 'summary of everything' };
           return;
         }
@@ -226,8 +236,8 @@ describe('AgentLoop.compactNow', () => {
       const llm: LLMProvider = {
         name: 'fake',
         capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-        async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-          if (opts.tools === undefined) {
+        async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+          if (isSummaryChat(msgs)) {
             yield { type: 'text_delta', content: 'summary of everything' };
             return;
           }
@@ -277,8 +287,8 @@ describe('AgentLoop.compactNow', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (isSummaryChat(msgs)) {
           yield { type: 'error', error: 'summarizer unavailable' };
           return;
         }

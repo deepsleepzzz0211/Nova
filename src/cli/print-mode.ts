@@ -6,6 +6,9 @@
  * possible). Used by the E2E suite and scripts.
  */
 import { AgentLoop } from '../agent/loop.js';
+import { DirectoryInstructions } from '../agent/directory-instructions.js';
+import { FileHistory, fileHistoryDir } from '../agent/file-history.js';
+import { novaHome } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
 import type { ThinkingLevel } from '../llm/types.js';
 import type { ResolvedModel } from '../llm/catalog.js';
@@ -32,6 +35,14 @@ export async function runPrintMode(opts: {
     toolExecutionPipeline: runtime.toolExecutionPipeline,
     session: session.sessionStore,
     skills: runtime.skillRegistry,
+    directoryInstructions: new DirectoryInstructions({
+      rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    }),
+    // Checkpoints still record in print mode — an --resume'd session can
+    // /undo its files from the TUI (ticket 03).
+    fileHistory: new FileHistory({
+      historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
+    }),
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,

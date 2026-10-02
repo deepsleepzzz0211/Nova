@@ -9,10 +9,11 @@ CLI AI Agent built with Ink and React — streaming LLM chat with tool use in th
 - **Windows shell routing** — bash commands run through Git Bash (POSIX syntax, auto-detected; override with `NOVA_SHELL`, escape hatch `NOVA_SHELL=cmd`), with a first-class `powershell` tool (pwsh 7 preferred) for Windows-native commands
 - **Code search** — `grep` (ripgrep content search), `glob` (file-name matcher), `list_dir` (directory listing), all on the embedded ripgrep engine run off-thread with a bounded timeout — replacing bash `grep`/`find`/`ls` that broke on Windows
 - **MCP support** — connect Model Context Protocol servers, tools bridge into the same pipeline
-- **Context engineering** — reserve-based auto-compaction (zero-LLM tool-result clearing → structured summary → truncation fallback), reactive recovery on context overflow, tool-result truncation with `[PARTIAL]` markers, `/compact` manual trigger
+- **Context engineering** — reserve-based auto-compaction (zero-LLM tool-result clearing → structured summary → truncation fallback), summary requests ride the main chain's cached prefix (prompt-cache hit on compaction rounds), reactive recovery on context overflow, tool-result truncation with `[PARTIAL]` markers, `/compact` manual trigger
 - **Cross-session memory** — `memory_write` persists durable facts to `MEMORY.md` (user + project level), auto-loaded into the next session's prompt
 - **Session management** — `--list` prints sessions, `--resume` opens an interactive picker, compaction checkpoints survive resume
-- **Undo** — `/undo [n]` reverts the last n conversation turns (conversation only; code changes stay — use git)
+- **Undo** — `/undo [n]` reverts the last n turns; when those turns changed files, a dialog asks whether to also restore the code from the session's pre-write checkpoints (`~/.nova/file-history/<sessionId>/`, migrated with `NOVA_HOME`, survives `--resume`; externally-edited files are skipped, never clobbered). Launch with `--with-files` to default the dialog to conversation + code. Fully isolated from git: no commits, no `.git` writes.
+- **Hierarchical instructions** — project `AGENTS.md` (or `CLAUDE.md`) loads at startup; subdirectory `AGENTS.md` files are injected lazily, append-only, when the agent touches a file under them (32 KiB session budget, deepest-first truncation)
 - **Prompt-cache friendly** — frozen system prompt, append-only history, Anthropic `cache_control` breakpoints, live R/W/CH metrics
 - **Permission system** — policy-based gating with per-tool confirmation dialogs, dangerous-command detection
 - **Skills** — progressive disclosure of `SKILL.md` knowledge packs

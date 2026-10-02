@@ -1,11 +1,15 @@
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message, ToolCall } from '../llm/types.js';
+import * as path from 'path';
 import type { ToolResult } from '../tools/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
+import { type DirectoryInstructions } from './directory-instructions.js';
+import { type FileHistory, type WriteToolNames, type UndoReport } from './file-history.js';
+import { resolveToolPath } from '../shared/tool-args.js';
 import { StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
@@ -40,6 +44,8 @@ export class AgentLoop implements TurnHost {
   private readonly session: SessionWriter | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
+  /** @internal */ readonly directoryInstructions: DirectoryInstructions | null;
+  /** @internal */ readonly fileHistory: FileHistory | null;
   private readonly promptOptions: BuildPromptOptions;
   private readonly onUsage: AgentLoopConfig['onUsage'];
   /** @internal */ readonly onContextSize: AgentLoopConfig['onContextSize'];
@@ -81,15 +87,23 @@ export class AgentLoop implements TurnHost {
       ? new Compactor(options.llm, options.config.model, {
           keepRecentTokens: options.context.keepRecentTokens,
           triggerTokens: this.contextManager?.triggerTokens,
+          // G19: summary requests ride the main chain's cached prefix.
+          getMainPrefix: () => ({
+            systemPrompt: this.frozenSystemPrompt,
+            tools: this.toolRegistry.toToolDefinitions(),
+          }),
         })
       : null;
     this.session = options.session ?? null;
+    this.fileHistory = options.fileHistory ?? null;
     this.ctxOps = new ContextOps({
       getMessages: () => this.messages,
       setMessages: (messages: Message[]) => { this.messages = messages; },
       contextManager: this.contextManager,
       contextStrategy: options.context?.strategy ?? null,
       compactor,
+      fileHistory: this.fileHistory,
+      fileWriteTools: () => this.fileWritingToolNames(),
       microcompactIdleMs: options.context?.microcompactIdleMs ?? 60 * 60 * 1000,
       session: this.session,
       onCompaction: options.onCompaction,
@@ -97,6 +111,7 @@ export class AgentLoop implements TurnHost {
     });
     this.skills = options.skills ?? null;
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
+    this.directoryInstructions = options.directoryInstructions ?? null;
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
     this.onContextSize = options.onContextSize;
@@ -143,14 +158,24 @@ export class AgentLoop implements TurnHost {
 
   /**
    * Undo the last N conversation turns (a turn = one user message and
-   * everything after it until the next user message). Conversation-only:
-   * file changes made by tools are NOT reverted (use git for those).
-   * Persistence stays append-only: the post-undo state is written as a
-   * checkpoint, which --resume replays as the truncated history.
-   * N is clamped to the number of available turns.
+   * everything after it until the next user message). By default
+   * conversation-only. With `{ withFiles }` the files the undone turns
+   * touched are restored to their pre-turn snapshots (externally-changed
+   * files are skipped). Persistence stays append-only: the post-undo state
+   * is written as a checkpoint, which --resume replays as the truncated
+   * history. N is clamped to the number of available turns.
    */
-  undoTurns(n = 1): { undone: boolean; undoneTurns: number } {
-    return this.ctxOps.undoTurns(n);
+  undoTurns(n = 1, opts?: { withFiles?: boolean }): {
+    undone: boolean;
+    undoneTurns: number;
+    files?: UndoReport;
+  } {
+    return this.ctxOps.undoTurns(n, opts);
+  }
+
+  /** Write-tool files restorable when undoing the last n turns (/undo ask). */
+  touchedFilesInUndoWindow(n: number): string[] {
+    return this.ctxOps.touchedFilesInUndoWindow(n);
   }
 
   /**
@@ -218,9 +243,61 @@ export class AgentLoop implements TurnHost {
     return injectSkillsImpl(this.skills, this.maxActiveSkills, userInput, (message) => this.pushMessage(message));
   }
 
-  /** Execute one tool call through the pipeline and notify the UI. */
+  /**
+   * Inject not-yet-seen directory instructions for the file a successful
+   * read/edit/write call touched. Append-only system messages, same cache
+   * discipline as skills.
+   */
+  /** @internal */ injectDirectoryInstructions(call: ToolCall, result: ToolResult): void {
+    if (this.directoryInstructions === null) return;
+    if (result.isError) return;
+    if (!this.fileTouchingToolNames().has(call.function.name)) return;
+    const filePath = resolveToolPath(call.function.arguments);
+    if (filePath === null) return;
+    for (const pending of this.directoryInstructions.pendingFor(filePath)) {
+      const rel = path.relative(process.cwd(), pending.file) || pending.file;
+      this.pushMessage({
+        role: 'system',
+        content: `[Directory instructions — ${rel}]\n${pending.content}`,
+      });
+    }
+  }
+
+  /** Registry-derived: tools declaring any file access (read or write). */
+  /** @internal */ fileTouchingToolNames(): ReadonlySet<string> {
+    return new Set(
+      this.toolRegistry.getAll().filter((t) => t.fileAccess !== undefined).map((t) => t.name),
+    );
+  }
+
+  /**
+   * Registry-derived: tools whose calls WRITE files (checkpointed/undoable).
+   * Falls back to the canonical write set when the registry has no
+   * fileAccess-declared tools (bare test registries) — the fallback names
+   * are the very tools shipped in src/tools, never arbitrary extensions.
+   */
+  /** @internal */ fileWritingToolNames(): WriteToolNames {
+    const declared = this.toolRegistry
+      .getAll()
+      .filter((t) => t.fileAccess === 'write')
+      .map((t) => t.name);
+    return new Set(declared.length > 0 ? declared : ['edit_file', 'write_file']);
+  }
+
+  /**
+   * Execute one tool call through the pipeline and notify the UI. Write
+   * tools additionally take the pre-change snapshot (ticket 03): capture
+   * BEFORE the call, mark written only on success.
+   */
   /** @internal */ async executeToolCall(call: ToolCall): Promise<ToolResult> {
-    return executeToolCallImpl(
+    let snapshotTarget: string | null = null;
+    if (this.fileHistory !== null && this.fileWritingToolNames().has(call.function.name)) {
+      snapshotTarget = resolveToolPath(call.function.arguments);
+      if (snapshotTarget !== null) {
+        this.fileHistory.snapshotBefore(snapshotTarget);
+      }
+    }
+    const result = await executeToolCallImpl(
       {
         toolRegistry: this.toolRegistry,
         toolExecutionPipeline: this.toolExecutionPipeline,
@@ -230,6 +307,10 @@ export class AgentLoop implements TurnHost {
       },
       call,
     );
+    if (snapshotTarget !== null && !result.isError) {
+      this.fileHistory?.noteWritten(snapshotTarget);
+    }
+    return result;
   }
 
   /** Current conversation history (introspection/testing). */

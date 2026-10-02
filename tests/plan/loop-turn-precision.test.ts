@@ -107,6 +107,16 @@ function toolGroup(id: string, body: string): Message[] {
   ];
 }
 
+/** Summarizer-call discriminator (G19 prefix-parity mode): the instruction is
+ *  the LAST user message of the live history; legacy mode keeps it as the
+ *  leading system message. tools are NO LONGER a valid signal (both requests
+ *  now carry the main-chain tool definitions). */
+function isSummaryChat(msgs: Message[]): boolean {
+  const head = String(msgs[0]?.content ?? '');
+  const tail = String(msgs[msgs.length - 1]?.content ?? '');
+  return head.startsWith('Summarize the conversation') || tail.startsWith('Summarize the conversation');
+}
+
 describe('loop.ts precision net (survived hunt 1/3)', () => {
   // ---- context-management events ------------------------------------------------
 
@@ -223,7 +233,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (!isSummary) throw new Error('turn chat must not be called');
         const out = outcomes[summaryCalls++];
         if (out === 'fail') { yield { type: 'error', error: 'boom' }; return; }
@@ -282,7 +292,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (!isSummary) throw new Error('not a summary call');
         summaryCalls++;
         yield { type: 'error', error: 'boom' };
@@ -319,7 +329,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (isSummary) { summaryCalls++; yield { type: 'error', error: 'boom' }; return; }
         yield text('ok');
       },
@@ -355,7 +365,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (isSummary) { summaryCalls++; yield text('S'); return; }
         yield text(big(400));
       },
@@ -383,7 +393,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (isSummary) { yield text('S'); return; }
         yield text(big(400));
       },
@@ -808,7 +818,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (isSummary) { yield text('S'); return; }
         turnChats++;
         if (turnChats === 1) throw new Error('maximum context length exceeded, please shrink');
@@ -836,7 +846,7 @@ describe('loop.ts precision net (survived hunt 1/3)', () => {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
       async *chat(msgs: Message[]): AsyncIterable<StreamChunk> {
-        const isSummary = (msgs[0].content ?? '').startsWith('Summarize the conversation');
+        const isSummary = isSummaryChat(msgs);
         if (isSummary) { summaries++; yield text('S'); return; }
         throw new Error('maximum context length exceeded, again');
       },

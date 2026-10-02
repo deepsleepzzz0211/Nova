@@ -13,6 +13,16 @@ import { PermissionPolicy } from '../../src/permission/policy.js';
 import type { LLMProvider } from '../../src/llm/provider.js';
 import type { StreamChunk, Message, ChatOptions } from '../../src/llm/types.js';
 
+/** Summarizer-call discriminator (G19 prefix-parity mode): the instruction is
+ *  the LAST user message of the live history; legacy mode keeps it as the
+ *  leading system message. tools are NO LONGER a valid signal (both requests
+ *  now carry the main-chain tool definitions). */
+function isSummaryChat(msgs: Message[]): boolean {
+  const head = String(msgs[0]?.content ?? '');
+  const tail = String(msgs[msgs.length - 1]?.content ?? '');
+  return head.startsWith('Summarize the conversation') || tail.startsWith('Summarize the conversation');
+}
+
 const policy = new PermissionPolicy({
   autoApproveFileWrite: false,
   autoApproveBash: false,
@@ -252,8 +262,8 @@ describe('AgentLoop.undoTurns', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (isSummaryChat(msgs)) {
           yield { type: 'text_delta', content: 'summary' };
           return;
         }
@@ -310,8 +320,8 @@ describe('AgentLoop.undoTurns', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (isSummaryChat(msgs)) {
           yield { type: 'text_delta', content: 'summary' };
           return;
         }
@@ -756,8 +766,8 @@ describe('AgentLoop context management', () => {
       async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
         calls.push({ msgs: [...msgs], opts });
         callIndex++;
-        // Compaction request (no tools) → summary text
-        if (opts.tools === undefined) {
+        // Compaction request (instruction-appended, prefix-parity mode) → summary text
+        if (isSummaryChat(msgs)) {
           yield { type: 'text_delta', content: 'User tested context compaction.' };
           return;
         }
@@ -803,8 +813,8 @@ describe('AgentLoop context management', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        if (isSummaryChat(msgs)) {
           yield { type: 'error', error: 'summarizer unavailable' };
           return;
         }
@@ -845,9 +855,9 @@ describe('AgentLoop context management', () => {
     const llm: LLMProvider = {
       name: 'fake',
       capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['fake'] },
-      async *chat(_msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
-        // Summarizer calls (tool-free) always succeed
-        if (opts.tools === undefined) {
+      async *chat(msgs: Message[], opts: ChatOptions): AsyncIterable<StreamChunk> {
+        // Summarizer calls always succeed
+        if (isSummaryChat(msgs)) {
           yield { type: 'text_delta', content: 'User tested overflow recovery.' };
           return;
         }

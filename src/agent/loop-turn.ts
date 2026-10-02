@@ -41,6 +41,7 @@ export interface TurnHost {
   /** @internal */ onToolCallReady?: (call: ToolCall) => void;
   /** @internal */ pushMessage(message: Message): void;
   /** @internal */ injectSkills(userInput: string): Promise<void>;
+  /** @internal */ injectDirectoryInstructions(call: ToolCall, result: { content: string; isError?: boolean }): void;
   /** @internal */ executeToolCall(call: ToolCall): Promise<{ content: string; isError?: boolean }>;
   /** @internal */ emitUsage(usage: TurnUsage): void;
   /** @internal */ compactNow(origin: 'manual' | 'overflow'): Promise<{ compacted: boolean }>;
@@ -228,6 +229,7 @@ export async function runTurn(host: TurnHost, input: string): Promise<AgentTurnR
           content: result.content,
           is_error: result.isError,
         });
+        host.injectDirectoryInstructions(call, result);
       }
 
       // Cancelled mid-run: stop without another LLM round

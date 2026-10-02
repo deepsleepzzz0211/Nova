@@ -15,6 +15,7 @@ export interface CliValues {
   resume?: unknown;
   list?: unknown;
   'no-header'?: unknown;
+  'with-files'?: unknown;
   'tui-mode'?: unknown;
   print?: unknown;
   yes?: unknown;
@@ -34,6 +35,7 @@ export function parseCliArgs(): CliValues {
       resume: { type: 'boolean', short: 'r' },
       list: { type: 'boolean' },
       'no-header': { type: 'boolean' },
+      'with-files': { type: 'boolean' },
       'tui-mode': { type: 'string' },
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
