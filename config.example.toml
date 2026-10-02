@@ -38,6 +38,8 @@ context_strategy = "truncate"
 # context_keep_recent_tokens = 20000
 # Default model spec for subagents (call param > this > parent model).
 # subagent_model = ""
+# Idle recycle window (ms) for named persistent bash sessions (ticket 07).
+# shell_session_idle_ms = 600000   # default; 0 or negative disables recycling
 # Max concurrently running subagents. Default 3.
 # subagent_max_concurrent = 3
 # Token ceiling for the Available-Skills listing in the system prompt;
@@ -58,6 +60,37 @@ auto_approve_file_write = false
 auto_approve_bash = false
 # Commands that are always allowed without confirmation
 always_allow_commands = ["git status", "git diff", "ls", "pwd"]
+
+[sandbox]
+# Tier-1 workspace path policy. true (default) = today's approval behavior.
+# false = hard policy: writes outside the workspace (except the nova home
+# tree) are DENIED — the always-allow list cannot escape it; commands whose
+# write target cannot be resolved statically are refused too.
+workspace_write = true
+# Tier-2 OS enforcement (ticket 02). off = default (tier-1 policy only).
+# auto = on win32, shell children run at LOW integrity: writes outside
+# workspace + ~/.nova + temp are refused by the OS itself (script-inlined
+# writes included), with session-scoped icacls grants restored on exit.
+# On POSIX, auto prints a one-time stderr notice that landlock is not wired
+# yet and keeps tier 1. Re-run after changing; grants are cleaned on exit.
+# os_level = "off"
+
+# Declarative hooks ([[hooks]] is an array of tables). The command receives
+# the event JSON on stdin ({tool, params, result?}). pre_tool_use denies with
+# exit code 2 (stderr becomes the reason) or {"deny": true, "reason": "..."}
+# on stdout; post_tool_use stdout is appended to the tool result as a
+# [post-tool-use] note the model can react to.
+# [[hooks]]
+# event = "post_tool_use"
+# matcher = "write_file"                 # or "*" for every tool
+# command = "node scripts/note-filesize.js"   # reads the JSON, prints a note
+# timeout_ms = 10000                     # default; pre hooks fail closed on timeout
+
+# User-defined slash commands do NOT live in this file: they are markdown
+# files in ~/.nova/commands/<name>.md (NOVA_HOME-migrated) with optional
+# front-matter (description, argument_hint) and a prompt-template body
+# ($1..$9 / $ARGUMENTS slots). Built-ins always win a name clash; /help
+# lists both groups. See README.
 
 # MCP servers configuration
 [[mcp_servers]]

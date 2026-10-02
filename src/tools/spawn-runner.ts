@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { SpawnInvocation } from './shell-routing.js';
 
 /**
@@ -56,4 +56,55 @@ export function runSpawnCommand(
       resolve({ content: err.message, exitCode: 1, isError: true });
     });
   });
+}
+/**
+ * Spawn a command WITHOUT waiting (ticket 06 background jobs): pipes stay
+ * open for the job registry to capture, and on POSIX the child becomes a
+ * process-group leader so killProcessTree can take the whole tree down.
+ */
+export function spawnBackground(
+  invocation: SpawnInvocation,
+  options: { cwd: string },
+): ChildProcess {
+  return spawn(invocation.file, invocation.args, {
+    cwd: options.cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+    windowsHide: true,
+  });
+}
+
+/**
+ * Terminate a process and its children: taskkill /T /F on win32, the
+ * negative pid (process group) on POSIX, plain pid as the group fallback.
+ * Test seams: platform / spawnFn / killFn are injectable.
+ */
+export function killProcessTree(
+  pid: number,
+  deps: {
+    platform?: NodeJS.Platform;
+    spawnFn?: (file: string, args: string[]) => unknown;
+    killFn?: (pid: number, signal: NodeJS.Signals) => void;
+  } = {},
+): void {
+  const platform = deps.platform ?? process.platform;
+  if (platform === 'win32') {
+    const spawnFn = deps.spawnFn ?? ((file: string, args: string[]) => spawn(file, args, { windowsHide: true, stdio: 'ignore' }));
+    try {
+      spawnFn('taskkill', ['/PID', String(pid), '/T', '/F']);
+    } catch {
+      // taskkill unavailable: nothing safer to try from here
+    }
+    return;
+  }
+  const killFn = deps.killFn ?? ((target: number, signal: NodeJS.Signals) => { process.kill(target, signal); });
+  try {
+    killFn(-pid, 'SIGKILL');
+  } catch {
+    try {
+      killFn(pid, 'SIGKILL');
+    } catch {
+      // already gone
+    }
+  }
 }

@@ -1,6 +1,9 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
-import { runSpawnCommand } from './spawn-runner.js';
+import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
+import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobHandle, type JobRegistry } from './jobs.js';
+import type { ShellSessionRegistry } from './shell-session.js';
+import type { SpawnInvocation } from './shell-routing.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -20,8 +23,16 @@ function announceFallbackOnce(plan: ShellPlan): void {
  * `resolvePlan` is injectable for tests and for the powershell tool's shared
  * spawn plumbing; production resolves the real environment (windows-shell 01).
  */
-export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): Tool {
+export function createBashTool(deps: {
+  resolvePlan?: () => ShellPlan;
+  jobs?: JobRegistry;
+  sessions?: ShellSessionRegistry;
+  /** Tier-2 OS wrap (ticket 02): rewrites the spawn invocation when active. */
+  osWrap?: (invocation: SpawnInvocation, cwd: string) => SpawnInvocation;
+  spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle;
+} = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
+  const spawnBg = deps.spawnBackground ?? spawnBackground;
   return {
     name: 'bash',
     display: { kind: 'command' },
@@ -34,6 +45,9 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): To
       properties: {
         command: { type: 'string', description: 'Shell command to execute' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 60000)' },
+        background: { type: 'boolean', description: `Run without waiting: returns a job id immediately; read output with ${JOB_OUTPUT_TOOL_NAME} and stop with ${JOB_KILL_TOOL_NAME}` },
+        session: { type: 'string', description: 'Named persistent shell: same name reuses one bash process, keeping cwd/env/functions across calls. Commands must not read stdin.' },
+        session_reset: { type: 'boolean', description: 'With session: drop that shell first and start from a clean one' },
       },
       required: ['command'],
     },
@@ -60,9 +74,75 @@ export function createBashTool(deps: { resolvePlan?: () => ShellPlan } = {}): To
         return { content: `Shell resolution failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
       }
       announceFallbackOnce(plan);
+      const sessionName =
+        typeof params.session === 'string' && params.session.trim() !== ''
+          ? params.session.trim()
+          : undefined;
+      if (sessionName !== undefined) {
+        if (deps.sessions === undefined) {
+          return { content: 'Persistent shell sessions are not available in this session.', isError: true };
+        }
+        if (plan.kind !== 'bash') {
+          return {
+            content: 'Persistent shell sessions require a bash-family shell; the resolved shell is not bash.',
+            isError: true,
+          };
+        }
+        if (params.session_reset === true) deps.sessions.reset(sessionName);
+        const res = await deps.sessions.run(sessionName, command, context.workingDirectory, timeout);
+        // exit -1 is the registry's transport-failure sentinel (death/timeout),
+        // never a real $? (bash reports 255 for exit -1).
+        return {
+          content:
+            (res.restarted ? '[session restarted]\n' : '') +
+            res.out +
+            (res.exitCode > 0 ? `\n[exit ${res.exitCode}]` : ''),
+          ...(res.exitCode === -1 ? { isError: true } : {}),
+          metadata: { exitCode: res.exitCode },
+        };
+      }
+
       const invocation = buildSpawnInvocation(plan, command);
 
-      const result = await runSpawnCommand(invocation, {
+      if (params.background === true) {
+        if (deps.jobs === undefined) {
+          return { content: 'Background jobs are not available in this session.', isError: true };
+        }
+        // Refuse BEFORE spawning: a capped request must never leave an
+        // untracked live process behind the refusal message.
+        const refusal = deps.jobs.capacityRefusal();
+        if (refusal !== undefined) {
+          return { content: refusal, isError: true };
+        }
+        let handle: JobHandle;
+        try {
+          handle = spawnBg(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, { cwd: context.workingDirectory });
+        } catch (err) {
+          return {
+            content: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+        const started = deps.jobs.start(command, handle);
+        if (!started.started) {
+          // Unreachable after the precheck (no await gap), but if the cap
+          // logic ever diverges: never leave the spawned handle orphaned.
+          handle.kill('SIGTERM');
+          return { content: started.reason, isError: true };
+        }
+        const preview =
+          command.length > PREVIEW_MAX_CHARS
+            ? `${command.slice(0, PREVIEW_MAX_CHARS)}…`
+            : command;
+        return {
+          content:
+            `Started background job ${started.jobId} (pid ${started.pid ?? 'unknown'}): ${preview}\n` +
+            `The command is still running. Read incremental output with ${JOB_OUTPUT_TOOL_NAME} {jobId, cursor} ` +
+            `and terminate it with ${JOB_KILL_TOOL_NAME}.`,
+        };
+      }
+
+      const result = await runSpawnCommand(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, {
         cwd: context.workingDirectory,
         signal: context.abortSignal,
         timeoutMs: timeout,

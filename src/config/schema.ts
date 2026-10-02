@@ -41,6 +41,8 @@ export interface AgentConfig {
   subagentModel?: string;
   /** Max concurrently running subagents. Default 3. */
   subagentMaxConcurrent?: number;
+  /** Idle recycle window for named persistent shell sessions (ticket 07). Default 600000; <= 0 disables. */
+  shellSessionIdleMs?: number;
   /** Unified thinking level (off/minimal/low/medium/high/xhigh/max). */
   thinkingLevel: string;
   /**
@@ -64,6 +66,32 @@ export interface PermissionConfig {
   alwaysAllowCommands: string[];
 }
 
+/**
+ * Sandbox configuration (batch-B ticket 01, gap G2 tier 1).
+ * workspaceWrite=true (default) leaves the sandbox layer inactive —
+ * today's approval-based behavior. false turns on the hard workspace path
+ * policy: writes outside the workspace (plus the NOVA_HOME allow-list) are
+ * DENIED by policy, not by dialog; always-allow rules cannot escape it.
+ */
+export interface SandboxConfig {
+  workspaceWrite: boolean;
+  /** Tier-2 OS enforcement (ticket 02): 'off' (default) | 'auto' (win32 low-integrity wrap when available). */
+  osLevel?: 'off' | 'auto';
+}
+
+/**
+ * One declarative hook entry ([[hooks]] array of TOML). The command receives
+ * the event JSON on stdin; pre_tool_use denies via exit 2 or a
+ * {"deny":true} stdout; post_tool_use stdout surfaces as a note (ticket 03).
+ */
+export interface HookConfig {
+  event: 'pre_tool_use' | 'post_tool_use';
+  /** Exact tool name or '*' for every tool. */
+  matcher: string;
+  command: string;
+  timeoutMs?: number;
+}
+
 /** Configuration for an MCP server. */
 export interface MCPServerConfig {
   name: string;
@@ -79,5 +107,7 @@ export interface AppConfig {
   agent: AgentConfig;
   search: SearchConfig;
   permission: PermissionConfig;
+  sandbox: SandboxConfig;
+  hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
 }

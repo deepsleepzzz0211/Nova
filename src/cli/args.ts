@@ -17,6 +17,7 @@ export interface CliValues {
   'no-header'?: unknown;
   'with-files'?: unknown;
   'tui-mode'?: unknown;
+  'output-format'?: unknown;
   print?: unknown;
   yes?: unknown;
   thinking?: unknown;
@@ -26,8 +27,10 @@ export interface CliValues {
   _: unknown;
 }
 
-export function parseCliArgs(): CliValues {
-  const { values } = parseArgs({
+/** @param argv defaults to the real CLI args (test seam). */
+export function parseCliArgs(argv: string[] = process.argv.slice(2)): CliValues {
+  const { values, positionals } = parseArgs({
+    args: argv,
     options: {
       model: { type: 'string', short: 'm' },
       'api-key': { type: 'string' },
@@ -37,6 +40,7 @@ export function parseCliArgs(): CliValues {
       'no-header': { type: 'boolean' },
       'with-files': { type: 'boolean' },
       'tui-mode': { type: 'string' },
+      'output-format': { type: 'string' },
       print: { type: 'string', short: 'p' },
       yes: { type: 'boolean' },
       thinking: { type: 'string' },
@@ -48,7 +52,9 @@ export function parseCliArgs(): CliValues {
   });
   // strict:false gives an open bag; the interface documents the options we
   // declared above (values are read defensively at each use site).
-  return values as unknown as CliValues;
+  // NOTE: node:util parseArgs keeps positionals OUT of values — expose them
+  // as _ here (the replay-sessions target reads values._[0]).
+  return { ...(values as unknown as CliValues), _: positionals };
 }
 
 /**

@@ -155,6 +155,9 @@ export function buildSystemPrompt(
     if (env.powershell) {
       parts.push(`PowerShell: ${env.powershell}`);
     }
+    if (env.sandbox) {
+      parts.push(`Sandbox: ${env.sandbox}`);
+    }
     if (env.gitBranch) {
       parts.push(`Git branch: ${env.gitBranch}`);
     }

@@ -8,6 +8,7 @@ import { buildSystemPrompt } from '../agent/prompt.js';
 import type { BuildPromptOptions } from '../agent/prompt.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import { SessionStore } from '../agent/session.js';
+import type { AgentDefinition } from './agents.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 /** Model-resolution callback (catalog-driven; provided by the entrypoint). */
@@ -29,6 +30,8 @@ export interface SubagentResult {
 export interface SubagentEvent {
   agentId: string;
   type: 'start' | 'tool_call' | 'tool_result' | 'token' | 'end';
+  /** Named-agent definition this run was routed through (ticket 05). */
+  agentName?: string;
   /** Call / result / summary payload depending on type. */
   payload?: unknown;
   /** Round count (on end). */
@@ -53,6 +56,8 @@ export interface SubagentDeps {
   resolveModelSpec?: ModelSpecResolver;
   /** Progress sink for every spawned subagent (ticket 04). */
   onEvent?: (event: SubagentEvent) => void;
+  /** Named agent definitions from ~/.nova/agents/*.toml (ticket 05). */
+  agents?: ReadonlyMap<string, AgentDefinition>;
   /** Directory for per-subagent transcripts (<agentId>.jsonl). Enables resume. */
   transcriptsDir?: string;
 }
@@ -69,6 +74,8 @@ export interface SubagentRunOptions {
   signal?: AbortSignal;
   /** Resume an earlier subagent by id: task becomes a follow-up on its transcript. */
   resumeAgentId?: string;
+  /** Route through a named agent definition (ticket 05). Unknown names error. */
+  agent?: string;
 }
 
 const DEFAULT_MAX_ROUNDS = 10;
@@ -108,17 +115,43 @@ export class SubagentSpawner {
     return true;
   }
 
-  /** Build the child's tool registry: everything except the derivation tools. */
-  private childToolRegistry(): ToolRegistry {
+  /**
+   * Build the child's tool registry: everything except the derivation tools,
+   * narrowed further by an agent definition when one routed this run
+   * (ticket 05): the whitelist can only remove, the readOnly bit physically
+   * strips fileAccess=write capability tools, and CHILD_FORBIDDEN_TOOLS wins
+   * over anything a definition declares.
+   */
+  private childToolRegistry(definition?: AgentDefinition): ToolRegistry {
     const child = new ToolRegistry();
     for (const tool of this.deps.toolRegistry.getAll()) {
-      if (!CHILD_FORBIDDEN_TOOLS.has(tool.name)) child.register(tool);
+      if (CHILD_FORBIDDEN_TOOLS.has(tool.name)) continue;
+      if (definition !== undefined) {
+        if (!definition.tools.includes(tool.name)) continue;
+        if (definition.readOnly && tool.fileAccess === 'write') continue;
+      }
+      child.register(tool);
     }
     return child;
   }
 
   /** Run a focused task in a fresh subagent context. */
   async run(task: string, options?: SubagentRunOptions): Promise<SubagentResult> {
+    // Named-agent routing (ticket 05): an unknown name is an error, never a
+    // silent widening back to the unrestricted default spawn.
+    let definition: AgentDefinition | undefined;
+    if (options?.agent !== undefined && options.agent.length > 0) {
+      definition = this.deps.agents?.get(options.agent);
+      if (definition === undefined) {
+        const known = [...(this.deps.agents?.keys() ?? [])].sort();
+        throw new Error(
+          `Unknown agent "${options.agent}". ` +
+          (known.length > 0
+            ? `Available agents: ${known.join(', ')}. Omit the agent parameter for a default subagent.`
+            : 'No agent definitions are loaded. Omit the agent parameter for a default subagent.'),
+        );
+      }
+    }
     if (!this.acquire()) {
       throw new Error(
         `Concurrent subagent limit reached (${this.active}/${this.maxConcurrent} running). ` +
@@ -142,8 +175,15 @@ export class SubagentSpawner {
         session = new SessionStore(transcriptPath); // append to the same log
       }
     }
+    // Every event of a named-agent run carries the definition name, so
+    // progress lines show "reviewer ▸ ..." instead of falling back to the
+    // opaque run id.
     const emit = (event: Omit<SubagentEvent, 'agentId'>): void => {
-      this.deps.onEvent?.({ agentId, ...event });
+      this.deps.onEvent?.({
+        agentId,
+        ...(definition !== undefined ? { agentName: definition.name } : {}),
+        ...event,
+      });
     };
     emit({ type: 'start', payload: task });
     try {
@@ -151,7 +191,7 @@ export class SubagentSpawner {
       let llm = this.deps.llm;
       let model = this.deps.model;
       let modelNote = '';
-      const spec = options?.model ?? this.deps.defaultModel;
+      const spec = options?.model ?? definition?.model ?? this.deps.defaultModel;
       if (spec && this.deps.resolveModelSpec) {
         const resolved = this.deps.resolveModelSpec(spec);
         if (resolved.ok) {
@@ -173,14 +213,17 @@ export class SubagentSpawner {
         llm,
         session,
         abortSignal: options?.signal,
-        toolRegistry: this.childToolRegistry(),
+        toolRegistry: this.childToolRegistry(definition),
         toolExecutionPipeline: this.deps.toolExecutionPipeline,
         config: { maxToolRounds: maxRounds, model },
         promptOptions: {
           ...this.deps.promptOptions,
           customPrompt: [
             this.deps.promptOptions?.customPrompt,
-            'You are a focused subagent completing a single task. Work autonomously, ' +
+            // A definition's prompt replaces the generic subagent guidance
+            // (ticket 05); environment/project sections stay underneath.
+            definition?.prompt ??
+              'You are a focused subagent completing a single task. Work autonomously, ' +
               'use the available tools, and finish with a concise summary of what you did ' +
               'and what you found. Do not ask the user questions.',
           ].filter(Boolean).join('\n\n'),

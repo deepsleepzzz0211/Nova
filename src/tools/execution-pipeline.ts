@@ -100,11 +100,11 @@ export class ToolExecutionPipeline {
     options?: ExecuteOptions,
   ): Promise<ToolResult> {
     // 1. Policy decision
-    const permission = this.permissionChecker.check(tool.name, params, tool);
+    const permission = this.permissionChecker.check(tool.name, params, tool, context.workingDirectory);
 
     if (permission.decision === 'deny') {
       return {
-        content: `Permission denied for tool "${tool.name}".`,
+        content: joinMessages(`Permission denied for tool "${tool.name}".`, permission.message) ?? '',
         isError: true,
       };
     }
@@ -146,14 +146,19 @@ export class ToolExecutionPipeline {
         // Arguments were edited: re-run the policy on the new input, then loop
         // so prepareApproval re-evaluates and an 'ask' re-prompts.
         resolvedParams = outcome.params;
-        decision = this.permissionChecker.check(tool.name, resolvedParams, tool);
+        decision = this.permissionChecker.check(tool.name, resolvedParams, tool, context.workingDirectory);
         if (decision.decision === 'deny') {
-          return { content: `Permission denied for tool "${tool.name}" (edited arguments).`, isError: true };
+          return {
+            content: joinMessages(`Permission denied for tool "${tool.name}" (edited arguments).`, decision.message) ?? '',
+            isError: true,
+          };
         }
       }
     }
 
-    // 3. Pre-tool-use hooks (may deny)
+    // 3. Pre-tool-use hooks (may deny). Non-denying hooks may still return a
+    // note (ticket 03: a failing hook passes through but stays visible).
+    const preNotes: string[] = [];
     for (const hook of this.hooks.pre ?? []) {
       try {
         const decision = await hook({ tool: tool.name, params: resolvedParams });
@@ -163,6 +168,7 @@ export class ToolExecutionPipeline {
             isError: true,
           };
         }
+        if (decision?.note) preNotes.push(`[pre-tool-use ${tool.name}] ${decision.note}`);
       } catch {
         // A crashing hook must not break execution
       }
@@ -174,7 +180,7 @@ export class ToolExecutionPipeline {
     if (cacheable) {
       const cached = await this.cache.get(cacheKey);
       if (cached) {
-        return cached;
+        return preNotes.length === 0 ? cached : { ...cached, content: `${cached.content}\n${preNotes.join('\n')}` };
       }
     }
 
@@ -188,16 +194,22 @@ export class ToolExecutionPipeline {
         await this.cache.set(cacheKey, truncated);
       }
 
-      // 7. Post-tool-use hooks (observation only)
+      // 7. Post-tool-use hooks: observation, plus optional notes appended to
+      // the result so the model can react (ticket 03). Notes are NOT cached.
+      const notes: string[] = [...preNotes];
       for (const hook of this.hooks.post ?? []) {
         try {
-          await hook({ tool: tool.name, params: resolvedParams, result: truncated });
+          const observation = await hook({ tool: tool.name, params: resolvedParams, result: truncated });
+          if (observation?.note) notes.push(`[post-tool-use ${tool.name}] ${observation.note}`);
         } catch {
           // A crashing hook must not change the result
         }
       }
-
-      return truncated;
+      if (notes.length === 0) return truncated;
+      return {
+        ...truncated,
+        content: `${truncated.content}\n${notes.join('\n')}`,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

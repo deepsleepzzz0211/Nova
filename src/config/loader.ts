@@ -83,6 +83,22 @@ export function normalizeConfig(config: AppConfig): { config: AppConfig; warning
     const { cacheRetention: _dropped, ...restLlm } = config.llm;
     config = { ...config, llm: restLlm };
   }
+  const VALID_HOOK_EVENTS: readonly string[] = ['pre_tool_use', 'post_tool_use'];
+  if (Array.isArray(config.hooks) && config.hooks.length > 0) {
+    const kept: NonNullable<AppConfig['hooks']>[number][] = [];
+    for (const h of config.hooks) {
+      if (!VALID_HOOK_EVENTS.includes(h.event)) {
+        warnings.push(`unknown hooks event "${String(h.event)}" — hook dropped (valid: ${VALID_HOOK_EVENTS.join(', ')})`);
+        continue;
+      }
+      if (typeof h.matcher !== 'string' || h.matcher === '' || typeof h.command !== 'string' || h.command === '') {
+        warnings.push('hooks entry needs matcher and command — dropped');
+        continue;
+      }
+      kept.push(h);
+    }
+    config = { ...config, hooks: kept };
+  }
   return { config, warnings };
 }
 

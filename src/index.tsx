@@ -22,6 +22,7 @@ import { buildModelRuntime } from './cli/model-wiring.js';
 import { runSessionStartup } from './cli/sessions.js';
 import { buildToolRuntime, runPinSkills } from './cli/tools-runtime.js';
 import { runPrintMode } from './cli/print-mode.js';
+import { loadUserCommands } from './commands/user-commands.js';
 
 async function main(): Promise<void> {
   const projectDir = process.cwd();
@@ -73,6 +74,16 @@ async function main(): Promise<void> {
     if (values['with-files'] === true) {
       console.error('[undo] print mode records file checkpoints but never reverts them; code revert lives in the interactive /undo');
     }
+    const outputFormatRaw = values['output-format'];
+    let outputFormat: 'text' | 'jsonl' = 'text';
+    if (typeof outputFormatRaw === 'string' && outputFormatRaw !== '') {
+      if (outputFormatRaw !== 'text' && outputFormatRaw !== 'jsonl') {
+        process.stderr.write(`[args] unknown --output-format "${outputFormatRaw}" (expected text|jsonl)
+`);
+        process.exit(1);
+      }
+      outputFormat = outputFormatRaw;
+    }
     await runPrintMode({
       printPrompt,
       autoApprove: values.yes === true,
@@ -82,6 +93,7 @@ async function main(): Promise<void> {
       runtime,
       session,
       mcpManager,
+      outputFormat,
     });
   }
 
@@ -149,6 +161,13 @@ async function main(): Promise<void> {
       historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
     }),
     undoWithFiles: values['with-files'] === true,
+    // User-defined slash commands (ticket 04): ~/.nova/commands/*.md under the
+    // NOVA_HOME tree; malformed files warn to stderr and never block startup.
+    userCommands: loadUserCommands(
+      path.join(novaHome(), '.nova', 'commands'),
+      (message) => process.stderr.write(`${message}
+`),
+    ),
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,

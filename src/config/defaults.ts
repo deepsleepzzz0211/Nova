@@ -23,6 +23,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     contextKeepRecentTokens: 20000,
     subagentModel: '',
     subagentMaxConcurrent: 3,
+    shellSessionIdleMs: 600_000,
     thinkingLevel: 'off',
     skillsBudgetTokens: 2000,
   },
@@ -34,5 +35,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     autoApproveBash: false,
     alwaysAllowCommands: [],
   },
+  sandbox: {
+    // Tier 1 off by default: behavior is today's until the user opts in.
+    workspaceWrite: true,
+  },
+  hooks: [],
   mcpServers: [],
 };

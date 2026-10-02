@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import { SLASH_COMMANDS } from './commands.js';
+import type { UserCommand } from '../commands/user-commands.js';
 
 import * as path from 'node:path';
 
@@ -52,13 +53,20 @@ export function detectCompletion(text: string, cursor: number): CompletionContex
 /** Prefix-filter slash commands (case-insensitive). */
 export function completeCommands(
   query: string,
+  userCommands: readonly UserCommand[] = [],
 ): Array<{ name: string; description: string; acceptsArgs: boolean }> {
   const q = query.toLowerCase();
-  return SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({
+  const builtinNames = new Set(SLASH_COMMANDS.map((c) => c.name));
+  const builtins = SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({
     name: c.name,
     description: c.description,
     acceptsArgs: c.acceptsArgs === true,
   }));
+  // User commands are prompt templates with $ARGUMENTS — always arg-taking.
+  const customs = userCommands
+    .filter((u) => !builtinNames.has(u.name) && u.name.toLowerCase().startsWith(q))
+    .map((u) => ({ name: u.name, description: u.description, acceptsArgs: true }));
+  return [...builtins, ...customs];
 }
 
 /**

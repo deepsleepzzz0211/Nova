@@ -218,6 +218,7 @@ export function App({ agent, fullscreen, todoState, welcome }: AppProps): React.
         onInterrupt={interrupt}
         modalOpen={pendingPermission !== null || undoGate.pending !== null}
         disabled={search !== null}
+        userCommands={agent.userCommands ?? []}
         onExit={() => process.exit(0)}
         modelInfo={{
           providerName: modelInfo.providerName,

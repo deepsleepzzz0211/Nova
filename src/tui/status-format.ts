@@ -72,6 +72,42 @@ export function workingBorderColor(state: 'idle' | 'streaming' | 'thinking'): st
   return theme.working[state];
 }
 
+
+/** Shape of PromptCacheMetrics consumed for the footer view (structural, no layer coupling). */
+export interface CacheMetricsSnapshot {
+  hitRate: number;
+  latestHitRate: number;
+  totalCachedTokens: number;
+  totalCacheWriteTokens: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  lastInputTokens: number;
+}
+
+/** Zeroed cache view before the first usage report. */
+export const EMPTY_CACHE_STATS: CacheStatsView = {
+  hitRate: 0,
+  latestHitRate: 0,
+  totalCachedTokens: 0,
+  totalCacheWriteTokens: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  contextTokens: 0,
+};
+
+/** Snapshot of aggregated metrics as the display view (contextTokens = last input). */
+export function cacheStatsOf(m: CacheMetricsSnapshot): CacheStatsView {
+  return {
+    hitRate: m.hitRate,
+    latestHitRate: m.latestHitRate,
+    totalCachedTokens: m.totalCachedTokens,
+    totalCacheWriteTokens: m.totalCacheWriteTokens,
+    totalInputTokens: m.totalInputTokens,
+    totalOutputTokens: m.totalOutputTokens,
+    contextTokens: m.lastInputTokens,
+  };
+}
+
 /** Input for `/status` report composition (tui-redesign ticket 02). */
 /** Session totals from context-management passes (cache-hit ticket 05). */
 export interface CompactionTotals {
