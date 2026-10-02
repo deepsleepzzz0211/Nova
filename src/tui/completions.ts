@@ -57,16 +57,16 @@ export function completeCommands(
 ): Array<{ name: string; description: string; acceptsArgs: boolean }> {
   const q = query.toLowerCase();
   const builtinNames = new Set(SLASH_COMMANDS.map((c) => c.name));
-  return [
-    ...SLASH_COMMANDS,
-    ...userCommands.filter((u) => !builtinNames.has(u.name)),
-  ]
-    .filter((c) => c.name.toLowerCase().startsWith(q))
-    .map((c) => ({
-      name: c.name,
-      description: c.description,
-      acceptsArgs: true,
-    }));
+  const builtins = SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q)).map((c) => ({
+    name: c.name,
+    description: c.description,
+    acceptsArgs: c.acceptsArgs === true,
+  }));
+  // User commands are prompt templates with $ARGUMENTS — always arg-taking.
+  const customs = userCommands
+    .filter((u) => !builtinNames.has(u.name) && u.name.toLowerCase().startsWith(q))
+    .map((u) => ({ name: u.name, description: u.description, acceptsArgs: true }));
+  return [...builtins, ...customs];
 }
 
 /**

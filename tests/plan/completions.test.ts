@@ -62,6 +62,21 @@ describe('completions (tui-refactor 03)', () => {
     it('empty query returns all', () => {
       expect(completeCommands('').length).toBe(SLASH_COMMANDS.length);
     });
+
+    it('keeps per-command acceptsArgs (argument-less builtins get no trailing space)', () => {
+      const plain = SLASH_COMMANDS.find((c) => c.acceptsArgs !== true);
+      expect(plain).toBeDefined();
+      const byName = new Map(completeCommands('').map((c) => [c.name, c.acceptsArgs]));
+      expect(byName.get('model')).toBe(true);
+      expect(byName.get(plain!.name)).toBe(false);
+    });
+
+    it('user commands always accept arguments', () => {
+      const deploy = { name: 'deploy', description: 'ship it', template: 'Deploy $ARGUMENTS' };
+      const r = completeCommands('deploy', [deploy]);
+      expect(r).toHaveLength(1);
+      expect(r[0]!.acceptsArgs).toBe(true);
+    });
   });
 
   describe('fuzzyMatchFiles', () => {
