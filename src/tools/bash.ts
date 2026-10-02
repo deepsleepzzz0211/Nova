@@ -3,6 +3,7 @@ import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from '.
 import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
 import type { JobHandle, JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
+import type { SpawnInvocation } from './shell-routing.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -26,6 +27,8 @@ export function createBashTool(deps: {
   resolvePlan?: () => ShellPlan;
   jobs?: JobRegistry;
   sessions?: ShellSessionRegistry;
+  /** Tier-2 OS wrap (ticket 02): rewrites the spawn invocation when active. */
+  osWrap?: (invocation: SpawnInvocation, cwd: string) => SpawnInvocation;
   spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle;
 } = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
@@ -108,7 +111,7 @@ export function createBashTool(deps: {
         }
         let handle: JobHandle;
         try {
-          handle = spawnBg(invocation, { cwd: context.workingDirectory });
+          handle = spawnBg(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, { cwd: context.workingDirectory });
         } catch (err) {
           return {
             content: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -131,7 +134,7 @@ export function createBashTool(deps: {
         };
       }
 
-      const result = await runSpawnCommand(invocation, {
+      const result = await runSpawnCommand(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, {
         cwd: context.workingDirectory,
         signal: context.abortSignal,
         timeoutMs: timeout,

@@ -54,7 +54,11 @@ export function shouldRegisterPowerShell(platform: NodeJS.Platform): boolean {
   return platform === 'win32';
 }
 
-export function createPowerShellTool(deps: { probe?: ShellProbe } = {}): Tool {
+export function createPowerShellTool(deps: {
+  probe?: ShellProbe;
+  /** Tier-2 OS wrap (ticket 02), same contract as the bash tool's. */
+  osWrap?: (invocation: { file: string; args: string[]; stdinText?: string }, cwd: string) => { file: string; args: string[]; stdinText?: string };
+} = {}): Tool {
   const probe = deps.probe ?? defaultShellProbe;
   return {
     name: 'powershell',
@@ -89,7 +93,8 @@ export function createPowerShellTool(deps: { probe?: ShellProbe } = {}): Tool {
           isError: true,
         };
       }
-      const result = await runSpawnCommand(buildPowerShellInvocation(shell, command), {
+      const baseInvocation = buildPowerShellInvocation(shell, command);
+      const result = await runSpawnCommand(deps.osWrap ? deps.osWrap(baseInvocation, context.workingDirectory) : baseInvocation, {
         cwd: context.workingDirectory,
         signal: context.abortSignal,
         timeoutMs: timeout,

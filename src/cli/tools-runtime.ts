@@ -38,6 +38,16 @@ import { SkillRegistry } from '../skills/registry.js';
 import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from '../skills/skill-lock.js';
 import { SubagentSpawner } from '../subagent/spawner.js';
 import { loadAgentDefinitions } from '../subagent/agents.js';
+import { planOsSandbox, takeNotice } from '../permission/os-sandbox.js';
+import {
+  defaultWinWrapDeps,
+  probeWinWrap,
+  ensureWrapper,
+  grantRoots,
+  restoreRoots,
+  wrapInvocation,
+} from '../tools/win-wrap.js';
+import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { ResolveSpecResult } from './model-wiring.js';
@@ -98,16 +108,26 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
 }
 
 /** Spawn one persistent session shell (bash-family only; ticket 07 spike). */
-function spawnSessionShell(cwd: string): ShellProc {
+function spawnSessionShell(
+  cwd: string,
+  osWrap?: (inv: SpawnInvocation, cwd: string) => SpawnInvocation,
+): ShellProc {
   const plan = resolveShellFromProcess();
   if (plan.kind !== 'bash') {
     throw new Error(`persistent sessions require a bash shell, got ${plan.label}`);
   }
-  const child = spawn(
-    plan.path,
-    ['--noediting', '--noprofile', '--norc'],
-    { cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
-  );
+  let file = plan.path;
+  let args = ['--noediting', '--noprofile', '--norc'];
+  if (osWrap !== undefined) {
+    const wrapped = osWrap({ file, args }, cwd);
+    file = wrapped.file;
+    args = wrapped.args;
+  }
+  const child = spawn(file, args, {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
   return child as unknown as ShellProc;
 }
 
@@ -178,14 +198,52 @@ export async function buildToolRuntime(opts: {
     logDir: jobsLogDir,
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
+  // Tier-2 OS sandbox (ticket 02): win32 low-integrity wrap of every shell
+  // child. Probe->plan->grant; ANY failure degrades to tier 1 with a
+  // one-time stderr notice — the shell must always be able to start.
+  let tier2: { wrap: (inv: SpawnInvocation, cwd: string) => SpawnInvocation } | undefined;
+  if (config.sandbox.osLevel === 'auto') {
+    const winDeps = defaultWinWrapDeps(novaHome());
+    const plan = planOsSandbox(
+      { osLevel: 'auto' },
+      {
+        workspaceRoot: projectDir,
+        novaHome: path.join(novaHome(), '.nova'),
+        tempDir: os.tmpdir(),
+      },
+      () => {
+        const p = probeWinWrap(winDeps);
+        if (!p.available) {
+          return { platform: process.platform, wrapperAvailable: false, reason: p.reason };
+        }
+        const w = ensureWrapper(winDeps);
+        return w.ok
+          ? { platform: process.platform, wrapperAvailable: true }
+          : { platform: process.platform, wrapperAvailable: false, reason: w.reason };
+      },
+    );
+    const notice = takeNotice(plan);
+    if (notice !== undefined) console.error(`[sandbox] ${notice}`);
+    if (plan.enabled) {
+      const w = ensureWrapper(winDeps);
+      const g = w.ok ? grantRoots(winDeps, plan.roots) : { ok: false, failed: [] };
+      if (w.ok && g.ok) {
+        tier2 = { wrap: (inv, cwd) => wrapInvocation(w.exePath, inv, cwd) };
+        process.once('exit', () => restoreRoots(winDeps));
+      } else {
+        console.error('[sandbox] tier-2 setup failed after probe — continuing with tier-1 path policy only');
+      }
+    }
+  }
+
   // Named persistent shell sessions (ticket 07): one long-lived bash per
   // name, sentinel-framed. The shells die with the process by contract.
   const shellSessions = new ShellSessionRegistry({
     idleMs: config.agent.shellSessionIdleMs,
-    spawn: ({ cwd }) => spawnSessionShell(cwd),
+    spawn: ({ cwd }) => spawnSessionShell(cwd, tier2?.wrap),
   });
   process.once('exit', () => shellSessions.disposeAll());
-  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions }));
+  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, osWrap: tier2?.wrap }));
   toolRegistry.register(createJobOutputTool(jobRegistry));
   toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({
@@ -244,7 +302,7 @@ export async function buildToolRuntime(opts: {
   // Windows-only native command channel (windows-shell 03); POSIX sessions
   // never see this tool at all.
   if (shouldRegisterPowerShell(os.platform())) {
-    toolRegistry.register(createPowerShellTool());
+    toolRegistry.register(createPowerShellTool({ osWrap: tier2?.wrap }));
   }
 
   // Start MCP servers

@@ -13,6 +13,7 @@ export default defineConfig({
       'tests/e2e/recorded-replay.test.ts',
       'tests/e2e/protocol-route.test.ts',
       'tests/e2e/jsonl-stream.test.ts',
+      'tests/e2e/sandbox-tier2-stub.test.ts',
     ],
     testTimeout: 120_000,
     hookTimeout: 60_000,

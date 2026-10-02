@@ -75,6 +75,8 @@ export interface PermissionConfig {
  */
 export interface SandboxConfig {
   workspaceWrite: boolean;
+  /** Tier-2 OS enforcement (ticket 02): 'off' (default) | 'auto' (win32 low-integrity wrap when available). */
+  osLevel?: 'off' | 'auto';
 }
 
 /**
