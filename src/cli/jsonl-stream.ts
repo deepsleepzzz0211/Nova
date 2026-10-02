@@ -20,7 +20,7 @@ export interface JsonlSink {
   error(message: string): void;
 }
 
-const ELDER_MARK = '…';
+const TRUNCATION_ELLIPSIS = '…';
 
 export function createJsonlSink(writeLine: (line: string) => void): JsonlSink {
   /** Serialize with a hard byte cap on the payload-bearing field. */
@@ -32,7 +32,7 @@ export function createJsonlSink(writeLine: (line: string) => void): JsonlSink {
       for (let i = 0; i < 8 && Buffer.byteLength(line, 'utf8') > MAX_EVENT_BYTES; i++) {
         line = JSON.stringify({
           ...obj,
-          [capField]: full.slice(0, keep) + ELDER_MARK,
+          [capField]: full.slice(0, keep) + TRUNCATION_ELLIPSIS,
           truncated: true,
         });
         keep = Math.max(0, keep - 512);

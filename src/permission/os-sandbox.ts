@@ -3,9 +3,10 @@
  * decision layer under the ticket-01 path policy. Policy tier 1 answers
  * "is this command allowed"; this layer answers "can we make the OS refuse
  * writes anyway" and, when it cannot, produces the visible fallback notice
- * instead of blocking the shell. The win32 realization (plan ③:
- * SetNamedSecurityInfoW via in-proc FFI, no new dependency) lives in
- * native-acl.ts; nothing here touches FFI so the decision stays testable.
+ * instead of blocking the shell. The win32 realization (low-IL wrapper +
+ * icacls grants + per-binary smoke gate) lives in tools/win-wrap.ts and
+ * tools/win-smoke.ts; nothing here touches processes so the decision stays
+ * testable.
  */
 
 /** What the platform probe found (injected; never throws). */
@@ -22,8 +23,6 @@ export type OsSandboxProbe = () => OsSandboxProbeResult;
 export interface OsSandboxConfig {
   /** 'off' (default) | 'auto' (enable when the probe finds enforcement). */
   osLevel: 'off' | 'auto';
-  /** Additional writable roots beyond workspace+NOVA_HOME+temp (narrowing-only: appended, never replacing). */
-  extraRoots?: string[];
 }
 
 export interface OsSandboxPaths {
@@ -41,8 +40,8 @@ export interface OsSandboxPlan {
   notice?: string;
 }
 
-/** Default writable roots, in audit order (ticket 01 allow-set + temp). */
-export const DEFAULT_WRITABLE_ROOTS = ['workspace', 'novaHome', 'temp'] as const;
+/** Writable roots, in audit order (ticket 01 allow-set + temp). */
+export const DEFAULT_WRITABLE_ROOTS = ['workspaceRoot', 'novaHome', 'tempDir'] as const;
 
 const POSIX_STUB =
   'OS-level sandbox: landlock exists on this kernel surface but is not implemented in this build — running tier-1 workspace path policy instead.';
@@ -66,13 +65,8 @@ export function planOsSandbox(
       reason: err instanceof Error ? err.message : String(err),
     };
   }
-  const roots = [
-    paths.workspaceRoot,
-    paths.novaHome,
-    paths.tempDir,
-    ...(config.extraRoots ?? []),
-  ];
   if (result.wrapperAvailable) {
+    const roots = DEFAULT_WRITABLE_ROOTS.map((field) => paths[field]);
     return {
       enabled: true,
       roots,
@@ -85,19 +79,8 @@ export function planOsSandbox(
   return { enabled: false, roots: [], notice: reason };
 }
 
-/**
- * Decide whether a shell spawn should be wrapped, and with which roots —
- * shared by bash and powershell. The one-time notice must surface exactly
- * once per process even when both tools consult this.
- */
-let noticeShown = false;
-export function osWrapDecision(
-  plan: OsSandboxPlan,
-): { wrap: boolean; roots: string[] } {
-  return plan.enabled ? { wrap: true, roots: plan.roots } : { wrap: false, roots: [] };
-}
-
 /** Test seam + wiring use: consume the one-time notice text. */
+let noticeShown = false;
 export function takeNotice(plan: OsSandboxPlan): string | undefined {
   if (plan.notice === undefined || noticeShown) return undefined;
   noticeShown = true;

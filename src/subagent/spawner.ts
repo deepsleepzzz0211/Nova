@@ -175,10 +175,17 @@ export class SubagentSpawner {
         session = new SessionStore(transcriptPath); // append to the same log
       }
     }
+    // Every event of a named-agent run carries the definition name, so
+    // progress lines show "reviewer ▸ ..." instead of falling back to the
+    // opaque run id.
     const emit = (event: Omit<SubagentEvent, 'agentId'>): void => {
-      this.deps.onEvent?.({ agentId, ...event });
+      this.deps.onEvent?.({
+        agentId,
+        ...(definition !== undefined ? { agentName: definition.name } : {}),
+        ...event,
+      });
     };
-    emit({ type: 'start', payload: task, ...(definition !== undefined ? { agentName: definition.name } : {}) });
+    emit({ type: 'start', payload: task });
     try {
       // Model routing: per-call spec > configured default > parent model.
       let llm = this.deps.llm;

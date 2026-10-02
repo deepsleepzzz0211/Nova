@@ -193,7 +193,9 @@ export async function buildToolRuntime(opts: {
   toolRegistry.register(createEditFileTool());
   // Background jobs (ticket 06): in-process table for this session; the
   // full output of each job also lands in a per-job log under the home tree.
-  const jobsLogDir = path.join(novaHome(), '.nova', 'jobs');
+  // Job logs are ephemeral churn: keep them out of the NOVA_HOME tree (which
+  // travels with the user and gets tier-2 ACL grants).
+  const jobsLogDir = path.join(os.tmpdir(), 'nova-jobs');
   fs.mkdirSync(jobsLogDir, { recursive: true });
   const jobRegistry = new JobRegistry({
     logDir: jobsLogDir,

@@ -1,7 +1,7 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
 import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
-import type { JobHandle, JobRegistry } from './jobs.js';
+import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobHandle, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
 import type { SpawnInvocation } from './shell-routing.js';
 
@@ -45,7 +45,7 @@ export function createBashTool(deps: {
       properties: {
         command: { type: 'string', description: 'Shell command to execute' },
         timeout: { type: 'number', description: 'Timeout in milliseconds (default: 60000)' },
-        background: { type: 'boolean', description: 'Run without waiting: returns a job id immediately; read output with job_output and stop with job_kill' },
+        background: { type: 'boolean', description: `Run without waiting: returns a job id immediately; read output with ${JOB_OUTPUT_TOOL_NAME} and stop with ${JOB_KILL_TOOL_NAME}` },
         session: { type: 'string', description: 'Named persistent shell: same name reuses one bash process, keeping cwd/env/functions across calls. Commands must not read stdin.' },
         session_reset: { type: 'boolean', description: 'With session: drop that shell first and start from a clean one' },
       },
@@ -94,10 +94,9 @@ export function createBashTool(deps: {
         // never a real $? (bash reports 255 for exit -1).
         return {
           content:
-            (res.restarted ? '[session restarted]' + String.fromCharCode(10) : '') +
+            (res.restarted ? '[session restarted]\n' : '') +
             res.out +
-            (res.exitCode > 0 ? `
-[exit ${res.exitCode}]` : ''),
+            (res.exitCode > 0 ? `\n[exit ${res.exitCode}]` : ''),
           ...(res.exitCode === -1 ? { isError: true } : {}),
           metadata: { exitCode: res.exitCode },
         };
@@ -137,9 +136,9 @@ export function createBashTool(deps: {
             : command;
         return {
           content:
-            `Started background job ${started.jobId} (pid ${started.pid}): ${preview}\n` +
-            'The command is still running. Read incremental output with job_output {jobId, cursor} ' +
-            'and terminate it with job_kill.',
+            `Started background job ${started.jobId} (pid ${started.pid ?? 'unknown'}): ${preview}\n` +
+            `The command is still running. Read incremental output with ${JOB_OUTPUT_TOOL_NAME} {jobId, cursor} ` +
+            `and terminate it with ${JOB_KILL_TOOL_NAME}.`,
         };
       }
 

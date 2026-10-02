@@ -82,27 +82,10 @@ describe('planOsSandbox', () => {
     expect(plan.notice).toMatch(/tier-1/);
   });
 
-  it('explicit auto never widens tier 1 roots: defaults stay workspace+home+temp', () => {
-    const plan = planOsSandbox(
-      { osLevel: 'auto' },
-      { workspaceRoot: 'D:/ws', novaHome: 'C:/Users/x/.nova', tempDir: 'C:/temp' },
-      winOk,
-    );
-    const mapped = DEFAULT_WRITABLE_ROOTS.map((field) => {
-      if (field === 'workspace') return 'D:/ws';
-      if (field === 'novaHome') return 'C:/Users/x/.nova';
-      return 'C:/temp';
-    });
-    expect(plan.roots).toEqual(mapped);
-  });
-
-  it('extra roots append after the defaults (order = widening audit trail)', () => {
-    const plan = planOsSandbox(
-      { osLevel: 'auto', extraRoots: ['D:/build'] },
-      { workspaceRoot: 'D:/ws', novaHome: 'C:/Users/x/.nova', tempDir: 'C:/temp' },
-      winOk,
-    );
-    expect(plan.roots).toEqual(['D:/ws', 'C:/Users/x/.nova', 'C:/temp', 'D:/build']);
+  it('auto never widens the roots: they are exactly the DEFAULT_WRITABLE_ROOTS mapping', () => {
+    const paths = { workspaceRoot: 'D:/ws', novaHome: 'C:/Users/x/.nova', tempDir: 'C:/temp' };
+    const plan = planOsSandbox({ osLevel: 'auto' }, paths, winOk);
+    expect(plan.roots).toEqual(DEFAULT_WRITABLE_ROOTS.map((field) => paths[field]));
   });
 });
 

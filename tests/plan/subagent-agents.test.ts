@@ -108,6 +108,24 @@ describe('named agent routing in the spawner (ticket 05)', () => {
     expect(toolNames(chats[0].opts)).toEqual(['reader']);
   });
 
+  it('every event of a named run carries agentName (progress lines are addressable)', async () => {
+    const registry = new ToolRegistry();
+    registry.register(fakeTool('reader'));
+    const { llm } = recordingLLM('reader');
+    const events: Array<{ type: string; agentName?: string }> = [];
+    const spawner = new SubagentSpawner({
+      llm,
+      toolRegistry: registry,
+      toolExecutionPipeline: makePipeline(),
+      model: 'test',
+      agents: new Map([['a', definition({ name: 'reviewer' })]]),
+      onEvent: (e) => events.push(e),
+    });
+    await spawner.run('task', { agent: 'a' });
+    expect(events.length).toBeGreaterThan(1);
+    for (const e of events) expect(e.agentName).toBe('reviewer');
+  });
+
   it('the definition prompt replaces the generic subagent guidance', async () => {
     const registry = new ToolRegistry();
     registry.register(fakeTool('reader'));

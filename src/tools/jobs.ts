@@ -52,7 +52,7 @@ export interface JobRegistryOptions {
 
 /** Result of a registry start: either a job row or a refusal. */
 export type JobStartResult =
-  | { started: true; jobId: string; pid: number }
+  | { started: true; jobId: string; /** undefined only when the child died before reporting a pid */ pid?: number }
   | { started: false; reason: string };
 
 /** Result of a registry read. */
@@ -131,7 +131,7 @@ export class JobRegistry {
       record.running = false;
       if (record.exitCode === undefined) record.exitCode = -1;
     });
-    return { started: true, jobId: id, pid: handle.pid ?? 0 };
+    return { started: true, jobId: id, pid: handle.pid };
   }
 
   /** Incremental read from an absolute cursor. */
@@ -178,10 +178,14 @@ export class JobRegistry {
   }
 }
 
+/** Job tool names — the single source referenced by the tools and by bash. */
+export const JOB_OUTPUT_TOOL_NAME = 'job_output';
+export const JOB_KILL_TOOL_NAME = 'job_kill';
+
 /** job_output — incremental output of a background job (read-only, auto). */
 export function createJobOutputTool(registry: JobRegistry): Tool {
   return {
-    name: 'job_output',
+    name: JOB_OUTPUT_TOOL_NAME,
     description:
       'Read the output of a background job started with bash background:true. ' +
       'Pass the cursor from the previous response to read only new output. ' +
@@ -221,7 +225,7 @@ export function createJobOutputTool(registry: JobRegistry): Tool {
 /** job_kill — terminate a background job's process tree (ask-level). */
 export function createJobKillTool(registry: JobRegistry): Tool {
   return {
-    name: 'job_kill',
+    name: JOB_KILL_TOOL_NAME,
     description: 'Terminate a background job and its child process tree.',
     parameters: {
       type: 'object',

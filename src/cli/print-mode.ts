@@ -33,7 +33,7 @@ export async function runPrintMode(opts: {
   const { printPrompt, autoApprove, config, llm, resolution, runtime, session, mcpManager } = opts;
   const sink =
     opts.outputFormat === 'jsonl'
-      ? createJsonlSink((line) => process.stdout.write(line + String.fromCharCode(10)))
+      ? createJsonlSink((line) => process.stdout.write(line + '\n'))
       : null;
   sink?.start(session.sessionStore.sessionId, config.llm.model);
   // tool_call ids -> names so tool_result events can carry the name.
@@ -76,9 +76,9 @@ export async function runPrintMode(opts: {
       if (sink !== null) sink.text(token);
       else process.stdout.write(token);
     },
-    onToolCall: sink === null ? () => {} : (call) => {
-      callNames.set(call.id, call.function.name);
-    },
+    // onToolCall fires for every call; only the sink path needs the id->name
+    // map (tool_result events), and it records it once via onToolCallReady.
+    onToolCall: () => {},
     onToolCallReady: sink === null ? undefined : (call) => {
       callNames.set(call.id, call.function.name);
       sink.toolCall({ id: call.id, name: call.function.name, arguments: call.function.arguments });
