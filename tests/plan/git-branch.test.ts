@@ -46,7 +46,19 @@ describe('readGitBranch (tui-refactor 09)', () => {
     fs.rmSync(d2, { recursive: true, force: true });
   });
 
-  it('returns null outside a repository', () => {
+  // Walk-up finds .git dirs directly; skip when this machine's temp tree lives
+  // inside somebody's repository (e.g. a home-dir repo) - the branch lookup
+  // has no ceiling env to isolate it with.
+  const tempInsideRepo = (() => {
+    let dir = path.resolve(os.tmpdir());
+    for (;;) {
+      if (fs.existsSync(path.join(dir, '.git'))) return true;
+      const parent = path.dirname(dir);
+      if (parent === dir) return false;
+      dir = parent;
+    }
+  })();
+  it.skipIf(tempInsideRepo)('returns null outside a repository', () => {
     const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-git3-'));
     expect(readGitBranch(d3)).toBeNull();
     fs.rmSync(d3, { recursive: true, force: true });

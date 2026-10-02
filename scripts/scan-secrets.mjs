@@ -88,7 +88,11 @@ function scanContent(relFile, content) {
 }
 
 function git(args) {
+  // The scan target is the repository boundary: GIT_CEILING_DIRECTORIES stops
+  // git walking ABOVE it (a stray repo higher up must not masquerade as ours),
+  // and GIT_DISCOVERY_ACROSS_FILESYSTEM closes the same hole on exotic mounts.
   return execFileSync('git', args, {
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: ROOT, GIT_DISCOVERY_ACROSS_FILESYSTEM: '0' },
     cwd: ROOT,
     encoding: 'utf-8',
     maxBuffer: 256 * 1024 * 1024,
@@ -109,6 +113,18 @@ function gitGrepOrEmpty(args) {
 function main() {
   const startedAt = Date.now();
   const exclusions = loadExclusions();
+
+  // Boundary assertion: the scan root must BE the repository top-level. A
+  // stray .git higher up (e.g. a home-directory repo) otherwise masquerades
+  // as the target — GIT_CEILING_DIRECTORIES is unreliable on Windows, so
+  // verify the boundary instead of trusting discovery.
+  const toplevel = path.resolve(git(['rev-parse', '--show-toplevel']).trim());
+  const samePath = process.platform === 'win32'
+    ? toplevel.toLowerCase() === ROOT.toLowerCase() // git lowercases some segments
+    : toplevel === ROOT;
+  if (!samePath) {
+    throw new Error(`scan root is not a git repository top-level (git resolved ${toplevel})`);
+  }
 
   // ---- 1. HEAD working tree (tracked files only) ----
   const tracked = git(['ls-files']).split('\n')
