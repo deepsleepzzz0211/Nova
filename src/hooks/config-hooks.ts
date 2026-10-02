@@ -106,7 +106,7 @@ async function runPostHook(
   });
   if (res.timedOut === true || res.code !== 0) {
     const what = res.timedOut ? 'timed out' : `failed (exit ${res.code})`;
-    console.error(`[hook] post "${spec.command}” ${what} — result stands, note surfaces in transcript`);
+    console.error(`[hook] post "${spec.command}" ${what} — result stands, note surfaces in transcript`);
     return { note: `hook post "${spec.command}" ${what}${res.stderr.trim() === '' ? '' : `: ${res.stderr.trim()}`}` };
   }
   const note = res.stdout.trim();
