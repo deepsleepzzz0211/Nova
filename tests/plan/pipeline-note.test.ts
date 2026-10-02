@@ -56,3 +56,38 @@ describe('post-tool-use notes', () => {
     expect(result.content).toContain('permissions drift detected');
   });
 });
+
+describe('pre-tool-use notes (hook failure transcript visibility, ticket 03)', () => {
+  it('carries a pre hook note into the result content', async () => {
+    const pipeline = new ToolExecutionPipeline(new ToolResultCache(), policy, {
+      hooks: { pre: [async () => ({ note: 'hook pre "check.sh" failed (exit 1): boom' })] },
+    });
+    const result = await pipeline.execute(autoTool(), {}, ctx);
+    expect(result.content).toContain('File written: a.txt');
+    expect(result.content).toMatch(/\[pre-tool-use write_file\] hook pre "check.sh" failed \(exit 1\): boom/);
+  });
+
+  it('pre notes still attach when the tool result comes from the cache', async () => {
+    const cache = new ToolResultCache();
+    const cacheable: Tool = {
+      ...autoTool(),
+      metadata: { category: 'file', cacheable: true, timeout: 1000 },
+    };
+    const silent = new ToolExecutionPipeline(cache, policy, {});
+    await silent.execute(cacheable, {}, ctx);
+    const pipeline = new ToolExecutionPipeline(cache, policy, {
+      hooks: { pre: [async () => ({ note: 'hook pre failed' })] },
+    });
+    const result = await pipeline.execute(cacheable, {}, ctx);
+    expect(result.content).toMatch(/\[pre-tool-use write_file\] hook pre failed/);
+  });
+
+  it('a denying pre hook short-circuits without needing notes', async () => {
+    const pipeline = new ToolExecutionPipeline(new ToolResultCache(), policy, {
+      hooks: { pre: [async () => ({ deny: true, reason: 'blocked' })] },
+    });
+    const result = await pipeline.execute(autoTool(), {}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe('blocked');
+  });
+});

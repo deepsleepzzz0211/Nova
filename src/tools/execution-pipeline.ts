@@ -156,7 +156,9 @@ export class ToolExecutionPipeline {
       }
     }
 
-    // 3. Pre-tool-use hooks (may deny)
+    // 3. Pre-tool-use hooks (may deny). Non-denying hooks may still return a
+    // note (ticket 03: a failing hook passes through but stays visible).
+    const preNotes: string[] = [];
     for (const hook of this.hooks.pre ?? []) {
       try {
         const decision = await hook({ tool: tool.name, params: resolvedParams });
@@ -166,6 +168,7 @@ export class ToolExecutionPipeline {
             isError: true,
           };
         }
+        if (decision?.note) preNotes.push(`[pre-tool-use ${tool.name}] ${decision.note}`);
       } catch {
         // A crashing hook must not break execution
       }
@@ -177,7 +180,7 @@ export class ToolExecutionPipeline {
     if (cacheable) {
       const cached = await this.cache.get(cacheKey);
       if (cached) {
-        return cached;
+        return preNotes.length === 0 ? cached : { ...cached, content: `${cached.content}\n${preNotes.join('\n')}` };
       }
     }
 
@@ -193,11 +196,11 @@ export class ToolExecutionPipeline {
 
       // 7. Post-tool-use hooks: observation, plus optional notes appended to
       // the result so the model can react (ticket 03). Notes are NOT cached.
-      const notes: string[] = [];
+      const notes: string[] = [...preNotes];
       for (const hook of this.hooks.post ?? []) {
         try {
           const observation = await hook({ tool: tool.name, params: resolvedParams, result: truncated });
-          if (observation?.note) notes.push(observation.note);
+          if (observation?.note) notes.push(`[post-tool-use ${tool.name}] ${observation.note}`);
         } catch {
           // A crashing hook must not change the result
         }
@@ -205,7 +208,7 @@ export class ToolExecutionPipeline {
       if (notes.length === 0) return truncated;
       return {
         ...truncated,
-        content: `${truncated.content}\n${notes.map((n) => `[post-tool-use ${tool.name}] ${n}`).join('\n')}`,
+        content: `${truncated.content}\n${notes.join('\n')}`,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

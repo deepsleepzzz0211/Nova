@@ -70,8 +70,10 @@ async function runPreHook(spec: HookSpec, input: PreInput, spawn: SpawnHook) {
     return { deny: true, reason: (res.stderr.trim() || `blocked by hook "${spec.command}"`) };
   }
   if (res.code !== 0) {
+    // Pass-through, but not silent: stderr for logs AND a note that the
+    // pipeline carries into the tool result (ticket 03 transcript promise).
     console.error(`[hook] pre "${spec.command}" failed (exit ${res.code}) — passing through: ${res.stderr.trim()}`);
-    return undefined;
+    return { note: `hook pre "${spec.command}" failed (exit ${res.code}): ${res.stderr.trim()}` };
   }
   const stdout = res.stdout.trim();
   if (stdout !== '') {
@@ -99,8 +101,9 @@ async function runPostHook(
     timeoutMs: spec.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS,
   });
   if (res.timedOut === true || res.code !== 0) {
-    console.error(`[hook] post "${spec.command}” ${res.timedOut ? 'timed out' : `failed (exit ${res.code})`} — ignored`);
-    return undefined;
+    const what = res.timedOut ? 'timed out' : `failed (exit ${res.code})`;
+    console.error(`[hook] post "${spec.command}” ${what} — result stands, note surfaces in transcript`);
+    return { note: `hook post "${spec.command}" ${what}${res.stderr.trim() === '' ? '' : `: ${res.stderr.trim()}`}` };
   }
   const note = res.stdout.trim();
   return note === '' ? undefined : { note };

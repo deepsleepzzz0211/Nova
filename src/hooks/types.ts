@@ -10,6 +10,12 @@ export interface PreToolUseInput {
 export interface PreToolUseDecision {
   deny?: boolean;
   reason?: string;
+  /**
+   * Transcript-visible annotation when the hook did NOT deny but something
+   * went wrong (ticket 03: a failing hook must not go silent). Appended to
+   * the tool result like a post-hook note.
+   */
+  note?: string;
 }
 
 /** Runs before tool execution; may deny the call. */

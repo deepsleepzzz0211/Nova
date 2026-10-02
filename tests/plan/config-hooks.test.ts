@@ -41,11 +41,13 @@ describe('buildPipelineHooks', () => {
     expect(decision).toEqual({ deny: true, reason: 'policy say no' });
   });
 
-  it('pre hook exit 0 passes; non-2 failures pass and warn on stderr (never break the turn)', async () => {
+  it('pre hook exit 0 passes; non-2 failures pass through but stay visible (stderr + note, ticket 03 transcript promise)', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const hooks = buildPipelineHooks([{ ...pre }], spawner({ code: 1, stderr: 'boom' }, []));
-      expect(await hooks.pre![0]!({ tool: 'write_file', params: {} })).toBeUndefined();
+      const decision = await hooks.pre![0]!({ tool: 'write_file', params: {} });
+      expect(decision?.deny).toBeUndefined();
+      expect(decision?.note).toMatch(/hook pre "check.sh" failed \(exit 1\): boom/);
       expect(warn).toHaveBeenCalled();
     } finally {
       warn.mockRestore();
@@ -80,12 +82,17 @@ describe('buildPipelineHooks', () => {
     expect(await quiet.post![0]!({ tool: 'x', params: {}, result: { content: '' } })).toBeUndefined();
   });
 
-  it('post hook failure is swallowed silently except a stderr warning', async () => {
+  it('post hook failure lands a note (transcript-visible [hook] failed) plus stderr, never breaks the turn', async () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       const hooks = buildPipelineHooks([{ ...post }], spawner({ code: 3, stderr: 'nope' }, []));
-      expect(await hooks.post![0]!({ tool: 'x', params: {}, result: { content: '' } })).toBeUndefined();
+      const obs = await hooks.post![0]!({ tool: 'x', params: {}, result: { content: '' } });
+      expect(obs?.note).toMatch(/hook post "observe.sh" failed \(exit 3\): nope/);
       expect(warn).toHaveBeenCalled();
+
+      const timeoutHooks = buildPipelineHooks([{ ...post, timeoutMs: 5 }], spawner({ timedOut: true }, []));
+      const tObs = await timeoutHooks.post![0]!({ tool: 'x', params: {}, result: { content: '' } });
+      expect(tObs?.note).toMatch(/hook post "observe.sh" timed out/);
     } finally {
       warn.mockRestore();
     }
