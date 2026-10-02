@@ -6,6 +6,7 @@
  * possible). Used by the E2E suite and scripts.
  */
 import { AgentLoop } from '../agent/loop.js';
+import { DirectoryInstructions } from '../agent/directory-instructions.js';
 import type { AppConfig } from '../config/schema.js';
 import type { ThinkingLevel } from '../llm/types.js';
 import type { ResolvedModel } from '../llm/catalog.js';
@@ -32,6 +33,9 @@ export async function runPrintMode(opts: {
     toolExecutionPipeline: runtime.toolExecutionPipeline,
     session: session.sessionStore,
     skills: runtime.skillRegistry,
+    directoryInstructions: new DirectoryInstructions({
+      rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    }),
     promptOptions: {
       environment: runtime.environment,
       projectInstructions: runtime.projectInstructions,

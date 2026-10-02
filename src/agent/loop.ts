@@ -1,11 +1,13 @@
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message, ToolCall } from '../llm/types.js';
+import * as path from 'path';
 import type { ToolResult } from '../tools/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import { Compactor } from './compaction.js';
 import { ContextManager } from './context.js';
+import { FILE_TOUCHING_TOOLS, type DirectoryInstructions } from './directory-instructions.js';
 import { StreamInterruptedError } from '../llm/stream-watchdog.js';
 import type { SkillRegistry } from '../skills/registry.js';
 import type { BuildPromptOptions } from './prompt.js';
@@ -40,6 +42,7 @@ export class AgentLoop implements TurnHost {
   private readonly session: SessionWriter | null;
   private readonly skills: SkillRegistry | null;
   private readonly maxActiveSkills: number;
+  /** @internal */ readonly directoryInstructions: DirectoryInstructions | null;
   private readonly promptOptions: BuildPromptOptions;
   private readonly onUsage: AgentLoopConfig['onUsage'];
   /** @internal */ readonly onContextSize: AgentLoopConfig['onContextSize'];
@@ -102,6 +105,7 @@ export class AgentLoop implements TurnHost {
     });
     this.skills = options.skills ?? null;
     this.maxActiveSkills = options.maxActiveSkills ?? 2;
+    this.directoryInstructions = options.directoryInstructions ?? null;
     this.promptOptions = options.promptOptions ?? {};
     this.onUsage = options.onUsage;
     this.onContextSize = options.onContextSize;
@@ -221,6 +225,32 @@ export class AgentLoop implements TurnHost {
    */
   /** @internal */ async injectSkills(userInput: string): Promise<void> {
     return injectSkillsImpl(this.skills, this.maxActiveSkills, userInput, (message) => this.pushMessage(message));
+  }
+
+  /**
+   * Inject not-yet-seen directory instructions for the file a successful
+   * read/edit/write call touched. Append-only system messages, same cache
+   * discipline as skills.
+   */
+  /** @internal */ injectDirectoryInstructions(call: ToolCall, result: ToolResult): void {
+    if (this.directoryInstructions === null) return;
+    if (result.isError) return;
+    if (!FILE_TOUCHING_TOOLS.includes(call.function.name)) return;
+    let filePath: string | undefined;
+    try {
+      const args = JSON.parse(call.function.arguments) as { path?: unknown };
+      if (typeof args.path === 'string') filePath = args.path;
+    } catch {
+      return;
+    }
+    if (filePath === undefined) return;
+    for (const pending of this.directoryInstructions.pendingFor(path.resolve(process.cwd(), filePath))) {
+      const rel = path.relative(process.cwd(), pending.file) || pending.file;
+      this.pushMessage({
+        role: 'system',
+        content: `[Directory instructions — ${rel}]\n${pending.content}`,
+      });
+    }
   }
 
   /** Execute one tool call through the pipeline and notify the UI. */

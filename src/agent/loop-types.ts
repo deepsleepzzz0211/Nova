@@ -5,6 +5,7 @@ import type { ToolRegistry } from '../tools/registry.js';
 import type { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
 import type { SessionWriter } from './session.js';
 import type { SkillRegistry } from '../skills/registry.js';
+import type { DirectoryInstructions } from './directory-instructions.js';
 import type { BuildPromptOptions } from './prompt.js';
 import type { TurnUsage } from '../cache/prompt-cache-metrics.js';
 
@@ -54,6 +55,12 @@ export interface AgentLoopConfig {
   session?: SessionWriter;
   /** Optional skill registry for progressive disclosure. */
   skills?: SkillRegistry;
+  /**
+   * Lazy per-directory AGENTS.md collection (context-economics ticket 02).
+   * When set, touching a file through read/edit/write tools injects the
+   * not-yet-seen directory instructions as append-only system messages.
+   */
+  directoryInstructions?: DirectoryInstructions;
   /** Extra system prompt parts (environment facts, project instructions, custom). */
   promptOptions?: BuildPromptOptions;
   /** Maximum matched skills whose full body is injected per turn. Default 2. */

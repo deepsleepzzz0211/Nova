@@ -7,6 +7,7 @@ import type { SessionStore } from '../../agent/session.js';
 import type { SkillRegistry } from '../../skills/registry.js';
 import type { BuildPromptOptions } from '../../agent/prompt.js';
 import { AgentLoop } from '../../agent/loop.js';
+import { DirectoryInstructions } from '../../agent/directory-instructions.js';
 import type { ThinkingLevel } from '../../llm/types.js';
 import type { ModelCost } from '../../llm/catalog.js';
 import { PromptCacheMetrics } from '../../cache/prompt-cache-metrics.js';
@@ -186,6 +187,11 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
       toolExecutionPipeline: config.toolExecutionPipeline,
       session: config.sessionStore,
       skills: config.skills,
+      // Lazy per-directory AGENTS.md (context-economics ticket 02). Root is
+      // the environment fact's working directory (same basis as read_file).
+      directoryInstructions: new DirectoryInstructions({
+        rootDir: config.promptOptions?.environment?.workingDirectory ?? process.cwd(),
+      }),
       promptOptions: { ...config.promptOptions, customPrompt: config.customPrompt },
       context:
         config.contextWindow !== undefined
