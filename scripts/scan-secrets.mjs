@@ -117,12 +117,15 @@ function main() {
   // Boundary assertion: the scan root must BE the repository top-level. A
   // stray .git higher up (e.g. a home-directory repo) otherwise masquerades
   // as the target — GIT_CEILING_DIRECTORIES is unreliable on Windows, so
-  // verify the boundary instead of trusting discovery.
+  // verify the boundary instead of trusting discovery. Comparison runs on
+  // FINAL paths: the CI Windows runner's TEMP is an 8.3 short path
+  // (C:\Users\RUNNER~1\...) while git reports the long one — a raw string
+  // compare (even case-insensitive) false-rejects there (windows-leg red).
   const toplevel = path.resolve(git(['rev-parse', '--show-toplevel']).trim());
-  const samePath = process.platform === 'win32'
-    ? toplevel.toLowerCase() === ROOT.toLowerCase() // git lowercases some segments
-    : toplevel === ROOT;
-  if (!samePath) {
+  const canonical = (p) => {
+    try { return fs.realpathSync.native(p).toLowerCase(); } catch { return path.resolve(p).toLowerCase(); }
+  };
+  if (canonical(toplevel) !== canonical(ROOT)) {
     throw new Error(`scan root is not a git repository top-level (git resolved ${toplevel})`);
   }
 
