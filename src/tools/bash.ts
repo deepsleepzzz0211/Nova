@@ -1,7 +1,7 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
 import { createShellLauncher, identityWrap, type ShellLauncher } from './shell-launcher.js';
-import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobHandle, type JobRegistry } from './jobs.js';
+import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -110,26 +110,14 @@ export function createBashTool(deps: {
         if (deps.jobs === undefined) {
           return { content: 'Background jobs are not available in this session.', isError: true };
         }
-        // Refuse BEFORE spawning: a capped request must never leave an
-        // untracked live process behind the refusal message.
-        const refusal = deps.jobs.capacityRefusal();
-        if (refusal !== undefined) {
-          return { content: refusal, isError: true };
-        }
-        let handle: JobHandle;
-        try {
-          handle = launcher.start(invocation, { cwd: context.workingDirectory });
-        } catch (err) {
-          return {
-            content: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
-            isError: true,
-          };
-        }
-        const started = deps.jobs.start(command, handle);
+        // Arch ticket 03: refuse-before-spawn, spawn-through-launcher,
+        // register, orphan-kill safety net — all inside startFrom. There is
+        // no sequence left here to get wrong.
+        const started = deps.jobs.startFrom(command, invocation, {
+          cwd: context.workingDirectory,
+          spawn: launcher.start,
+        });
         if (!started.started) {
-          // Unreachable after the precheck (no await gap), but if the cap
-          // logic ever diverges: never leave the spawned handle orphaned.
-          handle.kill('SIGTERM');
           return { content: started.reason, isError: true };
         }
         const preview =
