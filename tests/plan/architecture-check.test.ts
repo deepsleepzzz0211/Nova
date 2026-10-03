@@ -11,8 +11,20 @@ const require = createRequire(import.meta.url);
 const modUrl = fileURLToPath(new URL('../../scripts/architecture-check.mjs', import.meta.url));
 
 interface ArchModule {
-  collectViolations: (srcDir: string, config?: { maxFileLines?: number }) => string[];
+  collectViolations: (
+    srcDir: string,
+    config?: { maxFileLines?: number; maxPublicSurface?: number },
+  ) => string[];
   selectNewViolations: (current: string[], baseline: string[]) => string[];
+  expiredExceptions: (
+    entries: Array<string | { id: string; expires?: string }>,
+    today: string,
+  ) => Array<{ id: string; expires: string }>;
+  baselineIds: (
+    entries: Array<string | { id: string; expires?: string }>,
+  ) => string[];
+  violationFile: (violation: string) => string | null;
+  changedClosure: (imports: Record<string, string[]>, changed: string[]) => Set<string>;
 }
 
 const arch = require(modUrl) as ArchModule;
@@ -78,5 +90,80 @@ describe('architecture-check ratchet', () => {
     const baseline = ['maxFileLines:a.ts'];
     expect(arch.selectNewViolations(current, baseline)).toEqual(['deepImport:b.ts->c/d.ts']);
     expect(arch.selectNewViolations(current, current)).toEqual([]);
+  });
+
+  it('expired exceptions leave the active set and are reported', () => {
+    const entries = [
+      'maxFileLines:a.ts',
+      { id: 'maxPublicSurface:b.ts', expires: '2026-01-01' },
+      { id: 'suppressions:c.ts', expires: '2099-01-01' },
+      { id: 'cycle:x..y' }, // no expiry: never expires
+    ];
+    expect(arch.baselineIds(entries)).toEqual([
+      'maxFileLines:a.ts',
+      'maxPublicSurface:b.ts',
+      'suppressions:c.ts',
+      'cycle:x..y',
+    ]);
+    expect(arch.expiredExceptions(entries, '2026-10-03')).toEqual([
+      { id: 'maxPublicSurface:b.ts', expires: '2026-01-01' },
+    ]);
+  });
+});
+
+describe('architecture-check public-surface & suppression rules', () => {
+  let src: string;
+  beforeEach(() => {
+    src = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-rule-'));
+  });
+  afterEach(() => fs.rmSync(src, { recursive: true, force: true }));
+
+  it('flags files exporting more than the public-surface cap', () => {
+    const many = Array.from({ length: 13 }, (_, i) => `export const v${i} = ${i};`).join('\n');
+    write(src, 'wide/w.ts', `${many}\n`);
+    write(src, 'narrow/n.ts', 'export const a = 1;\nexport const b = 2;\n');
+    const v = arch.collectViolations(src, { maxFileLines: 500, maxPublicSurface: 12 });
+    expect(v).toContain('maxPublicSurface:wide/w.ts');
+    expect(v).not.toContain('maxPublicSurface:narrow/n.ts');
+  });
+
+  it('type-only exports and commented exports do not count', () => {
+    const body = [
+      '// export const docs = 1;',
+      'export type Alias = number;',
+      'export interface Iface { a(): void }',
+      'const real = 1;',
+      'export { real };',
+    ].join('\n');
+    write(src, 'mix/m.ts', `${body}\n`);
+    const v = arch.collectViolations(src, { maxFileLines: 500, maxPublicSurface: 12 });
+    expect(v).not.toContain('maxPublicSurface:mix/m.ts');
+  });
+
+  it('flags any file carrying suppressions (ts-ignore / eslint-disable)', () => {
+    write(src, 'clean/c.ts', 'export const a = 1;\n');
+    write(src, 'dirty/d.ts', '// @ts-expect-error justified\nexport const b: number = 1;\n');
+    write(src, 'dirty/e.ts', '/* eslint-disable no-console */\nexport const c = 1;\n');
+    const v = arch.collectViolations(src, { maxFileLines: 500, maxPublicSurface: 50 });
+    expect(v).toContain('suppressions:dirty/d.ts');
+    expect(v).toContain('suppressions:dirty/e.ts');
+    expect(v).not.toContain('suppressions:clean/c.ts');
+  });
+});
+
+describe('architecture-check --changed closure', () => {
+  it('walks the reverse import graph (importers of what changed) transitively', () => {
+    // a imports b, b imports c: changing c forces a re-check of b (imports c)
+    // and a (imports the changed closure). d is unrelated.
+    const imports = { 'a.ts': ['b.ts'], 'b.ts': ['c.ts'], 'c.ts': [], 'd.ts': [] };
+    const closure = arch.changedClosure(imports, ['c.ts']);
+    expect([...closure].sort()).toEqual(['a.ts', 'b.ts', 'c.ts']);
+  });
+
+  it('maps a violation fingerprint to its file (cycles are global)', () => {
+    expect(arch.violationFile('maxFileLines:big/one.ts')).toBe('big/one.ts');
+    expect(arch.violationFile('deepImport:a/x.ts->b/y.ts')).toBe('a/x.ts');
+    expect(arch.violationFile('suppressions:d.ts')).toBe('d.ts');
+    expect(arch.violationFile('cycle:m1..m2..m1')).toBeNull(); // always checked
   });
 });

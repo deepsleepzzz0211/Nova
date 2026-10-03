@@ -1,4 +1,21 @@
 {
   "version": 1,
-  "violations": []
+  "violations": [
+    {
+      "id": "maxPublicSurface:llm/catalog.ts",
+      "expires": "2026-12-31"
+    },
+    {
+      "id": "maxPublicSurface:tools/ripgrep-search.ts",
+      "expires": "2026-12-31"
+    },
+    {
+      "id": "maxPublicSurface:tui/editor-state.ts",
+      "expires": "2026-12-31"
+    },
+    {
+      "id": "maxPublicSurface:tui/tool-summary.ts",
+      "expires": "2026-12-31"
+    }
+  ]
 }
