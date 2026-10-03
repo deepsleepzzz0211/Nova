@@ -7,6 +7,19 @@ import { JobRegistry, type JobHandle } from '../../src/tools/jobs.js';
 import { createJobOutputTool, createJobKillTool } from '../../src/tools/jobs.js';
 import { createBashTool } from '../../src/tools/bash.js';
 import type { ShellPlan } from '../../src/tools/shell-routing.js';
+import type { ShellLauncher } from '../../src/tools/shell-launcher.js';
+
+/** Launcher fake: background tests only observe start(). */
+function fakeLauncher(start: ShellLauncher['start']): ShellLauncher {
+  return {
+    run: async () => ({ content: '', exitCode: 0 }),
+    start,
+    capture: async () => ({ code: 0, stdout: '', stderr: '', timedOut: false }),
+    interactive: () => {
+      throw new Error('unused in this fake');
+    },
+  };
+}
 
 // Batch-B ticket 06 (G14a): background job primitives. bash gains
 // background:true (spawn, return {jobId,pid} immediately); job_output reads
@@ -178,7 +191,7 @@ describe('job tools surface', () => {
   it('bash background:true spawns through the registry without waiting', async () => {
     const jobs = new JobRegistry({ logDir: tmp });
     const spawnBackground = vi.fn(() => makeHandle(13));
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(spawnBackground) });
     const result = await tool.execute(
       { command: 'sleep 100', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },
@@ -190,7 +203,7 @@ describe('job tools surface', () => {
 
   it('bash background respects the cap and reports a refusal', async () => {
     const jobs = new JobRegistry({ logDir: tmp, maxRunning: 0 });
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground: vi.fn(() => makeHandle(14)) });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(vi.fn(() => makeHandle(14))) });
     const result = await tool.execute(
       { command: 'true', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },
@@ -203,7 +216,7 @@ describe('job tools surface', () => {
     const jobs = new JobRegistry({ logDir: tmp, maxRunning: 1 });
     startJob(jobs, 'busy', makeHandle(20));
     const spawnBackground = vi.fn(() => makeHandle(21));
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(spawnBackground) });
     const result = await tool.execute(
       { command: 'sleep 60', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },

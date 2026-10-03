@@ -40,6 +40,7 @@ import { SubagentSpawner } from '../subagent/spawner.js';
 import { loadAgentDefinitions } from '../subagent/agents.js';
 import { createOsSandbox } from '../tools/os-sandbox.js';
 import { defaultWinWrapDeps } from '../tools/win-wrap.js';
+import { createShellLauncher, identityWrap, type ShellLauncher } from '../tools/shell-launcher.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
@@ -100,28 +101,18 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
   return facts;
 }
 
-/** Spawn one persistent session shell (bash-family only; ticket 07 spike). */
-function spawnSessionShell(
-  cwd: string,
-  osWrap?: (inv: SpawnInvocation, cwd: string) => SpawnInvocation,
-): ShellProc {
+/** Spawn one persistent session shell (bash-family only; ticket 07 spike).
+ *  Wrapping is the launcher's (arch 02): this builds the argv, the seam
+ *  applies the OS wrap and spawns. */
+function spawnSessionShell(cwd: string, launcher: ShellLauncher): ShellProc {
   const plan = resolveShellFromProcess();
   if (plan.kind !== 'bash') {
     throw new Error(`persistent sessions require a bash shell, got ${plan.label}`);
   }
-  let file = plan.path;
-  let args = ['--noediting', '--noprofile', '--norc'];
-  if (osWrap !== undefined) {
-    const wrapped = osWrap({ file, args }, cwd);
-    file = wrapped.file;
-    args = wrapped.args;
-  }
-  const child = spawn(file, args, {
-    cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  return child as unknown as ShellProc;
+  return launcher.interactive(
+    { file: plan.path, args: ['--noediting', '--noprofile', '--norc'], stdinText: undefined },
+    { cwd },
+  ) as unknown as ShellProc;
 }
 
 export async function buildToolRuntime(opts: {
@@ -194,9 +185,11 @@ export async function buildToolRuntime(opts: {
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
   // Tier-2 OS sandbox (ticket 02; arch 01): one deep module owns the whole
-  // lifecycle. Wiring here is only: construct, drain notices to stderr,
-  // restore grants on exit, and hand the (always meaningful) wrap fn down.
-  let tier2: { wrap: (inv: SpawnInvocation, cwd: string) => SpawnInvocation } | undefined;
+  // lifecycle (construct, notices, grants, exit restore). Arch 02: the
+  // wrap it hands out is consumed ONLY through the ShellLauncher seam —
+  // every shell child (bash, powershell, background jobs, session shells)
+  // spawns through it; there is no per-call wrap knob to forget. Hooks are
+  // the one deliberate identity-wrap path, declared in cli/hook-spawner.ts.
   const sandbox = createOsSandbox({
     osLevel: config.sandbox.osLevel ?? 'off',
     paths: {
@@ -209,25 +202,26 @@ export async function buildToolRuntime(opts: {
   for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
   if (sandbox.enabled) {
     process.once('exit', () => sandbox.dispose());
-    // Per-binary degrade notices appear as later drainables: flush after
-    // every wrap call so the first use of a new shell announces itself.
-    tier2 = {
-      wrap: (inv, cwd) => {
-        const out = sandbox.wrapSpawn(inv, cwd);
-        for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
-        return out;
-      },
-    };
   }
+  const launcher = createShellLauncher({
+    wrap: sandbox.enabled
+      ? (inv, cwd) => {
+          // Per-binary degrade notices surface on first use of each shell.
+          const out = sandbox.wrapSpawn(inv, cwd);
+          for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
+          return out;
+        }
+      : identityWrap,
+  });
 
   // Named persistent shell sessions (ticket 07): one long-lived bash per
   // name, sentinel-framed. The shells die with the process by contract.
   const shellSessions = new ShellSessionRegistry({
     idleMs: config.agent.shellSessionIdleMs,
-    spawn: ({ cwd }) => spawnSessionShell(cwd, tier2?.wrap),
+    spawn: ({ cwd }) => spawnSessionShell(cwd, launcher),
   });
   process.once('exit', () => shellSessions.disposeAll());
-  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, osWrap: tier2?.wrap }));
+  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, launcher }));
   toolRegistry.register(createJobOutputTool(jobRegistry));
   toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({
@@ -286,7 +280,7 @@ export async function buildToolRuntime(opts: {
   // Windows-only native command channel (windows-shell 03); POSIX sessions
   // never see this tool at all.
   if (shouldRegisterPowerShell(os.platform())) {
-    toolRegistry.register(createPowerShellTool({ osWrap: tier2?.wrap }));
+    toolRegistry.register(createPowerShellTool({ launcher }));
   }
 
   // Start MCP servers
