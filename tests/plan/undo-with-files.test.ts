@@ -44,7 +44,12 @@ describe('undo with files through the loop', () => {
   let prevCwd: string;
 
   beforeEach(() => {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), 'undo-files-'));
+    // realpath FIRST: FileHistory canonicalizes snapshot paths, so the
+    // expectation must live in the same space. On macOS os.tmpdir() is
+    // /var/folders/... (a symlink); the resolved form is /private/var/...
+    // and a raw-tmpdir expectation fails the restore-list assertion
+    // (proven by the publish.yml macOS leg, run 20).
+    root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'undo-files-'));
     histDir = path.join(root, '.history');
     prevCwd = process.cwd();
     process.chdir(root);
