@@ -6,7 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
-import { novaHome } from '../config/loader.js';
+import { novaPath } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
 import {
   loadModelCatalogWithEngine,
@@ -43,7 +43,7 @@ export function buildModelRuntime(config: AppConfig): ModelRuntime {
   // The catalog and the pi-ai engine are built together (ticket 01/03): the
   // engine is the runtime provider set the PiProviders stream through.
   const { catalog, engine } = loadModelCatalogWithEngine(new PiaiEngine(), [
-    path.join(novaHome(), '.nova', 'models.json'),
+    novaPath('models.json'),
   ]);
   const resolution = resolveModel(
     {

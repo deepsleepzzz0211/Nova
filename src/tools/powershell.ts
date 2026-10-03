@@ -1,6 +1,6 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { defaultShellProbe, type ShellProbe } from './shell-routing.js';
-import { runSpawnCommand } from './spawn-runner.js';
+import { createShellLauncher, identityWrap, type ShellLauncher } from './shell-launcher.js';
 
 /**
  * powershell — the Windows-native command channel (windows-shell ticket 03),
@@ -56,10 +56,14 @@ export function shouldRegisterPowerShell(platform: NodeJS.Platform): boolean {
 
 export function createPowerShellTool(deps: {
   probe?: ShellProbe;
-  /** Tier-2 OS wrap (ticket 02), same contract as the bash tool's. */
-  osWrap?: (invocation: { file: string; args: string[]; stdinText?: string }, cwd: string) => { file: string; args: string[]; stdinText?: string };
+  /**
+   * The single spawn seam (arch ticket 02): run applies the tier-2 OS wrap
+   * internally; no wrap knob exists here to forget. Default = identity wrap.
+   */
+  launcher?: ShellLauncher;
 } = {}): Tool {
   const probe = deps.probe ?? defaultShellProbe;
+  const launcher = deps.launcher ?? createShellLauncher({ wrap: identityWrap });
   return {
     name: 'powershell',
     display: { kind: 'command' },
@@ -94,7 +98,7 @@ export function createPowerShellTool(deps: {
         };
       }
       const baseInvocation = buildPowerShellInvocation(shell, command);
-      const result = await runSpawnCommand(deps.osWrap ? deps.osWrap(baseInvocation, context.workingDirectory) : baseInvocation, {
+      const result = await launcher.run(baseInvocation, {
         cwd: context.workingDirectory,
         signal: context.abortSignal,
         timeoutMs: timeout,

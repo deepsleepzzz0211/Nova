@@ -1,51 +1,32 @@
-import { spawn } from 'child_process';
 import type { SpawnHook } from '../hooks/config-hooks.js';
 import { resolveShellFromProcess, buildSpawnInvocation, type ShellPlan } from '../tools/shell-routing.js';
+import { createShellLauncher, identityWrap } from '../tools/shell-launcher.js';
 
 /**
  * The production hook spawner (CLI glue): resolves the shell through the
  * same routing the bash tool uses (Git Bash on win32) and runs the hook
- * command with the event JSON on stdin. Lives in the cli layer so
- * src/hooks stays free of tool-layer imports (architecture ratchet).
+ * command with the event JSON on stdin.
+ *
+ * ARCH TICKET 02 NOTE — this is the ONE deliberate non-wrapped path:
+ * declarative hooks are user-supplied commands and run OUTSIDE the tier-2
+ * low-integrity wrap (same documented boundary as Claude Code: command
+ * hooks execute with the parent's full access). It still goes through the
+ * shared launcher seam, with the choice made VISIBLE here rather than an
+ * optional parameter forgotten at a call site.
  */
-export const spawnHook: SpawnHook = (req) =>
-  new Promise((resolve) => {
-    let plan: ShellPlan;
-    try {
-      plan = resolveShellFromProcess();
-    } catch (err) {
-      resolve({ code: 127, stdout: '', stderr: `hook shell unavailable: ${String(err)}` });
-      return;
-    }
-    const inv = buildSpawnInvocation(plan, req.command);
-    const child = spawn(inv.file, inv.args, {
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, req.timeoutMs);
-    child.stdout.setEncoding('utf-8');
-    child.stderr.setEncoding('utf-8');
-    child.stdout.on('data', (d: string) => {
-      stdout += d;
-    });
-    child.stderr.on('data', (d: string) => {
-      stderr += d;
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ code: 127, stdout: '', stderr: String(err) });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout, stderr, timedOut });
-    });
-    child.stdin.write(req.inputJson);
-    child.stdin.end();
-  });
+const hookLauncher = createShellLauncher({ wrap: identityWrap });
+
+export const spawnHook: SpawnHook = async (req) => {
+  let plan: ShellPlan;
+  try {
+    plan = resolveShellFromProcess();
+  } catch (err) {
+    return { code: 127, stdout: '', stderr: `hook shell unavailable: ${String(err)}` };
+  }
+  const invocation = buildSpawnInvocation(plan, req.command);
+  const res = await hookLauncher.capture(
+    { ...invocation, stdinText: req.inputJson },
+    { cwd: process.cwd(), timeoutMs: req.timeoutMs },
+  );
+  return { code: res.code, stdout: res.stdout, stderr: res.stderr, ...(res.timedOut ? { timedOut: true } : {}) };
+};

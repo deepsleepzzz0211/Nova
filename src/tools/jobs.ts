@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { SpawnInvocation } from './shell-routing.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 
 /**
@@ -132,6 +133,43 @@ export class JobRegistry {
       if (record.exitCode === undefined) record.exitCode = -1;
     });
     return { started: true, jobId: id, pid: handle.pid };
+  }
+
+  /**
+   * The full background-start sequence in one call (arch ticket 03):
+   * refuse-before-spawn, spawn via the injected launcher seam (which owns
+   * the OS wrap), register, and kill the handle if a race refused anyway.
+   * Callers cannot get this order wrong because there is no order left to
+   * know.
+   */
+  startFrom(
+    command: string,
+    invocation: SpawnInvocation,
+    opts: { cwd: string; spawn: (invocation: SpawnInvocation, options: { cwd: string }) => JobHandle },
+  ): JobStartResult {
+    const refusal = this.capacityRefusal();
+    if (refusal !== undefined) {
+      return { started: false, reason: refusal };
+    }
+    let handle: JobHandle;
+    try {
+      handle = opts.spawn(invocation, { cwd: opts.cwd });
+    } catch (err) {
+      return {
+        started: false,
+        reason: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    const started = this.start(command, handle);
+    if (!started.started) {
+      try {
+        handle.kill('SIGTERM');
+      } catch {
+        // Already dead; nothing to orphan.
+      }
+      return started;
+    }
+    return started;
   }
 
   /** Incremental read from an absolute cursor. */

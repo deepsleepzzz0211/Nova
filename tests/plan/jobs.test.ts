@@ -7,6 +7,19 @@ import { JobRegistry, type JobHandle } from '../../src/tools/jobs.js';
 import { createJobOutputTool, createJobKillTool } from '../../src/tools/jobs.js';
 import { createBashTool } from '../../src/tools/bash.js';
 import type { ShellPlan } from '../../src/tools/shell-routing.js';
+import type { ShellLauncher } from '../../src/tools/shell-launcher.js';
+
+/** Launcher fake: background tests only observe start(). */
+function fakeLauncher(start: ShellLauncher['start']): ShellLauncher {
+  return {
+    run: async () => ({ content: '', exitCode: 0 }),
+    start,
+    capture: async () => ({ code: 0, stdout: '', stderr: '', timedOut: false }),
+    interactive: () => {
+      throw new Error('unused in this fake');
+    },
+  };
+}
 
 // Batch-B ticket 06 (G14a): background job primitives. bash gains
 // background:true (spawn, return {jobId,pid} immediately); job_output reads
@@ -178,7 +191,7 @@ describe('job tools surface', () => {
   it('bash background:true spawns through the registry without waiting', async () => {
     const jobs = new JobRegistry({ logDir: tmp });
     const spawnBackground = vi.fn(() => makeHandle(13));
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(spawnBackground) });
     const result = await tool.execute(
       { command: 'sleep 100', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },
@@ -190,7 +203,7 @@ describe('job tools surface', () => {
 
   it('bash background respects the cap and reports a refusal', async () => {
     const jobs = new JobRegistry({ logDir: tmp, maxRunning: 0 });
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground: vi.fn(() => makeHandle(14)) });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(vi.fn(() => makeHandle(14))) });
     const result = await tool.execute(
       { command: 'true', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },
@@ -203,7 +216,7 @@ describe('job tools surface', () => {
     const jobs = new JobRegistry({ logDir: tmp, maxRunning: 1 });
     startJob(jobs, 'busy', makeHandle(20));
     const spawnBackground = vi.fn(() => makeHandle(21));
-    const tool = createBashTool({ resolvePlan: () => plan, jobs, spawnBackground });
+    const tool = createBashTool({ resolvePlan: () => plan, jobs, launcher: fakeLauncher(spawnBackground) });
     const result = await tool.execute(
       { command: 'sleep 60', background: true },
       { workingDirectory: tmp, abortSignal: new AbortController().signal },
@@ -217,10 +230,61 @@ describe('job tools surface', () => {
 
   it('capacityRefusal exposes the cap decision for a pre-spawn gate', () => {
     const jobs = new JobRegistry({ logDir: tmp, maxRunning: 2 });
-    expect(jobs.capacityRefusal()).toBeUndefined();
-    startJob(jobs, 'a', makeHandle(22));
+    expect(jobs.capacityRefusal()).toBeUndefined();    startJob(jobs, 'a', makeHandle(22));
     startJob(jobs, 'b', makeHandle(23));
     expect(jobs.capacityRefusal()).toMatch(/2\/2 running/);
+  });
+
+  describe('startFrom (arch ticket 03: the registry owns the whole sequence)', () => {
+    const inv: import('../../src/tools/shell-routing.js').SpawnInvocation = {
+      file: 'bash.exe',
+      args: ['-c', 'sleep 1'],
+      stdinText: undefined,
+    };
+
+    it('refuses at capacity WITHOUT ever calling spawn', () => {
+      const jobs = new JobRegistry({ logDir: tmp, maxRunning: 0 });
+      const spawn = vi.fn(() => makeHandle(30));
+      const r = jobs.startFrom('x', inv, { cwd: tmp, spawn });
+      expect(r.started).toBe(false);
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
+    it('spawns once and registers the handle on the happy path', () => {
+      const jobs = new JobRegistry({ logDir: tmp });
+      const h = makeHandle(31);
+      const spawn = vi.fn(() => h);
+      const r = jobs.startFrom('sleep 1', inv, { cwd: tmp, spawn });
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(r).toEqual({ started: true, jobId: 'job-1', pid: 31 });
+      expect(jobs.read('job-1', 0).found).toBe(true);
+    });
+
+    it('a spawn throw becomes a refusal result, not an exception', () => {
+      const jobs = new JobRegistry({ logDir: tmp });
+      const r = jobs.startFrom('x', inv, {
+        cwd: tmp,
+        spawn: () => {
+          throw new Error('ENOENT bash.exe');
+        },
+      });
+      expect(r.started).toBe(false);
+      if (!r.started) expect(r.reason).toMatch(/Background spawn failed.*ENOENT/);
+    });
+
+    it('a late cap race still leaves NO orphan: the handle is killed', () => {
+      const jobs = new JobRegistry({ logDir: tmp, maxRunning: 1 });
+      const h = makeHandle(32);
+      // capacityRefusal() says yes (0 running), then the slot fills during
+      // spawn: startFrom must kill h instead of leaking it behind a refusal.
+      const spawn = vi.fn(() => {
+        startJob(jobs, 'inline-competitor', makeHandle(33));
+        return h;
+      });
+      const r = jobs.startFrom('x', inv, { cwd: tmp, spawn });
+      expect(r.started).toBe(false);
+      expect(h.killed).toBe(true);
+    });
   });
 
   it('foreground bash keeps working when background jobs are not wired', async () => {

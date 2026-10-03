@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { novaHome } from '../config/loader.js';
+import { novaHome, novaPath } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
 import { gatherEnvironment, loadProjectInstructions, type ShellFacts } from '../agent/environment.js';
 import { resolveShellFromProcess, summarizeShellPlan, defaultShellProbe } from '../tools/shell-routing.js';
@@ -38,16 +38,9 @@ import { SkillRegistry } from '../skills/registry.js';
 import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from '../skills/skill-lock.js';
 import { SubagentSpawner } from '../subagent/spawner.js';
 import { loadAgentDefinitions } from '../subagent/agents.js';
-import { planOsSandbox, takeNotice } from '../permission/os-sandbox.js';
-import {
-  defaultWinWrapDeps,
-  probeWinWrap,
-  ensureWrapper,
-  grantRoots,
-  restoreRoots,
-  wrapInvocation,
-} from '../tools/win-wrap.js';
-import { createShellGate } from '../tools/win-smoke.js';
+import { createOsSandbox } from '../tools/os-sandbox.js';
+import { defaultWinWrapDeps } from '../tools/win-wrap.js';
+import { createShellLauncher, identityWrap, type ShellLauncher } from '../tools/shell-launcher.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
@@ -108,28 +101,18 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
   return facts;
 }
 
-/** Spawn one persistent session shell (bash-family only; ticket 07 spike). */
-function spawnSessionShell(
-  cwd: string,
-  osWrap?: (inv: SpawnInvocation, cwd: string) => SpawnInvocation,
-): ShellProc {
+/** Spawn one persistent session shell (bash-family only; ticket 07 spike).
+ *  Wrapping is the launcher's (arch 02): this builds the argv, the seam
+ *  applies the OS wrap and spawns. */
+function spawnSessionShell(cwd: string, launcher: ShellLauncher): ShellProc {
   const plan = resolveShellFromProcess();
   if (plan.kind !== 'bash') {
     throw new Error(`persistent sessions require a bash shell, got ${plan.label}`);
   }
-  let file = plan.path;
-  let args = ['--noediting', '--noprofile', '--norc'];
-  if (osWrap !== undefined) {
-    const wrapped = osWrap({ file, args }, cwd);
-    file = wrapped.file;
-    args = wrapped.args;
-  }
-  const child = spawn(file, args, {
-    cwd,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  return child as unknown as ShellProc;
+  return launcher.interactive(
+    { file: plan.path, args: ['--noediting', '--noprofile', '--norc'], stdinText: undefined },
+    { cwd },
+  ) as unknown as ShellProc;
 }
 
 export async function buildToolRuntime(opts: {
@@ -147,7 +130,7 @@ export async function buildToolRuntime(opts: {
     // (sessions, file-history, memory all live there).
     enabled: !config.sandbox.workspaceWrite,
     workspaceRoot: projectDir,
-    allowRoots: [path.join(novaHome(), '.nova')],
+    allowRoots: [novaPath()],
   });
   // Declarative hooks (batch-B ticket 03): config [[hooks]] entries become
   // pipeline hooks through the CLI-owned spawner. Cast is config-boundary
@@ -161,7 +144,7 @@ export async function buildToolRuntime(opts: {
   // skills are refused and surfaced on stderr, never silently loaded.
   const skillRegistry = new SkillRegistry();
   const skillWarn = (message: string): void => console.error(message);
-  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'), { onWarn: skillWarn });
+  await skillRegistry.scan(novaPath('skills'), { onWarn: skillWarn });
   await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'), { onWarn: skillWarn });
 
   // Environment facts + project instructions for the system prompt. Shell
@@ -178,7 +161,7 @@ export async function buildToolRuntime(opts: {
   // Learned memory: user-level + project-level, read ONCE and frozen into
   // the system prompt for the whole session (cache philosophy).
   const memory = readMemorySections([
-    path.join(novaHome(), '.nova', 'memory', 'MEMORY.md'),
+    novaPath('memory', 'MEMORY.md'),
     path.join(projectDir, '.nova', 'memory', 'MEMORY.md'),
   ]);
 
@@ -201,65 +184,44 @@ export async function buildToolRuntime(opts: {
     logDir: jobsLogDir,
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
-  // Tier-2 OS sandbox (ticket 02): win32 low-integrity wrap of every shell
-  // child. Probe->plan->grant; ANY failure degrades to tier 1 with a
-  // one-time stderr notice — the shell must always be able to start.
-  let tier2: { wrap: (inv: SpawnInvocation, cwd: string) => SpawnInvocation } | undefined;
-  if (config.sandbox.osLevel === 'auto') {
-    const winDeps = defaultWinWrapDeps(novaHome());
-    const plan = planOsSandbox(
-      { osLevel: 'auto' },
-      {
-        workspaceRoot: projectDir,
-        novaHome: path.join(novaHome(), '.nova'),
-        tempDir: os.tmpdir(),
-      },
-      () => {
-        const p = probeWinWrap(winDeps);
-        if (!p.available) {
-          return { platform: process.platform, wrapperAvailable: false, reason: p.reason };
-        }
-        const w = ensureWrapper(winDeps);
-        return w.ok
-          ? { platform: process.platform, wrapperAvailable: true }
-          : { platform: process.platform, wrapperAvailable: false, reason: w.reason };
-      },
-    );
-    // The enabled notice is only earned AFTER the grant lands — printing it
-    // up front would green-light a sandbox that may never wrap anything.
-    const notice = takeNotice(plan);
-    if (!plan.enabled) {
-      if (notice !== undefined) console.error(`[sandbox] ${notice}`);
-    } else {
-      const w = ensureWrapper(winDeps);
-      if (!w.ok) {
-        console.error(`[sandbox] tier-2 could not activate (${w.reason}) — continuing with tier-1 path policy only`);
-      } else {
-        const g = grantRoots(winDeps, plan.roots);
-        if (!g.ok) {
-          restoreRoots(winDeps);
-          console.error(`[sandbox] tier-2 could not activate (grant failed on: ${g.failed.join(', ')}) — continuing with tier-1 path policy only`);
-        } else {
-          if (notice !== undefined) console.error(`[sandbox] ${notice}`);
-          const gate = createShellGate(winDeps, w.exePath, plan.roots[0] ?? projectDir, (file, detail) => {
-            console.error(`[sandbox] tier-2 not wrapping ${path.basename(file)} (${detail}) — that shell stays on tier-1 path policy`);
-          });
-          const exe = w.exePath;
-          tier2 = { wrap: (inv, cwd) => (gate(inv.file) ? wrapInvocation(exe, inv, cwd) : inv) };
-          process.once('exit', () => restoreRoots(winDeps));
-        }
-      }
-    }
+  // Tier-2 OS sandbox (ticket 02; arch 01): one deep module owns the whole
+  // lifecycle (construct, notices, grants, exit restore). Arch 02: the
+  // wrap it hands out is consumed ONLY through the ShellLauncher seam —
+  // every shell child (bash, powershell, background jobs, session shells)
+  // spawns through it; there is no per-call wrap knob to forget. Hooks are
+  // the one deliberate identity-wrap path, declared in cli/hook-spawner.ts.
+  const sandbox = createOsSandbox({
+    osLevel: config.sandbox.osLevel ?? 'off',
+    paths: {
+      workspaceRoot: projectDir,
+      novaHome: novaPath(),
+      tempDir: os.tmpdir(),
+    },
+    deps: defaultWinWrapDeps(novaHome()),
+  });
+  for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
+  if (sandbox.enabled) {
+    process.once('exit', () => sandbox.dispose());
   }
+  const launcher = createShellLauncher({
+    wrap: sandbox.enabled
+      ? (inv, cwd) => {
+          // Per-binary degrade notices surface on first use of each shell.
+          const out = sandbox.wrapSpawn(inv, cwd);
+          for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
+          return out;
+        }
+      : identityWrap,
+  });
 
   // Named persistent shell sessions (ticket 07): one long-lived bash per
   // name, sentinel-framed. The shells die with the process by contract.
   const shellSessions = new ShellSessionRegistry({
     idleMs: config.agent.shellSessionIdleMs,
-    spawn: ({ cwd }) => spawnSessionShell(cwd, tier2?.wrap),
+    spawn: ({ cwd }) => spawnSessionShell(cwd, launcher),
   });
   process.once('exit', () => shellSessions.disposeAll());
-  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, osWrap: tier2?.wrap }));
+  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, launcher }));
   toolRegistry.register(createJobOutputTool(jobRegistry));
   toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({
@@ -286,7 +248,7 @@ export async function buildToolRuntime(opts: {
     // Named agent definitions (ticket 05): ~/.nova/agents/*.toml under the
     // NOVA_HOME tree; invalid files warn to stderr and are skipped.
     agents: loadAgentDefinitions(
-      path.join(novaHome(), '.nova', 'agents'),
+      novaPath('agents'),
       (message) => process.stderr.write(`${message}
 `),
     ),
@@ -318,7 +280,7 @@ export async function buildToolRuntime(opts: {
   // Windows-only native command channel (windows-shell 03); POSIX sessions
   // never see this tool at all.
   if (shouldRegisterPowerShell(os.platform())) {
-    toolRegistry.register(createPowerShellTool({ osWrap: tier2?.wrap }));
+    toolRegistry.register(createPowerShellTool({ launcher }));
   }
 
   // Start MCP servers

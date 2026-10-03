@@ -1,9 +1,8 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
-import { runSpawnCommand, spawnBackground } from './spawn-runner.js';
-import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobHandle, type JobRegistry } from './jobs.js';
+import { createShellLauncher, identityWrap, type ShellLauncher } from './shell-launcher.js';
+import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
-import type { SpawnInvocation } from './shell-routing.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -27,12 +26,15 @@ export function createBashTool(deps: {
   resolvePlan?: () => ShellPlan;
   jobs?: JobRegistry;
   sessions?: ShellSessionRegistry;
-  /** Tier-2 OS wrap (ticket 02): rewrites the spawn invocation when active. */
-  osWrap?: (invocation: SpawnInvocation, cwd: string) => SpawnInvocation;
-  spawnBackground?: (invocation: ReturnType<typeof buildSpawnInvocation>, options: { cwd: string }) => JobHandle;
+  /**
+   * The single spawn seam (arch ticket 02): run/start apply the tier-2 OS
+   * wrap internally — this tool has no wrap knob to forget. Default is an
+   * unwrapping launcher (identity wrap) for tests and os_level=off runs.
+   */
+  launcher?: ShellLauncher;
 } = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
-  const spawnBg = deps.spawnBackground ?? spawnBackground;
+  const launcher = deps.launcher ?? createShellLauncher({ wrap: identityWrap });
   return {
     name: 'bash',
     display: { kind: 'command' },
@@ -108,26 +110,14 @@ export function createBashTool(deps: {
         if (deps.jobs === undefined) {
           return { content: 'Background jobs are not available in this session.', isError: true };
         }
-        // Refuse BEFORE spawning: a capped request must never leave an
-        // untracked live process behind the refusal message.
-        const refusal = deps.jobs.capacityRefusal();
-        if (refusal !== undefined) {
-          return { content: refusal, isError: true };
-        }
-        let handle: JobHandle;
-        try {
-          handle = spawnBg(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, { cwd: context.workingDirectory });
-        } catch (err) {
-          return {
-            content: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
-            isError: true,
-          };
-        }
-        const started = deps.jobs.start(command, handle);
+        // Arch ticket 03: refuse-before-spawn, spawn-through-launcher,
+        // register, orphan-kill safety net — all inside startFrom. There is
+        // no sequence left here to get wrong.
+        const started = deps.jobs.startFrom(command, invocation, {
+          cwd: context.workingDirectory,
+          spawn: launcher.start,
+        });
         if (!started.started) {
-          // Unreachable after the precheck (no await gap), but if the cap
-          // logic ever diverges: never leave the spawned handle orphaned.
-          handle.kill('SIGTERM');
           return { content: started.reason, isError: true };
         }
         const preview =
@@ -142,7 +132,7 @@ export function createBashTool(deps: {
         };
       }
 
-      const result = await runSpawnCommand(deps.osWrap ? deps.osWrap(invocation, context.workingDirectory) : invocation, {
+      const result = await launcher.run(invocation, {
         cwd: context.workingDirectory,
         signal: context.abortSignal,
         timeoutMs: timeout,

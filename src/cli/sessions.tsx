@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
-import { novaHome } from '../config/loader.js';
+import { novaPath } from '../config/loader.js';
 import { SessionStore, SESSION_RETENTION_DAYS } from '../agent/session.js';
 import type { SessionSummary } from '../agent/session.js';
 import { SessionPicker, formatSessionList } from '../tui/SessionPicker.js';
@@ -45,13 +45,13 @@ export function sessionFilePathForMode(sessionsDir: string, pickedFile: string |
 }
 
 export async function runSessionStartup(values: CliValues): Promise<SessionStartup> {
-  const sessionsDir = path.join(novaHome(), '.nova', 'sessions');
+  const sessionsDir = novaPath('sessions');
   const sweepAndReport = (dir: string, label: string): void => {
     const swept = SessionStore.sweep(dir, SESSION_RETENTION_DAYS);
     if (swept > 0) console.error(`[${label}] removed ${swept} stale file(s) older than ${SESSION_RETENTION_DAYS} days`);
   };
   sweepAndReport(sessionsDir, 'sessions');
-  const subagentsDir = path.join(novaHome(), '.nova', 'subagents');
+  const subagentsDir = novaPath('subagents');
   sweepAndReport(subagentsDir, 'subagents');
 
   if (values.list) {

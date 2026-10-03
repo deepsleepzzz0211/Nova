@@ -62,6 +62,26 @@ export function novaHome(): string {
   return process.env.NOVA_HOME || os.homedir();
 }
 
+/**
+ * One path into the ~/.nova tree (arch ticket 04): every persisted artifact
+ * — config, sessions, memory, skills, agents, commands, checkpoints,
+ * sandbox state — is `novaPath('sub', ...)` so the tree layout lives HERE
+ * only. The whole tree relocates with NOVA_HOME by construction.
+ */
+export function novaPath(...segments: string[]): string {
+  return path.join(novaHome(), '.nova', ...segments);
+}
+
+/**
+ * THE config entry point (arch ticket 04): merge -> normalize, one call.
+ * Callers get a normalized AppConfig plus the warnings to surface; the
+ * intermediate un-normalized state never escapes, so nobody can forget the
+ * normalize step (the pattern Codex/claude configs validate once).
+ */
+export function loadAppConfig(projectDir: string): { config: AppConfig; warnings: string[] } {
+  return normalizeConfig(loadConfig(projectDir));
+}
+
 /** Validate/normalize the merged config. Returns warnings for the caller to surface. */
 export function normalizeConfig(config: AppConfig): { config: AppConfig; warnings: string[] } {
   const warnings: string[] = [];
@@ -126,7 +146,7 @@ function loadTomlFile(filePath: string): Record<string, unknown> {
  */
 export function loadConfig(projectDir: string): AppConfig {
   const home = novaHome();
-  const userConfigPath = path.join(home, '.nova', 'config.toml');
+  const userConfigPath = novaPath('config.toml');
   const userConfig = loadTomlFile(userConfigPath);
 
   const projectConfigPath = path.join(projectDir, 'config.toml');
