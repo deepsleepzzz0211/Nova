@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { novaHome } from '../config/loader.js';
+import { novaHome, novaPath } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
 import { gatherEnvironment, loadProjectInstructions, type ShellFacts } from '../agent/environment.js';
 import { resolveShellFromProcess, summarizeShellPlan, defaultShellProbe } from '../tools/shell-routing.js';
@@ -130,7 +130,7 @@ export async function buildToolRuntime(opts: {
     // (sessions, file-history, memory all live there).
     enabled: !config.sandbox.workspaceWrite,
     workspaceRoot: projectDir,
-    allowRoots: [path.join(novaHome(), '.nova')],
+    allowRoots: [novaPath()],
   });
   // Declarative hooks (batch-B ticket 03): config [[hooks]] entries become
   // pipeline hooks through the CLI-owned spawner. Cast is config-boundary
@@ -144,7 +144,7 @@ export async function buildToolRuntime(opts: {
   // skills are refused and surfaced on stderr, never silently loaded.
   const skillRegistry = new SkillRegistry();
   const skillWarn = (message: string): void => console.error(message);
-  await skillRegistry.scan(path.join(novaHome(), '.nova', 'skills'), { onWarn: skillWarn });
+  await skillRegistry.scan(novaPath('skills'), { onWarn: skillWarn });
   await skillRegistry.scan(path.join(projectDir, '.nova', 'skills'), { onWarn: skillWarn });
 
   // Environment facts + project instructions for the system prompt. Shell
@@ -161,7 +161,7 @@ export async function buildToolRuntime(opts: {
   // Learned memory: user-level + project-level, read ONCE and frozen into
   // the system prompt for the whole session (cache philosophy).
   const memory = readMemorySections([
-    path.join(novaHome(), '.nova', 'memory', 'MEMORY.md'),
+    novaPath('memory', 'MEMORY.md'),
     path.join(projectDir, '.nova', 'memory', 'MEMORY.md'),
   ]);
 
@@ -194,7 +194,7 @@ export async function buildToolRuntime(opts: {
     osLevel: config.sandbox.osLevel ?? 'off',
     paths: {
       workspaceRoot: projectDir,
-      novaHome: path.join(novaHome(), '.nova'),
+      novaHome: novaPath(),
       tempDir: os.tmpdir(),
     },
     deps: defaultWinWrapDeps(novaHome()),
@@ -248,7 +248,7 @@ export async function buildToolRuntime(opts: {
     // Named agent definitions (ticket 05): ~/.nova/agents/*.toml under the
     // NOVA_HOME tree; invalid files warn to stderr and are skipped.
     agents: loadAgentDefinitions(
-      path.join(novaHome(), '.nova', 'agents'),
+      novaPath('agents'),
       (message) => process.stderr.write(`${message}
 `),
     ),

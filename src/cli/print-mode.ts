@@ -6,12 +6,9 @@
  * possible). Used by the E2E suite and scripts.
  */
 import { AgentLoop } from '../agent/loop.js';
+import { buildLoopBase } from '../agent/loop-deps.js';
 import { createJsonlSink } from './jsonl-stream.js';
-import { DirectoryInstructions } from '../agent/directory-instructions.js';
-import { FileHistory, fileHistoryDir } from '../agent/file-history.js';
-import { novaHome } from '../config/loader.js';
 import type { AppConfig } from '../config/schema.js';
-import type { ThinkingLevel } from '../llm/types.js';
 import type { ResolvedModel } from '../llm/catalog.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { MCPManager } from '../mcp/manager.js';
@@ -39,36 +36,33 @@ export async function runPrintMode(opts: {
   // tool_call ids -> names so tool_result events can carry the name.
   const callNames = new Map<string, string>();
   let sawError = false;
+  // Shared assembly (arch ticket 04): context options, checkpoints keyed on
+  // this session, prompt parts, scalar knobs — one builder for TUI + print.
+  const base = buildLoopBase({
+    config,
+    resolution,
+    sessionId: session.sessionStore.sessionId,
+    environment: runtime.environment,
+    projectInstructions: runtime.projectInstructions,
+    memory: runtime.memory,
+    customPrompt: config.agent.systemPrompt || undefined,
+    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+  });
   const loop = new AgentLoop({
     llm,
     toolRegistry: runtime.toolRegistry,
     toolExecutionPipeline: runtime.toolExecutionPipeline,
     session: session.sessionStore,
     skills: runtime.skillRegistry,
-    directoryInstructions: new DirectoryInstructions({
-      rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
-    }),
+    directoryInstructions: base.directoryInstructions,
     // Checkpoints still record in print mode — an --resume'd session can
     // /undo its files from the TUI (ticket 03).
-    fileHistory: new FileHistory({
-      historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
-    }),
-    promptOptions: {
-      environment: runtime.environment,
-      projectInstructions: runtime.projectInstructions,
-      memory: runtime.memory,
-      customPrompt: config.agent.systemPrompt || undefined,
-      skillsBudgetTokens: config.agent.skillsBudgetTokens,
-    },
-    context: {
-      maxTokens: resolution.model.contextWindow,
-      reserveTokens: config.agent.contextReserveTokens,
-      keepRecentTokens: config.agent.contextKeepRecentTokens,
-      strategy: config.agent.contextStrategy as 'truncate' | 'compact',
-    },
-    streamIdleTimeoutMs: config.llm.streamIdleTimeoutMs,
-    thinkingLevel: config.agent.thinkingLevel as ThinkingLevel,
-    config: { maxToolRounds: config.agent.maxToolRounds, model: config.llm.model },
+    fileHistory: base.fileHistory,
+    promptOptions: base.promptOptions,
+    context: base.context,
+    streamIdleTimeoutMs: base.streamIdleTimeoutMs,
+    thinkingLevel: base.thinkingLevel,
+    config: base.config,
     onToken: (token: string) => {
       // The loop reports failures as [Error: ...] tokens; print mode must
       // exit non-zero so scripts and the E2E suite can detect them.

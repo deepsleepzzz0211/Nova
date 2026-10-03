@@ -12,9 +12,8 @@ import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
-import { DirectoryInstructions } from './agent/directory-instructions.js';
-import { FileHistory, fileHistoryDir } from './agent/file-history.js';
-import { loadConfig, normalizeConfig, novaHome } from './config/loader.js';
+import { buildLoopBase } from './agent/loop-deps.js';
+import { loadAppConfig, novaPath } from './config/loader.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatWelcomeCard } from './tui/header.js';
 import { parseCliArgs, applyCliOverrides } from './cli/args.js';
@@ -26,7 +25,7 @@ import { loadUserCommands } from './commands/user-commands.js';
 
 async function main(): Promise<void> {
   const projectDir = process.cwd();
-  const { config, warnings: configWarnings } = normalizeConfig(loadConfig(projectDir));
+  const { config, warnings: configWarnings } = loadAppConfig(projectDir);
 
   // Parse CLI arguments (highest priority)
   const values = parseCliArgs();
@@ -142,6 +141,19 @@ async function main(): Promise<void> {
   // spike). Ink requires interactive mode for alternateScreen, so requesting
   // it forces interactive regardless of CI detection.
   const fullscreen = values['tui-mode'] === 'fullscreen';
+  // Shared loop assembly (arch ticket 04): the TUI and print mode build the
+  // same checkpoint/directory-instructions wiring from one builder.
+  const loopBase = buildLoopBase({
+    config,
+    resolution,
+    sessionId: session.sessionStore.sessionId,
+    environment: runtime.environment,
+    projectInstructions: runtime.projectInstructions,
+    memory: runtime.memory,
+    customPrompt: config.agent.systemPrompt || undefined,
+    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+  });
+
   // One agent config object (ticket 18): App passes it straight to useAgent,
   // so a new option is declared in one place instead of being copied through
   // a props interface.
@@ -152,19 +164,16 @@ async function main(): Promise<void> {
     sessionStore: session.sessionStore,
     initialHistory: session.initialHistory,
     skills: runtime.skillRegistry,
-    directoryInstructions: new DirectoryInstructions({
-      rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
-    }),
+    directoryInstructions: loopBase.directoryInstructions,
     // Session file checkpoints (/undo code revert, ticket 03): keyed by the
-    // session file's name so --resume keeps the same history directory.
-    fileHistory: new FileHistory({
-      historyDir: fileHistoryDir(novaHome(), session.sessionStore.sessionId),
-    }),
+    // session file's name so --resume keeps the same history directory
+    // (the shared builder places it under the NOVA_HOME tree, arch ticket 04).
+    fileHistory: loopBase.fileHistory,
     undoWithFiles: values['with-files'] === true,
     // User-defined slash commands (ticket 04): ~/.nova/commands/*.md under the
     // NOVA_HOME tree; malformed files warn to stderr and never block startup.
     userCommands: loadUserCommands(
-      path.join(novaHome(), '.nova', 'commands'),
+      novaPath('commands'),
       (message) => process.stderr.write(`${message}
 `),
     ),
