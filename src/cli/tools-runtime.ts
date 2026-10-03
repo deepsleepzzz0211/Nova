@@ -38,16 +38,8 @@ import { SkillRegistry } from '../skills/registry.js';
 import { SKILL_LOCK_FILENAME, readSkillLock, writeSkillLock } from '../skills/skill-lock.js';
 import { SubagentSpawner } from '../subagent/spawner.js';
 import { loadAgentDefinitions } from '../subagent/agents.js';
-import { planOsSandbox, takeNotice } from '../permission/os-sandbox.js';
-import {
-  defaultWinWrapDeps,
-  probeWinWrap,
-  ensureWrapper,
-  grantRoots,
-  restoreRoots,
-  wrapInvocation,
-} from '../tools/win-wrap.js';
-import { createShellGate } from '../tools/win-smoke.js';
+import { createOsSandbox } from '../tools/os-sandbox.js';
+import { defaultWinWrapDeps } from '../tools/win-wrap.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
@@ -201,55 +193,31 @@ export async function buildToolRuntime(opts: {
     logDir: jobsLogDir,
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
-  // Tier-2 OS sandbox (ticket 02): win32 low-integrity wrap of every shell
-  // child. Probe->plan->grant; ANY failure degrades to tier 1 with a
-  // one-time stderr notice — the shell must always be able to start.
+  // Tier-2 OS sandbox (ticket 02; arch 01): one deep module owns the whole
+  // lifecycle. Wiring here is only: construct, drain notices to stderr,
+  // restore grants on exit, and hand the (always meaningful) wrap fn down.
   let tier2: { wrap: (inv: SpawnInvocation, cwd: string) => SpawnInvocation } | undefined;
-  if (config.sandbox.osLevel === 'auto') {
-    const winDeps = defaultWinWrapDeps(novaHome());
-    const plan = planOsSandbox(
-      { osLevel: 'auto' },
-      {
-        workspaceRoot: projectDir,
-        novaHome: path.join(novaHome(), '.nova'),
-        tempDir: os.tmpdir(),
+  const sandbox = createOsSandbox({
+    osLevel: config.sandbox.osLevel ?? 'off',
+    paths: {
+      workspaceRoot: projectDir,
+      novaHome: path.join(novaHome(), '.nova'),
+      tempDir: os.tmpdir(),
+    },
+    deps: defaultWinWrapDeps(novaHome()),
+  });
+  for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
+  if (sandbox.enabled) {
+    process.once('exit', () => sandbox.dispose());
+    // Per-binary degrade notices appear as later drainables: flush after
+    // every wrap call so the first use of a new shell announces itself.
+    tier2 = {
+      wrap: (inv, cwd) => {
+        const out = sandbox.wrapSpawn(inv, cwd);
+        for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
+        return out;
       },
-      () => {
-        const p = probeWinWrap(winDeps);
-        if (!p.available) {
-          return { platform: process.platform, wrapperAvailable: false, reason: p.reason };
-        }
-        const w = ensureWrapper(winDeps);
-        return w.ok
-          ? { platform: process.platform, wrapperAvailable: true }
-          : { platform: process.platform, wrapperAvailable: false, reason: w.reason };
-      },
-    );
-    // The enabled notice is only earned AFTER the grant lands — printing it
-    // up front would green-light a sandbox that may never wrap anything.
-    const notice = takeNotice(plan);
-    if (!plan.enabled) {
-      if (notice !== undefined) console.error(`[sandbox] ${notice}`);
-    } else {
-      const w = ensureWrapper(winDeps);
-      if (!w.ok) {
-        console.error(`[sandbox] tier-2 could not activate (${w.reason}) — continuing with tier-1 path policy only`);
-      } else {
-        const g = grantRoots(winDeps, plan.roots);
-        if (!g.ok) {
-          restoreRoots(winDeps);
-          console.error(`[sandbox] tier-2 could not activate (grant failed on: ${g.failed.join(', ')}) — continuing with tier-1 path policy only`);
-        } else {
-          if (notice !== undefined) console.error(`[sandbox] ${notice}`);
-          const gate = createShellGate(winDeps, w.exePath, plan.roots[0] ?? projectDir, (file, detail) => {
-            console.error(`[sandbox] tier-2 not wrapping ${path.basename(file)} (${detail}) — that shell stays on tier-1 path policy`);
-          });
-          const exe = w.exePath;
-          tier2 = { wrap: (inv, cwd) => (gate(inv.file) ? wrapInvocation(exe, inv, cwd) : inv) };
-          process.once('exit', () => restoreRoots(winDeps));
-        }
-      }
-    }
+    };
   }
 
   // Named persistent shell sessions (ticket 07): one long-lived bash per
