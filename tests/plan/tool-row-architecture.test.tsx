@@ -3,11 +3,13 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import {
   toolVerb,
-  tidyValue,
-  formatDurationMs,
   summarizeCall,
   groupToolCalls,
 } from '../../src/tui/tool-summary.js';
+import {
+  tidyValue,
+  formatDurationMs,
+} from '../../src/tui/tool-format.js';
 import { ToolCallView } from '../../src/tui/ToolCallView.js';
 import type { DisplayToolCall } from '../../src/tui/display-types.js';
 

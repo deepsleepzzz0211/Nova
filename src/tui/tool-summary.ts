@@ -2,19 +2,14 @@ import type { ToolDisplay } from '../tools/types.js';
 import type { DisplayToolCall } from './display-types.js';
 import { truncateToWidth } from './text-measure.js';
 import { theme } from './theme.js';
+import { parseToolArgs, tidyValue } from './tool-format.js';
 /**
- * Pure helpers for tool-call display (tui-refactor ticket 05): spinner
- * frames, typed one-line summaries, and output folding. No Ink/React.
+ * The tool-CALL row model (tui-refactor ticket 05; arch2 ticket B4 slimmed):
+ * typed one-line summaries, the registry verb table, status styling, and the
+ * consecutive-call grouping. Pure string formatting (spinner, arg parse,
+ * duration, folding) lives in tool-format.ts; this module imports what it
+ * needs (parseToolArgs, tidyValue) and owns the display MODEL. No Ink/React.
  */
-
-/** Braille spinner frames (pi-style). */
-export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
-
-/** Deterministic frame for a tick (any integer; wraps). */
-export function spinnerFrame(tick: number): string {
-  const n = SPINNER_FRAMES.length;
-  return SPINNER_FRAMES[((tick % n) + n) % n];
-}
 
 /** Resolver for a tool's declared display metadata (registry.displayFor). */
 export type DisplayKindResolver = (name: string) => ToolDisplay | undefined;
@@ -70,16 +65,6 @@ export function primaryArg(
   return null;
 }
 
-/** Parse tool-call arguments, returning null when the JSON is unusable. */
-export function parseToolArgs(argsJson: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(argsJson);
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Status → icon/color in ONE place (ToolCallView renders it directly). */
 export const STATUS_STYLE: Record<
   'pending' | 'running' | 'done' | 'error',
@@ -119,27 +104,6 @@ export function toolVerb(name: string): string {
     .join(' ');
 }
 
-/** Secret-shaped values are never echoed into a summary row (ZCode [redacted]). */
-const SECRET_VALUE_RE =
-  /(sk-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{10,}|github_pat_[A-Za-z0-9_]{10,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{12,})/;
-
-/** Tidy one argument value: redact secrets, bracket long payloads. */
-export function tidyValue(v: string): string {
-  if (SECRET_VALUE_RE.test(v)) return '[redacted]';
-  if (v.length > 60) return `[${v.length} chars]`;
-  return v;
-}
-
-/** Sub-second shows ms, else one-decimal seconds (123ms / 1.2s). */
-export function formatDurationMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-}
-
-/** Pretty-print tool arguments for the expanded view (fallback: raw). */
-export function formatArgs(argsJson: string, parsed: Record<string, unknown> | null): string {
-  return parsed === null ? argsJson : JSON.stringify(parsed, null, 2);
-}
-
 /** Cap a display string at SUMMARY_CAP TERMINAL COLUMNS (shared with permission-display). */
 export function cap(s: string): string {
   return truncateToWidth(s, SUMMARY_CAP, '...');
@@ -148,15 +112,6 @@ export function cap(s: string): string {
 export interface FoldedLines {
   text: string;
   hidden: number;
-}
-
-/** Fold text beyond `max` lines, appending a pi-style hidden count. */
-export function foldLines(text: string, max: number): FoldedLines {
-  const lines = text.split('\n');
-  if (lines.length <= max) return { text, hidden: 0 };
-  const shown = lines.slice(0, max).join('\n');
-  const hidden = lines.length - max;
-  return { text: shown + `\n... (${hidden} more lines)`, hidden };
 }
 
 /** One rendered row of a message's tool-call list (tui-redesign 05). */

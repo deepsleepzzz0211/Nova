@@ -2,7 +2,8 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { ToolCall } from '../../llm/types.js';
 import type { ToolDisplay } from '../../tools/types.js';
 import { SessionAlwaysRules, dangerReason, type PermissionDecision } from '../permission-display.js';
-import { parseToolArgs, toolVerb } from '../tool-summary.js';
+import { parseToolArgs } from '../tool-format.js';
+import { toolVerb } from '../tool-summary.js';
 import { modeGate, toolClassOf, type ApprovalModeId } from '../approval-mode.js';
 import type { DisplayMessage, DisplayToolCall } from '../display-types.js';
 

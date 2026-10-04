@@ -4,10 +4,6 @@
     {
       "id": "maxPublicSurface:tui/editor-state.ts",
       "expires": "2026-12-31"
-    },
-    {
-      "id": "maxPublicSurface:tui/tool-summary.ts",
-      "expires": "2026-12-31"
     }
   ]
 }
