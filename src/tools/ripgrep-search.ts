@@ -1,14 +1,19 @@
 /**
- * Pure core of the ripgrep-backed search tools (search-tools ticket 01/02):
- * argv construction, output parsing for the three render modes, and
- * pagination. Kept free of engine I/O so the contract stays unit-testable;
- * the WASM execution seam lives in ripgrep-worker.ts. Only the two display
- * helpers touch the filesystem (mtime sort, relativized paths).
+ * Core of the ripgrep-backed search tools (search-tools ticket 01/02;
+ * arch2 ticket B1 deepening): the two facades runGrepSearch/runGlobListing
+ * own the whole orchestration - argv construction, the engine run with its
+ * error mapping, output parsing, rendering, and pagination. grep.ts/glob.ts
+ * decode model parameters (via tools/args.ts) and call ONE function; the old
+ * shape had each tool re-assemble nine helpers, and the test suite imported
+ * eight internals - the test surface WAS the wrong module shape. The engine
+ * I/O seam (RipgrepRun) is injected, so everything here stays unit-testable.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { toSlashes } from '../shared/paths.js';
+import { errorMessage } from '../shared/errors.js';
+import type { ToolResult } from './types.js';
 
 /** Result of one raw ripgrep invocation. */
 export interface RipgrepResult {
@@ -49,11 +54,69 @@ export interface SearchRequest {
 /** Default visible cap; 0 means unlimited. Mirrors the industry head_limit norm. */
 export const DEFAULT_HEAD_LIMIT = 250;
 
-// Re-export the shared path helper so search callers keep a single import point.
-export { toSlashes };
+/** Execution environment a facade drives one search through. */
+export interface SearchEnv {
+  run: RipgrepRun;
+  workingDirectory: string;
+  signal: AbortSignal;
+  timeoutMs: number;
+  /** User-facing prefix when the runner throws, e.g. "grep failed". */
+  failurePrefix: string;
+  /** Pagination: visible cap (0 = unlimited; default DEFAULT_HEAD_LIMIT). */
+  headLimit?: number;
+  /** Pagination: items to skip before limiting. */
+  offset?: number;
+}
+
+/** grep: run one SearchRequest end to end and render for its mode. */
+export async function runGrepSearch(
+  req: SearchRequest,
+  env: SearchEnv,
+  content: { showLineNumbers: boolean } = { showLineNumbers: true },
+): Promise<ToolResult> {
+  const result = await execute(buildGrepArgs(req), env);
+  if ('isError' in result) return result;
+  if (req.outputMode === 'files') {
+    // Engine traversal order, not mtime: grep files-mode answers "where does X
+    // live", and stat-ing the full match set for an ordering nobody asked for
+    // is exactly the loop-stall this batch avoids (search-tools review).
+    return { content: renderFileList(parseFilesList(result.stdout), env, { sortByMtime: false }) };
+  }
+  if (req.outputMode === 'count') {
+    return { content: renderCount(result.stdout, env) };
+  }
+  return { content: renderContent(result.stdout, env, content.showLineNumbers, req.onlyMatching === true) };
+}
+
+/** glob: filename listing for a pattern, newest-modified first. */
+export async function runGlobListing(
+  pattern: string,
+  searchPath: string,
+  env: SearchEnv,
+): Promise<ToolResult> {
+  const result = await execute(buildGlobArgs(pattern, searchPath), env);
+  if ('isError' in result) return result;
+  return { content: renderFileList(parseFilesList(result.stdout), env, { sortByMtime: true }) };
+}
+
+/** Run + the two shared failure mappings (throw, engine usage error code 2). */
+async function execute(
+  args: string[],
+  env: SearchEnv,
+): Promise<RipgrepResult | { content: string; isError: true }> {
+  try {
+    const result = await env.run(args, { signal: env.signal, timeoutMs: env.timeoutMs });
+    if (result.code === 2) {
+      return { content: `ripgrep error: ${firstErrorLine(result.stderr)}`, isError: true };
+    }
+    return result;
+  } catch (err) {
+    return { content: `${env.failurePrefix}: ${errorMessage(err)}`, isError: true };
+  }
+}
 
 /** Build the ripgrep argv for one search request. */
-export function buildGrepArgs(req: SearchRequest): string[] {
+function buildGrepArgs(req: SearchRequest): string[] {
   const args: string[] = ['--no-config'];
   if (req.outputMode === 'files') {
     args.push('-l', '--null');
@@ -82,7 +145,7 @@ export function buildGrepArgs(req: SearchRequest): string[] {
 }
 
 /** Parse `-l --null` output (NUL-separated absolute paths). */
-export function parseFilesList(stdout: string): string[] {
+function parseFilesList(stdout: string): string[] {
   if (!stdout) return [];
   return stdout.split('\u0000').filter((p) => p.length > 0);
 }
@@ -96,7 +159,7 @@ export function parseFilesList(stdout: string): string[] {
  * Backslashes (a Windows model habit) normalize to slashes first; a bare
  * filename glob stays a basename pattern, which rg matches at any depth.
  */
-export function normalizeGlobPattern(pattern: string): string {
+function normalizeGlobPattern(pattern: string): string {
   const slashed = toSlashes(pattern.trim());
   if (!slashed.includes('/')) return slashed;
   if (slashed.startsWith('/') || slashed.startsWith('**/')) return slashed;
@@ -104,7 +167,7 @@ export function normalizeGlobPattern(pattern: string): string {
 }
 
 /** Build the ripgrep argv for a filename-glob listing (`--files --glob …`). */
-export function buildGlobArgs(pattern: string, searchPath: string): string[] {
+function buildGlobArgs(pattern: string, searchPath: string): string[] {
   const args: string[] = ['--no-config', '--files', '--null'];
   if (pattern) args.push('--glob', normalizeGlobPattern(pattern));
   args.push('--', searchPath);
@@ -112,14 +175,14 @@ export function buildGlobArgs(pattern: string, searchPath: string): string[] {
 }
 
 /** Display path: relative to the working directory when possible, forward slashes. */
-export function relativize(filePath: string, workingDirectory: string): string {
+function relativize(filePath: string, workingDirectory: string): string {
   const rel = path.relative(workingDirectory, filePath);
   if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return toSlashes(rel);
   return toSlashes(filePath);
 }
 
 /** Newest-modified first: models overwhelmingly care about recent files. */
-export function sortPathsByMtime(absPaths: string[]): string[] {
+function sortPathsByMtime(absPaths: string[]): string[] {
   const mtimeOf = (p: string): number => {
     try {
       return fs.statSync(p).mtimeMs;
@@ -135,26 +198,24 @@ export function sortPathsByMtime(absPaths: string[]): string[] {
  * pass per matched path at most — for an mtime-sorted caller the set is file
  * paths (cheap), never file contents.
  */
-export function renderFileList(
+function renderFileList(
   absPaths: string[],
-  workingDirectory: string,
-  headLimit: number | undefined,
-  offset: number | undefined,
+  env: SearchEnv,
   opts: { sortByMtime: boolean },
 ): string {
   if (absPaths.length === 0) return 'No files found';
   const ordered = opts.sortByMtime ? sortPathsByMtime(absPaths) : absPaths;
   const page = paginate(
-    ordered.map((p) => relativize(p, workingDirectory)),
-    headLimit,
-    offset,
+    ordered.map((f) => relativize(f, env.workingDirectory)),
+    env.headLimit,
+    env.offset,
   );
   const header = `Found ${ordered.length} ${ordered.length === 1 ? 'file' : 'files'}`;
   return `${header}\n${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}`;
 }
 
 /** Parse `-c --null` output (`path\0count` per line). */
-export function parseCountList(stdout: string): Array<{ path: string; count: number }> {
+function parseCountList(stdout: string): Array<{ path: string; count: number }> {
   if (!stdout) return [];
   const out: Array<{ path: string; count: number }> = [];
   for (const line of stdout.split('\n')) {
@@ -168,7 +229,7 @@ export function parseCountList(stdout: string): Array<{ path: string; count: num
 }
 
 /** One rendered line from `--json` output. */
-export interface ContentEvent {
+interface ContentEvent {
   path: string;
   lineNumber?: number;
   text: string;
@@ -178,7 +239,7 @@ export interface ContentEvent {
 }
 
 /** Parse `--json` (JSON Lines) output into match/context events. */
-export function parseContentEvents(stdout: string): ContentEvent[] {
+function parseContentEvents(stdout: string): ContentEvent[] {
   const events: ContentEvent[] = [];
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue;
@@ -203,7 +264,7 @@ export function parseContentEvents(stdout: string): ContentEvent[] {
 }
 
 /** Page a rendered item list: offset first, then head limit (0 = unlimited). */
-export function paginate<T>(
+function paginate<T>(
   items: T[],
   headLimit?: number,
   offset?: number,
@@ -221,30 +282,52 @@ export function paginate<T>(
 }
 
 /** Clip one output line so a minified file cannot flood the context. */
-export function renderClip(text: string, maxChars = 500): string {
+function renderClip(text: string, maxChars = 500): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}…`;
 }
 
-/** Resolve a model-provided search path against the working directory (abs, slashes). */
-export function resolveSearchPath(raw: unknown, workingDirectory: string): string {
-  const target = typeof raw === 'string' && raw.length > 0 ? raw : '.';
-  return toSlashes(path.resolve(workingDirectory, target));
+/** Render `-c` counts: per-file lines plus a total-occurrences summary. */
+function renderCount(stdout: string, env: SearchEnv): string {
+  const rows = parseCountList(stdout);
+  if (rows.length === 0) return 'No matches found';
+  const page = paginate(rows, env.headLimit, env.offset);
+  const lines = page.items.map((r) => `${relativize(r.path, env.workingDirectory)}:${r.count}`);
+  const totalMatches = rows.reduce((sum, r) => sum + r.count, 0);
+  const shown = page.items.length;
+  const shownNote = shown === rows.length ? '' : ` (listing ${shown})`;
+  const summary = `Found ${totalMatches} total ${totalMatches === 1 ? 'occurrence' : 'occurrences'} across ${rows.length} ${rows.length === 1 ? 'file' : 'files'}${shownNote}.`;
+  return `${lines.join('\n')}\n\n${summary}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}`;
 }
 
-/** Number parameter with a finite-value guard (model sends junk sometimes). */
-export function numParam(params: Record<string, unknown>, key: string): number | undefined {
-  const v = params[key];
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+/** Render `--json` match/context lines with optional line numbers. */
+function renderContent(
+  stdout: string,
+  env: SearchEnv,
+  showLineNumbers: boolean,
+  onlyMatching: boolean,
+): string {
+  const events = parseContentEvents(stdout);
+  if (events.length === 0) return 'No matches found';
+  const rendered = events.map((e) => {
+    const file = relativize(e.path, env.workingDirectory);
+    const body = onlyMatching && e.matches.length > 0 ? e.matches.join(' ') : renderClip(e.text);
+    const sep = e.isMatch ? ':' : '-';
+    if (showLineNumbers && e.lineNumber !== undefined) return `${file}${sep}${e.lineNumber}${sep}${body}`;
+    return `${file}${sep}${body}`;
+  });
+  const page = paginate(rendered, env.headLimit, env.offset);
+  return `${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}`;
 }
+
 
 /** First line of an engine stderr as the user-facing error. */
-export function firstErrorLine(stderr: string): string {
+function firstErrorLine(stderr: string): string {
   return stderr.trim().split('\n')[0] ?? 'unknown error';
 }
 
 /** Pagination echo suffix (Claude-style), or '' when nothing was applied. */
-export function formatPaginationNote(appliedLimit?: number, appliedOffset?: number): string {
+function formatPaginationNote(appliedLimit?: number, appliedOffset?: number): string {
   const parts: string[] = [];
   if (appliedLimit !== undefined) parts.push(`limit: ${appliedLimit}`);
   if (appliedOffset !== undefined) parts.push(`offset: ${appliedOffset}`);
