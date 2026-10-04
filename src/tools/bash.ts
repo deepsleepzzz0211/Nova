@@ -1,6 +1,6 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
-import { createShellLauncher, identityWrap, type ShellLauncher } from './shell-launcher.js';
+import { createShellLauncher, unsandboxed, type ShellLauncher } from './shell-launcher.js';
 import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
 
@@ -28,13 +28,14 @@ export function createBashTool(deps: {
   sessions?: ShellSessionRegistry;
   /**
    * The single spawn seam (arch ticket 02): run/start apply the tier-2 OS
-   * wrap internally — this tool has no wrap knob to forget. Default is an
-   * unwrapping launcher (identity wrap) for tests and os_level=off runs.
+   * wrap and degrade-notice draining internally — this tool has no wrap
+   * knob to forget. Default is an unsandboxed launcher (tests and
+   * os_level=off runs).
    */
   launcher?: ShellLauncher;
 } = {}): Tool {
   const resolvePlan = deps.resolvePlan ?? resolveShellFromProcess;
-  const launcher = deps.launcher ?? createShellLauncher({ wrap: identityWrap });
+  const launcher = deps.launcher ?? createShellLauncher({ sandbox: unsandboxed });
   return {
     name: 'bash',
     display: { kind: 'command' },

@@ -1,6 +1,6 @@
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { defaultShellProbe, type ShellProbe } from './shell-routing.js';
-import { createShellLauncher, identityWrap, type ShellLauncher } from './shell-launcher.js';
+import { createShellLauncher, unsandboxed, type ShellLauncher } from './shell-launcher.js';
 
 /**
  * powershell — the Windows-native command channel (windows-shell ticket 03),
@@ -58,12 +58,13 @@ export function createPowerShellTool(deps: {
   probe?: ShellProbe;
   /**
    * The single spawn seam (arch ticket 02): run applies the tier-2 OS wrap
-   * internally; no wrap knob exists here to forget. Default = identity wrap.
+   * and degrade-notice draining internally; no wrap knob exists here to
+   * forget. Default = unsandboxed launcher.
    */
   launcher?: ShellLauncher;
 } = {}): Tool {
   const probe = deps.probe ?? defaultShellProbe;
-  const launcher = deps.launcher ?? createShellLauncher({ wrap: identityWrap });
+  const launcher = deps.launcher ?? createShellLauncher({ sandbox: unsandboxed });
   return {
     name: 'powershell',
     display: { kind: 'command' },
