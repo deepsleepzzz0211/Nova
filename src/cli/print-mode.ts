@@ -6,13 +6,11 @@
  * possible). Used by the E2E suite and scripts.
  */
 import { AgentLoop } from '../agent/loop.js';
-import { buildLoopBase } from '../agent/loop-deps.js';
 import { createJsonlSink } from './jsonl-stream.js';
 import type { AppConfig } from '../config/schema.js';
 import type { ResolvedModel } from '../llm/catalog.js';
 import type { LLMProvider } from '../llm/provider.js';
-import type { MCPManager } from '../mcp/manager.js';
-import type { ToolRuntime } from './tools-runtime.js';
+import { loopBaseFromRuntime, type ToolRuntime } from './tools-runtime.js';
 import type { SessionStartup } from './sessions.js';
 
 export async function runPrintMode(opts: {
@@ -23,11 +21,10 @@ export async function runPrintMode(opts: {
   resolution: ResolvedModel;
   runtime: ToolRuntime;
   session: SessionStartup;
-  mcpManager: MCPManager;
   /** stdout format (ticket 08): 'text' keeps today's byte-identical output. */
   outputFormat?: 'text' | 'jsonl';
 }): Promise<never> {
-  const { printPrompt, autoApprove, config, llm, resolution, runtime, session, mcpManager } = opts;
+  const { printPrompt, autoApprove, config, llm, resolution, runtime, session } = opts;
   const sink =
     opts.outputFormat === 'jsonl'
       ? createJsonlSink((line) => process.stdout.write(line + '\n'))
@@ -36,17 +33,14 @@ export async function runPrintMode(opts: {
   // tool_call ids -> names so tool_result events can carry the name.
   const callNames = new Map<string, string>();
   let sawError = false;
-  // Shared assembly (arch ticket 04): context options, checkpoints keyed on
-  // this session, prompt parts, scalar knobs — one builder for TUI + print.
-  const base = buildLoopBase({
+  // Shared assembly (arch ticket 04; arch2 ticket A2): context options,
+  // checkpoints, prompt parts - one mapper for TUI + print over the runtime
+  // bag, so the six-field mapping lives in exactly one place.
+  const base = loopBaseFromRuntime({
     config,
     resolution,
     sessionId: session.sessionStore.sessionId,
-    environment: runtime.environment,
-    projectInstructions: runtime.projectInstructions,
-    memory: runtime.memory,
-    customPrompt: config.agent.systemPrompt || undefined,
-    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    runtime,
   });
   const loop = new AgentLoop({
     llm,
@@ -110,13 +104,13 @@ export async function runPrintMode(opts: {
     const result = await loop.processUserInput(printPrompt);
     if (sink !== null) {
       sink.result({ text: result.text, rounds: result.rounds, exitCode: sawError ? 1 : 0 });
-      await mcpManager.stopAll();
+      await runtime.dispose();
       // jsonl pays the old NOTE debt: sawError really exits non-zero here.
       // The text branch below keeps its historical exit-0 behavior.
       process.exit(sawError ? 1 : 0);
     }
     if (result.text.length > 0 && !result.text.endsWith('\n')) process.stdout.write('\n');
-    await mcpManager.stopAll();
+    await runtime.dispose();
     // NOTE: byte-identical to the pre-split index.tsx — the original also
     // exits 0 here; the sawError flag above was collected but never used
     // for the exit code. Changing that is a behavior fix, not a refactor.
@@ -125,7 +119,7 @@ export async function runPrintMode(opts: {
     const msg = err instanceof Error ? err.message : String(err);
     if (sink !== null) sink.error(msg);
     else process.stderr.write(`[error] ${msg}\n`);
-    await mcpManager.stopAll();
+    await runtime.dispose();
     process.exit(1);
   }
 }

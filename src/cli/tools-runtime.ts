@@ -44,9 +44,11 @@ import { createShellLauncher, type ShellLauncher } from '../tools/shell-launcher
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
+import type { ResolvedModel } from '../llm/catalog.js';
 import type { ResolveSpecResult } from './model-wiring.js';
 import { buildPipelineHooks } from '../hooks/config-hooks.js';
 import { spawnHook } from './hook-spawner.js';
+import { buildLoopBase, type LoopBase } from '../agent/loop-deps.js';
 
 export interface ToolRuntime {
   toolRegistry: ToolRegistry;
@@ -55,11 +57,47 @@ export interface ToolRuntime {
   todoState: TodoState;
   subagentSink: { notify?: (message: string) => void };
   subagentLiveSink: { set?: (line: string | null) => void };
-  mcpManager: MCPManager;
+  /**
+   * arch2 ticket A2: shutdown is the runtime's — callers used to keep three
+   * copies of "remember to stopAll the MCP manager". Idempotent by contract
+   * of the underlying manager.
+   */
+  dispose(): Promise<void>;
   mcpConnectionCount: number;
   environment: ReturnType<typeof gatherEnvironment>;
   projectInstructions: ReturnType<typeof loadProjectInstructions>;
   memory: string | undefined;
+}
+
+/** The prompt-facts slice of the runtime bag that LoopBase assembly reads. */
+export interface RuntimePromptFacts {
+  environment?: ReturnType<typeof gatherEnvironment>;
+  projectInstructions?: ReturnType<typeof loadProjectInstructions>;
+  memory?: string;
+}
+
+/**
+ * arch2 ticket A2: ONE owner of the runtime-bag -> buildLoopBase field
+ * mapping. index.tsx and print-mode.ts repeated these six lines verbatim,
+ * so a new prompt part was shotgun surgery across both consumers.
+ */
+export function loopBaseFromRuntime(args: {
+  config: AppConfig;
+  resolution: ResolvedModel;
+  sessionId: string;
+  runtime: RuntimePromptFacts;
+}): LoopBase {
+  const { config, resolution, sessionId, runtime } = args;
+  return buildLoopBase({
+    config,
+    resolution,
+    sessionId,
+    environment: runtime.environment,
+    projectInstructions: runtime.projectInstructions,
+    memory: runtime.memory,
+    customPrompt: config.agent.systemPrompt || undefined,
+    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+  });
 }
 
 /**
@@ -287,7 +325,7 @@ export async function buildToolRuntime(opts: {
     todoState,
     subagentSink,
     subagentLiveSink,
-    mcpManager,
+    dispose: () => mcpManager.stopAll(),
     mcpConnectionCount,
     environment,
     projectInstructions,
