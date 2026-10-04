@@ -1,39 +1,33 @@
 import * as fs from 'fs';
-import type { ThinkingLevel, ThinkingLevelMap } from './types.js';
+import type { ThinkingLevelMap } from './types.js';
+import type {
+  ApiId,
+  CompatFlags,
+  ModelCatalog,
+  ModelCatalogEntry,
+  ModelCost,
+  ModelOverride,
+  NormalizedCompat,
+  ProviderCatalogEntry,
+} from './catalog-model.js';
 import { resolveSecretValue } from './secrets.js';
 import { PiaiEngine, NOVA_BUILTIN_PROTOCOLS, type UserProviderSpec } from './piai-engine.js';
 
+// arch2 ticket B2: the catalog DATA model lives in catalog-model.ts (a cohesive
+// vocabulary for the models.json shape + wire/compat types). These re-exports
+// keep `llm/catalog` the single import point its consumers already use, so the
+// resolution/IO module below no longer defines the data shapes itself.
 export type { ThinkingLevel, ThinkingLevelMap } from './types.js';
-
-/** Wire-protocol identifiers (pi-style: API adapters are decoupled from vendors). */
-export type ApiId = 'openai-completions' | 'anthropic-messages' | 'ollama';
-
-/**
- * Compatibility flags for third-party endpoints that imitate a wire protocol
- * but deviate in details. Parsed from models.json and carried on the resolved
- * model; the pi-ai engine owns the actual wire behavior.
- */
-export interface CompatFlags {
-  supportsDeveloperRole?: boolean;
-  streamUsage?: boolean;
-  /** Deprecated alias of streamUsage. */
-  promptCache?: boolean;
-}
-
-/** Normalized compat flags with defaults applied. */
-export interface NormalizedCompat {
-  supportsDeveloperRole: boolean;
-  streamUsage: boolean;
-}
-
-function normalizeCompat(flags?: CompatFlags): NormalizedCompat {
-  return {
-    supportsDeveloperRole: flags?.supportsDeveloperRole === true,
-    streamUsage:
-      flags?.streamUsage === true ||
-      (flags?.streamUsage === undefined && flags?.promptCache === true),
-  };
-}
+export type {
+  ApiId,
+  CompatFlags,
+  ModelCost,
+  ModelCatalogEntry,
+  ModelOverride,
+  ProviderCatalogEntry,
+  ModelCatalog,
+  NormalizedCompat,
+} from './catalog-model.js';
 
 /**
  * Data-driven model catalog (pi-style): providers are data, wire protocols
@@ -43,7 +37,6 @@ function normalizeCompat(flags?: CompatFlags): NormalizedCompat {
  * so ids/context/cost are no longer hand-written.
  */
 
-/** Built-in provider → default wire API. */
 /** Built-in provider defaults — ONE table (ticket 21). */
 export const BUILTIN_PROVIDERS: Record<
   string,
@@ -67,62 +60,21 @@ export const BUILTIN_PROVIDERS: Record<
   },
 };
 
-/** Built-in provider → default wire API (kept for callers/tests). */
-export const BUILTIN_PROVIDER_API: Record<string, ApiId> = Object.fromEntries(
+/**
+ * Built-in provider -> default wire API. Internal: consulted by resolveModel.
+ * The public default table (BUILTIN_PROVIDERS) is the source of truth.
+ */
+const BUILTIN_PROVIDER_API: Record<string, ApiId> = Object.fromEntries(
   Object.entries(BUILTIN_PROVIDERS).map(([name, entry]) => [name, entry.api]),
 );
 
-/** Model pricing, USD per 1M tokens (optional; drives the footer cost). */
-export interface ModelCost {
-  input: number;
-  output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-}
-
-export interface ModelCatalogEntry {
-  id: string;
-  name?: string;
-  /** Pricing for the session-cost estimate (absent = cost hidden). */
-  cost?: ModelCost;
-  /**
-   * Wire-API record for the Nova view (resolution + /model display).
-   * The actual protocol on the wire is bound per PROVIDER (pi-ai attaches
-   * one adapter implementation per provider); a model whose api differs
-   * from its provider's is displayed as overridden but still streams on
-   * the provider's adapter. Full per-model routing would need pi-ai's
-   * api-map providers — separate ticket if it ever bites.
-   */
-  api?: ApiId;
-  contextWindow?: number;
-  maxTokens?: number;
-  reasoning?: boolean;
-  thinkingLevelMap?: ThinkingLevelMap;
-  compat?: CompatFlags;
-}
-
-/**
- * Per-model patch applied over built-in or declared models
- * (pi-style modelOverrides). Unknown ids are ignored.
- */
-export type ModelOverride = Partial<Omit<ModelCatalogEntry, 'id' | 'api'>>;
-
-/** A provider entry as declared in models.json. */
-export interface ProviderCatalogEntry {
-  /** Optional display name (pi-ai provider display). */
-  name?: string;
-  baseUrl?: string;
-  api?: ApiId;
-  apiKey?: string;
-  compat?: CompatFlags;
-  models?: ModelCatalogEntry[];
-  /** Per-model patches over this provider's models (built-ins included). */
-  modelOverrides?: Record<string, ModelOverride>;
-}
-
-/** The full catalog: built-in defaults merged with user files. */
-export interface ModelCatalog {
-  providers: Record<string, ProviderCatalogEntry>;
+function normalizeCompat(flags?: CompatFlags): NormalizedCompat {
+  return {
+    supportsDeveloperRole: flags?.supportsDeveloperRole === true,
+    streamUsage:
+      flags?.streamUsage === true ||
+      (flags?.streamUsage === undefined && flags?.promptCache === true),
+  };
 }
 
 /** Fully resolved model info handed to the provider layer (PiProvider). */
@@ -162,26 +114,23 @@ export interface ModelSelection {
   apiKey?: string;
 }
 
+/** Provider default context window (built-in table, else 128k). */
 export function defaultContextWindow(provider: string): number {
   return BUILTIN_PROVIDERS[provider]?.contextWindow ?? 128_000;
 }
 
 /**
- * Load the model catalog: built-in defaults merged with the given user
- * files (later files win). Merge semantics (pi-style):
- *  - provider-level fields (baseUrl/api/apiKey/compat) override built-ins
- *  - `models` arrays are upserted by id over the built-in list
- * Malformed files are ignored. Ticket 01: built-in provider model lists
- * come from the pi-ai engine's Models collection, and user providers are
- * injected into the same collection.
+ * Load the model catalog: built-in defaults merged with the given user files
+ * (later files win). The public convenience over loadModelCatalogWithEngine for
+ * callers that only need the Nova view (not the engine). Merge semantics are
+ * documented there.
  */
 export function loadModelCatalog(userPaths: string[]): ModelCatalog {
-  const engine = new PiaiEngine();
-  return loadModelCatalogWithEngine(engine, userPaths).catalog;
+  return loadModelCatalogWithEngine(new PiaiEngine(), userPaths).catalog;
 }
 
 /**
- * Internal: build the catalog against a shared pi-ai engine. Returns both
+ * Build the catalog against a shared pi-ai engine. Returns both
  * the catalog (Nova view) and the engine (pi-ai collection) so callers that
  * need the runtime provider set don't recreate it.
  */

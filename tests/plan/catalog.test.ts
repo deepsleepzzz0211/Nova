@@ -5,7 +5,7 @@ import * as os from 'os';
 import {
   loadModelCatalog,
   resolveModel,
-  BUILTIN_PROVIDER_API,
+  BUILTIN_PROVIDERS,
   type ModelCatalog,
 } from '../../src/llm/catalog.js';
 import { PiaiEngine } from '../../src/llm/piai-engine.js';
@@ -39,9 +39,11 @@ describe('ModelCatalog built-in defaults', () => {
   });
 
   it('exposes the api id for every built-in provider', () => {
-    expect(BUILTIN_PROVIDER_API.openai).toBe('openai-completions');
-    expect(BUILTIN_PROVIDER_API.anthropic).toBe('anthropic-messages');
-    expect(BUILTIN_PROVIDER_API.ollama).toBe('ollama');
+    // The derived map is gone (was a duplicate of the table); read the api
+    // straight from the one source of truth, BUILTIN_PROVIDERS.
+    expect(BUILTIN_PROVIDERS.openai!.api).toBe('openai-completions');
+    expect(BUILTIN_PROVIDERS.anthropic!.api).toBe('anthropic-messages');
+    expect(BUILTIN_PROVIDERS.ollama!.api).toBe('ollama');
   });
 });
 

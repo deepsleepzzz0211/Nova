@@ -2,10 +2,6 @@
   "version": 2,
   "violations": [
     {
-      "id": "maxPublicSurface:llm/catalog.ts",
-      "expires": "2026-12-31"
-    },
-    {
       "id": "maxPublicSurface:tui/editor-state.ts",
       "expires": "2026-12-31"
     },
