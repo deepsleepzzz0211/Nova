@@ -1,4 +1,4 @@
-import { DANGEROUS_PATTERNS } from '../permission/dangerous.js';
+import { matchDangerousCommand } from '../permission/dangerous.js';
 import { cap, primaryArg, type DisplayKindResolver } from './tool-summary.js';
 
 /**
@@ -45,10 +45,8 @@ export function dangerReason(
   if (kindOf?.(name)?.kind !== 'command' || args === null) return null;
   const command = typeof args.command === 'string' ? args.command : '';
   if (!command) return null;
-  for (const { pattern, reason } of DANGEROUS_PATTERNS) {
-    if (pattern.test(command)) return reason;
-  }
-  return null;
+  // Same walker the policy consults (arch2 C): UI verdict == policy verdict.
+  return matchDangerousCommand(command);
 }
 
 /**

@@ -20,3 +20,16 @@ export const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\btaskkill\b[^\n]*\/[Ff]\b[^\n]*\/[Tt]\b|\btaskkill\b[^\n]*\/[Tt]\b[^\n]*\/[Ff]\b/, reason: 'Forced tree process kill' },
   { pattern: /\bClear-RecycleBin\b/i, reason: 'Emptying the Recycle Bin' },
 ];
+
+/**
+ * arch2 ticket C: the ONE owner of the pattern walk. policy.ts and
+ * permission-display.ts each looped DANGEROUS_PATTERNS themselves and had
+ * to stay in sync by discipline; now they call this. Returns the reason of
+ * the first match, or null.
+ */
+export function matchDangerousCommand(command: string): string | null {
+  for (const { pattern, reason } of DANGEROUS_PATTERNS) {
+    if (pattern.test(command)) return reason;
+  }
+  return null;
+}

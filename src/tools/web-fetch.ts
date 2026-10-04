@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
@@ -137,7 +138,7 @@ export function createWebFetchTool(): Tool {
 
         return { content: parts.join('\n\n') };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         if (message.includes('abort')) {
           return { content: `Fetch timed out after ${TIMEOUT_MS / 1000}s.`, isError: true };
         }

@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 import type { JSONSchema } from '../llm/types.js';
 import {
@@ -130,7 +131,7 @@ export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
       try {
         result = await run(args, { signal: context.abortSignal, timeoutMs });
       } catch (err) {
-        return { content: `grep failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { content: `grep failed: ${errorMessage(err)}`, isError: true };
       }
       if (result.code === 2) {
         return { content: `ripgrep error: ${firstErrorLine(result.stderr)}`, isError: true };

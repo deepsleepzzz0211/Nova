@@ -1,4 +1,10 @@
-import type { JSONSchema } from '../llm/types.js';
+/**
+ * JSON Schema object used for tool parameters. arch2 ticket C moved the
+ * definition to the shared layer (it is pure tool vocabulary): llm re-exports
+ * it, so the old `shared -> llm/types` edge disappears and llm modules can
+ * import shared helpers without closing a cycle.
+ */
+export type JSONSchema = Record<string, unknown>;
 
 /**
  * Cross-module tool contracts (audit-fixes ticket 01).

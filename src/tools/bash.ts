@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { ApprovalNarrow, Tool, ToolContext, ToolResult } from './types.js';
 import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from './shell-routing.js';
 import { createShellLauncher, unsandboxed, type ShellLauncher } from './shell-launcher.js';
@@ -74,7 +75,7 @@ export function createBashTool(deps: {
       try {
         plan = resolvePlan();
       } catch (err) {
-        return { content: `Shell resolution failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { content: `Shell resolution failed: ${errorMessage(err)}`, isError: true };
       }
       announceFallbackOnce(plan);
       const sessionName =

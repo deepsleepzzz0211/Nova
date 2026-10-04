@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 import type { JSONSchema } from '../llm/types.js';
 import {
@@ -64,7 +65,7 @@ export function createGlobTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
       try {
         result = await run(buildGlobArgs(pattern, searchPath), { signal: context.abortSignal, timeoutMs });
       } catch (err) {
-        return { content: `glob failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        return { content: `glob failed: ${errorMessage(err)}`, isError: true };
       }
       if (result.code === 2) {
         return { content: `ripgrep error: ${firstErrorLine(result.stderr)}`, isError: true };

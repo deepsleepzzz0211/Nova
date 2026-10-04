@@ -7,6 +7,7 @@
  * it, in the ORIGINAL startup order, so every side effect (file sweeps,
  * provider construction, MCP start) happens exactly where it used to.
  */
+import { errorMessage } from './shared/errors.js';
 import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
@@ -219,6 +220,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error('Fatal error:', err instanceof Error ? err.message : String(err));
+  console.error('Fatal error:', errorMessage(err));
   process.exit(1);
 });

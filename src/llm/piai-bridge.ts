@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import { Type } from '@earendil-works/pi-ai';
 import type {
   AssistantMessage,
@@ -60,7 +61,7 @@ function parseToolArguments(toolName: string, raw: string): Record<string, unkno
     }
     return parsed as Record<string, unknown>;
   } catch (err: unknown) {
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = errorMessage(err);
     throw new Error(`Invalid arguments JSON in tool call "${toolName}": ${detail}`);
   }
 }

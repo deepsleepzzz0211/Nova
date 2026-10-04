@@ -4,6 +4,7 @@
  * memory prompt inputs, the subagent spawner with its UI sinks, and MCP
  * startup. The composition root consumes the returned bag as-is.
  */
+import { errorMessage } from '../shared/errors.js';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -113,7 +114,7 @@ export function runPinSkills(projectDir: string, pinSkillsDir: string): never {
     console.log(`pinned ${lock.skills.length} skill file(s) under ${target} (source: ${lock.source})`);
     process.exit(0);
   } catch (err: unknown) {
-    console.error(`[skills-lock] ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[skills-lock] ${errorMessage(err)}`);
     process.exit(1);
   }
 }
@@ -126,7 +127,7 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
     facts = { shell: summary.shell, ...(summary.note !== undefined ? { shellNote: summary.note } : {}) };
   } catch (err) {
     facts = {
-      shell: `unresolved (${err instanceof Error ? err.message : String(err)})`,
+      shell: `unresolved (${errorMessage(err)})`,
       shellNote: 'The bash tool refuses to run until this is fixed — point NOVA_SHELL at a valid interpreter or unset it.',
     };
   }

@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { SpawnInvocation } from './shell-routing.js';
@@ -157,7 +158,7 @@ export class JobRegistry {
     } catch (err) {
       return {
         started: false,
-        reason: `Background spawn failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `Background spawn failed: ${errorMessage(err)}`,
       };
     }
     const started = this.start(command, handle);

@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { ToolCall } from '../llm/types.js';
 import type { ToolResult } from '../tools/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -50,7 +51,7 @@ export async function executeToolCall(deps: ToolExecDeps, call: ToolCall): Promi
     onToolResult(result, call.id);
     return result;
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     const result: ToolResult = { content: msg, isError: true };
     onToolResult(result, call.id);
     return result;

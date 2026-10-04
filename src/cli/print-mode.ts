@@ -7,6 +7,7 @@
  * exit policy, [context] formats) lives in cli/turn-router.ts - this file
  * only picks the output adapter and owns the process boundary (exit codes).
  */
+import { errorMessage } from '../shared/errors.js';
 import { AgentLoop } from '../agent/loop.js';
 import { createJsonlSink } from './jsonl-stream.js';
 import {
@@ -92,7 +93,7 @@ export async function runPrintMode(opts: {
     await runtime.dispose();
     process.exit(exitCode);
   } catch (err: unknown) {
-    const { exitCode } = router.fail(err instanceof Error ? err.message : String(err));
+    const { exitCode } = router.fail(errorMessage(err));
     await runtime.dispose();
     process.exit(exitCode);
   }

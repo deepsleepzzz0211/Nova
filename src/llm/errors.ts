@@ -26,8 +26,9 @@ const OVERFLOW_PATTERNS: readonly string[] = [
  * True when the error indicates the request exceeded the model's context
  * window (as opposed to auth failures, rate limits, network errors...).
  */
+import { errorMessage } from '../shared/errors.js';
 export function isContextOverflowError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   if (!message) return false;
   const lower = message.toLowerCase();
   return OVERFLOW_PATTERNS.some((p) => lower.includes(p));

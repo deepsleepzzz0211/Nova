@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import {
   ensureWrapper,
   grantRoots,
@@ -90,7 +91,7 @@ export function planOsSandbox(
     result = {
       platform: process.platform,
       wrapperAvailable: false,
-      reason: err instanceof Error ? err.message : String(err),
+      reason: errorMessage(err),
     };
   }
   if (result.wrapperAvailable) {
