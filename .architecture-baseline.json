@@ -1,9 +1,4 @@
 {
   "version": 2,
-  "violations": [
-    {
-      "id": "maxPublicSurface:tui/editor-state.ts",
-      "expires": "2026-12-31"
-    }
-  ]
+  "violations": []
 }

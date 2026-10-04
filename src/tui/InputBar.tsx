@@ -2,26 +2,12 @@ import React, { useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import {
   createEditorState,
-  insertText,
-  newline,
-  backspace,
-  deleteForward,
-  moveLeft,
-  moveRight,
-  moveUp,
-  moveDown,
-  deleteWordBack,
-  deleteToLineStart,
-  deleteToLineEnd,
-  historyPrev,
-  historyNext,
+  applyAction,
   submit,
-  clearEditor,
-  insertPaste,
-  replaceToken,
   cursorLine,
   cursorColumn,
   type EditorState,
+  type EditorAction,
 } from './editor-state.js';
 import { buildFileIndex } from './completions.js';
 import type { UserCommand } from '../commands/user-commands.js';
@@ -112,14 +98,18 @@ export function InputBar({
   const acceptCompletion = (): void => {
     const accepted = completionController.accept();
     if (accepted === null) return;
-    update((e) => replaceToken(e, accepted.tokenStart, accepted.end, accepted.insert));
+    dispatch({ kind: 'replaceToken', start: accepted.tokenStart, end: accepted.end, content: accepted.insert });
     completionController.close();
   };
 
-  const update = (fn: (e: EditorState) => EditorState): void => {
-    const next = fn(editorRef.current);
+  const setState = (next: EditorState): void => {
     editorRef.current = next;
     setEditor(next);
+  };
+
+  /** Route an editing intent through the reducer (single source of the rules). */
+  const dispatch = (action: EditorAction): void => {
+    setState(applyAction(editorRef.current, action));
   };
 
   useInput((inputChar, key) => {
@@ -143,7 +133,7 @@ export function InputBar({
     if (key.ctrl && inputChar === 'c') {
       // pi semantics: clear the editor first; exit when already empty.
       if (editorRef.current.text) {
-        update(clearEditor);
+        dispatch({ kind: 'clear' });
         return;
       }
       onExit?.();
@@ -152,15 +142,15 @@ export function InputBar({
 
     // Ctrl+W / Ctrl+U / Ctrl+K line editing
     if (key.ctrl && inputChar === 'w') {
-      update(deleteWordBack);
+      dispatch({ kind: 'deleteWordBack' });
       return;
     }
     if (key.ctrl && inputChar === 'u') {
-      update(deleteToLineStart);
+      dispatch({ kind: 'deleteToLineStart' });
       return;
     }
     if (key.ctrl && inputChar === 'k') {
-      update(deleteToLineEnd);
+      dispatch({ kind: 'deleteToLineEnd' });
       return;
     }
 
@@ -169,7 +159,7 @@ export function InputBar({
     if (key.return || inputChar === '\n') {
       const wantsNewline = key.shift || key.ctrl || inputChar === '\n';
       if (wantsNewline) {
-        update(newline);
+        dispatch({ kind: 'newline' });
       } else if (completionController.wouldChangeText(editorRef.current.text)) {
         // Enter accepts a completion only when it actually completes
         // something; typing an exact command name ("/model") must submit
@@ -177,7 +167,7 @@ export function InputBar({
         acceptCompletion();
       } else if (!isStreaming) {
         const r = submit(editorRef.current);
-        update(() => r.state);
+        setState(r.state);
         if (r.submitted !== null) onSubmit(r.submitted);
       }
       return;
@@ -188,7 +178,7 @@ export function InputBar({
         completionController.move(-1);
         return;
       }
-      update((e) => (cursorLine(e) === 0 ? historyPrev(e) : moveUp(e)));
+      dispatch(cursorLine(editorRef.current) === 0 ? { kind: 'historyPrev' } : { kind: 'up' });
       return;
     }
     if (key.downArrow) {
@@ -196,26 +186,25 @@ export function InputBar({
         completionController.move(1);
         return;
       }
-      update((e) => {
-        const lines = e.text.split('\n').length;
-        return cursorLine(e) === lines - 1 ? historyNext(e) : moveDown(e);
-      });
+      const e = editorRef.current;
+      const lines = e.text.split('\n').length;
+      dispatch(cursorLine(e) === lines - 1 ? { kind: 'historyNext' } : { kind: 'down' });
       return;
     }
     if (key.leftArrow) {
-      update(moveLeft);
+      dispatch({ kind: 'left' });
       return;
     }
     if (key.rightArrow) {
-      update(moveRight);
+      dispatch({ kind: 'right' });
       return;
     }
     if (key.backspace) {
-      update(backspace);
+      dispatch({ kind: 'backspace' });
       return;
     }
     if (key.delete) {
-      update(deleteForward);
+      dispatch({ kind: 'deleteForward' });
       return;
     }
     // Shift+Tab belongs to the approval-mode cycle (App), not to accept.
@@ -234,20 +223,20 @@ export function InputBar({
       // the prompt never leaves the editor (E2E finding).
       if (inputChar.length > 1 && inputChar.endsWith('\r') && !isStreaming) {
         const body = inputChar.slice(0, -1);
-        if (body !== '') update((e) => insertText(e, body));
+        if (body !== '') dispatch({ kind: 'insert', text: body });
         const r = submit(editorRef.current);
-        update(() => r.state);
+        setState(r.state);
         if (r.submitted !== null) onSubmit(r.submitted);
         completionController.close();
         return;
       }
       // Multi-char events with newlines are terminal pastes: route through
-      // insertPaste (folds large bodies into placeholders). Single-char
+      // the paste action (folds large bodies into placeholders). Single-char
       // events are normal typing.
       if (inputChar.length > 1 && inputChar.includes('\n')) {
-        update((e) => insertPaste(e, inputChar));
+        dispatch({ kind: 'paste', content: inputChar });
       } else {
-        update((e) => insertText(e, inputChar));
+        dispatch({ kind: 'insert', text: inputChar });
       }
       refreshCompletion();
     }
