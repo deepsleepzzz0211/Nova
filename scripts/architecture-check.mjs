@@ -236,6 +236,22 @@ function readBaseline(file) {
   }
 }
 
+/** Map a baseline entry (string or {id,expires}) to its id. */
+/**
+ * Merge a fresh violation list with the prior baseline so re-pinning never
+ * silently strips time-boxed exception metadata: an id that was recorded as
+ * `{id, expires}` and is STILL violating keeps its exception object; a newly
+ * violating id is added as a plain string; a repaid id is dropped.
+ * Exported for tests.
+ */
+export function mergeBaseline(current, prior) {
+  const priorById = new Map(prior.map((e) => [(typeof e === 'string' ? e : e.id), e]));
+  return [...current].sort().map((id) => {
+    const p = priorById.get(id);
+    return p && typeof p === 'object' ? p : id;
+  });
+}
+
 /** Baseline entry id: plain strings, or `{ id, expires }` exception objects. */
 export function baselineIds(entries) {
   return entries.map((e) => (typeof e === 'string' ? e : e.id));
@@ -319,10 +335,12 @@ export function selectNewViolations(current, baseline) {
   return current.filter((v) => !known.has(v));
 }
 
-function writeBaseline(file, violations) {
+function writeBaseline(file, violations, prior = []) {
+  const entries = mergeBaseline(violations, prior);
+  const versioned = entries.some((e) => typeof e === 'object') ? 2 : 1;
   fs.writeFileSync(
     file,
-    `${JSON.stringify({ version: 1, violations: [...violations].sort() }, null, 2)}\n`,
+    `${JSON.stringify({ version: versioned, violations: entries }, null, 2)}\n`,
     'utf-8',
   );
 }
@@ -359,7 +377,9 @@ function main() {
   const currentSet = new Set(current);
 
   if (opts.update) {
-    writeBaseline(baselinePath, current);
+    // Re-pin, but keep each still-violating id's exception object so the
+    // expires deadline survives a debt-repayment refresh.
+    writeBaseline(baselinePath, current, readBaseline(baselinePath));
     console.log(`architecture baseline written: ${current.length} violation(s) recorded.`);
     process.exit(0);
   }

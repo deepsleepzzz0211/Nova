@@ -70,6 +70,9 @@ describe('FileHistory', () => {
     expect(fs.readFileSync(p, 'utf-8')).toBe('V1');
   });
 
+  // Measured ~3.6s isolated on this machine (101 real snapshot cycles):
+  // within the 5s default only while the suite runs idle, and it crosses it
+  // under full-suite FS contention. Calibrated duration, assertions unchanged.
   it('caps the session at 100 snapshots, evicting the oldest', () => {
     const fh = new FileHistory({ historyDir: histDir, maxSnapshots: 100 });
     const paths: string[] = [];
@@ -91,7 +94,7 @@ describe('FileHistory', () => {
     // Snapshot payload files respect the cap too (no leak of content files).
     const dataFiles = fs.readdirSync(histDir).filter((n) => n !== 'index.json');
     expect(dataFiles.length).toBeLessThanOrEqual(100);
-  });
+  }, 30_000);
 
   it('detects external changes (content != what the tools last wrote) and skips by default', () => {
     const p = make('c.ts', 'ONE');

@@ -2,25 +2,31 @@ import { describe, it, expect } from 'vitest';
 import type { EditorState } from '../../src/tui/editor-state.js';
 import {
   createEditorState,
-  insertText,
-  newline,
-  backspace,
-  deleteForward,
-  moveLeft,
-  moveRight,
-  moveUp,
-  moveDown,
-  deleteWordBack,
-  deleteToLineStart,
-  deleteToLineEnd,
-  historyPrev,
-  historyNext,
+  applyAction,
   submit,
-  insertPaste,
-  clearEditor,
   cursorLine,
   cursorColumn,
 } from '../../src/tui/editor-state.js';
+
+// arch2 ticket B3: the individual editing ops are now internal; this drives
+// them through the reducer interface (applyAction). The local wrappers keep
+// the exact call shapes + assertions of the old white-box test, so coverage
+// is unchanged while the test crosses the SAME seam production uses.
+const insertText = (s: EditorState, t: string): EditorState => applyAction(s, { kind: 'insert', text: t });
+const newline = (s: EditorState): EditorState => applyAction(s, { kind: 'newline' });
+const backspace = (s: EditorState): EditorState => applyAction(s, { kind: 'backspace' });
+const deleteForward = (s: EditorState): EditorState => applyAction(s, { kind: 'deleteForward' });
+const moveLeft = (s: EditorState): EditorState => applyAction(s, { kind: 'left' });
+const moveRight = (s: EditorState): EditorState => applyAction(s, { kind: 'right' });
+const moveUp = (s: EditorState): EditorState => applyAction(s, { kind: 'up' });
+const moveDown = (s: EditorState): EditorState => applyAction(s, { kind: 'down' });
+const deleteWordBack = (s: EditorState): EditorState => applyAction(s, { kind: 'deleteWordBack' });
+const deleteToLineStart = (s: EditorState): EditorState => applyAction(s, { kind: 'deleteToLineStart' });
+const deleteToLineEnd = (s: EditorState): EditorState => applyAction(s, { kind: 'deleteToLineEnd' });
+const historyPrev = (s: EditorState): EditorState => applyAction(s, { kind: 'historyPrev' });
+const historyNext = (s: EditorState): EditorState => applyAction(s, { kind: 'historyNext' });
+const insertPaste = (s: EditorState, c: string): EditorState => applyAction(s, { kind: 'paste', content: c });
+const clearEditor = (s: EditorState): EditorState => applyAction(s, { kind: 'clear' });
 
 /** Local test helper: jump the cursor to an absolute index. */
 function seek(s: EditorState, index: number): EditorState {

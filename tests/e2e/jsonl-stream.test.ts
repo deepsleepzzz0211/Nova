@@ -170,7 +170,11 @@ describe('nova -p --output-format jsonl (built CLI, local SSE mock)', () => {
     expect(run.stdout).toBe('\n\nRECORDED-TEXT-OK\n');
   });
 
-  it('jsonl exits non-zero when the turn saw an [Error: token; text mode keeps exit 0', async () => {
+  // arch2 ticket A3 behavior fix (approved in the batch plan): a turn that
+  // streamed an [Error: token exits non-zero in BOTH output formats. The
+  // old pin locked the historical text-mode exit-0 defect; stdout bytes
+  // are unchanged.
+  it('jsonl and text both exit non-zero when the turn saw an [Error: token', async () => {
     const cwd = makeWorkspace('failure');
     const jsonl = await runNova(
       ['--model', 'mock/TEST', '--yes', '-p', 'fail', '--output-format', 'jsonl'],
@@ -184,7 +188,7 @@ describe('nova -p --output-format jsonl (built CLI, local SSE mock)', () => {
     expect(String(result.text)).toContain('[Error: forced provider failure]');
 
     const textRun = await runNova(['--model', 'mock/TEST', '--yes', '-p', 'fail'], cwd);
-    expect(textRun.code).toBe(0);
+    expect(textRun.code).toBe(1);
     expect(textRun.stdout).toBe('[Error: forced provider failure]\n');
   });
 });

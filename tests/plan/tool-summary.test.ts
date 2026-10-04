@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { theme } from '../../src/tui/theme.js';
 import {
   STATUS_STYLE,
+  summarizeCall,
+} from '../../src/tui/tool-summary.js';
+import {
   formatArgs,
   SPINNER_FRAMES,
   spinnerFrame,
-  summarizeCall,
   foldLines,
-} from '../../src/tui/tool-summary.js';
+} from '../../src/tui/tool-format.js';
 
 function kindOf(name: string): { kind: 'command' | 'path' } | undefined {
   if (name === 'bash') return { kind: 'command' };

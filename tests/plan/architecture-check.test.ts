@@ -25,6 +25,10 @@ interface ArchModule {
   ) => string[];
   violationFile: (violation: string) => string | null;
   changedClosure: (imports: Record<string, string[]>, changed: string[]) => Set<string>;
+  mergeBaseline: (
+    current: string[],
+    prior: Array<string | { id: string; expires?: string }>,
+  ) => Array<string | { id: string; expires?: string }>;
 }
 
 const arch = require(modUrl) as ArchModule;
@@ -165,5 +169,26 @@ describe('architecture-check --changed closure', () => {
     expect(arch.violationFile('deepImport:a/x.ts->b/y.ts')).toBe('a/x.ts');
     expect(arch.violationFile('suppressions:d.ts')).toBe('d.ts');
     expect(arch.violationFile('cycle:m1..m2..m1')).toBeNull(); // always checked
+  });
+});
+
+describe('architecture-check baseline re-pin preserves exception metadata', () => {
+  it('keeps {id,expires} for still-violating ids, adds new as strings, drops repaid', () => {
+    const prior = [
+      { id: 'a', expires: '2026-12-31' },
+      'b',
+      { id: 'c', expires: '2026-12-31' },
+    ];
+    const current = ['a', 'b', 'd']; // c repaid (dropped), d newly baselined
+    expect(arch.mergeBaseline(current, prior)).toEqual([
+      { id: 'a', expires: '2026-12-31' }, // exception object survives
+      'b',
+      'd', // new plain entry
+    ]);
+  });
+
+  it('is stable when current and prior already agree (idempotent re-pin)', () => {
+    const entries = [{ id: 'x', expires: '2027-01-01' }];
+    expect(arch.mergeBaseline(['x'], entries)).toEqual(entries);
   });
 });

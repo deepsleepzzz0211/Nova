@@ -1,21 +1,13 @@
 import type { Tool, ToolContext, ToolResult } from './types.js';
 import type { JSONSchema } from '../llm/types.js';
+import { boolParam, numOr, numParam, resolveSearchPath } from './args.js';
 import {
-  buildGrepArgs,
   DEFAULT_HEAD_LIMIT,
-  firstErrorLine,
-  formatPaginationNote,
-  numParam,
-  paginate,
-  parseContentEvents,
-  parseCountList,
-  parseFilesList,
-  relativize,
-  renderClip,
-  renderFileList,
-  resolveSearchPath,
+  runGrepSearch,
   type RipgrepRun,
+  type SearchEnv,
   type SearchOutputMode,
+  type SearchRequest,
 } from './ripgrep-search.js';
 import { runRipgrep } from './ripgrep-worker.js';
 
@@ -79,17 +71,12 @@ function modeOf(raw: unknown): SearchOutputMode {
   return 'files';
 }
 
-function boolParam(params: Record<string, unknown>, key: string): boolean {
-  return params[key] === true;
-}
-
-function numOr(v: number | undefined, fallback: number | undefined): number | undefined {
-  return v !== undefined ? v : fallback;
-}
-
 /**
  * Content-search tool over the embedded ripgrep engine (search-tools ticket
- * 01). `run` is injectable for unit tests; production uses the worker runner.
+ * 01; arch2 ticket B1 slimmed to a decoder). This file decodes the model's
+ * JSON args into a normalized SearchRequest + SearchEnv and hands off to
+ * runGrepSearch, which owns argv, the engine run, error mapping, parsing,
+ * rendering, and pagination. `run` is injectable for unit tests.
  */
 export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = {}): Tool {
   const run: RipgrepRun = deps.run ?? runRipgrep;
@@ -100,7 +87,7 @@ export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
     permission: { mode: 'auto' },
     metadata: { category: 'search', cacheable: false, timeout: timeoutMs },
     description:
-      'A fast and precise ripgrep content search. Prefer this over `grep`/`rg` via bash — ' +
+      'A fast and precise ripgrep content search. Prefer this over `grep`/`rg` via bash - ' +
       'results come back as file:line references you can read precisely, and the search runs ' +
       'outside the main loop with its own timeout. Honors .gitignore, skips hidden/binary files.',
     parameters: GREP_PARAMETERS,
@@ -108,13 +95,11 @@ export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
       const pattern = typeof params.pattern === 'string' ? params.pattern : '';
       if (!pattern) return { content: 'grep requires a non-empty pattern.', isError: true };
 
-      const searchPath = resolveSearchPath(params.path, context.workingDirectory);
       const mode = modeOf(params.output_mode);
-      const showLineNumbers = params['-n'] !== false;
       const contextLines = numParam(params, 'context') ?? numParam(params, '-C');
-      const args = buildGrepArgs({
+      const req: SearchRequest = {
         pattern,
-        searchPath,
+        searchPath: resolveSearchPath(params.path, context.workingDirectory),
         outputMode: mode,
         glob: typeof params.glob === 'string' ? params.glob : undefined,
         type: typeof params.type === 'string' ? params.type : undefined,
@@ -124,64 +109,17 @@ export function createGrepTool(deps: { run?: RipgrepRun; timeoutMs?: number } = 
         beforeContext: numOr(numParam(params, '-B'), contextLines),
         afterContext: numOr(numParam(params, '-A'), contextLines),
         context: mode === 'content' ? contextLines : undefined,
-      });
-
-      let result;
-      try {
-        result = await run(args, { signal: context.abortSignal, timeoutMs });
-      } catch (err) {
-        return { content: `grep failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
-      }
-      if (result.code === 2) {
-        return { content: `ripgrep error: ${firstErrorLine(result.stderr)}`, isError: true };
-      }
-
-      if (mode === 'files') {
-        return renderFiles(result.stdout, context.workingDirectory, params);
-      }
-      if (mode === 'count') {
-        return renderCount(result.stdout, context.workingDirectory, params);
-      }
-      return renderContent(result.stdout, context.workingDirectory, params, showLineNumbers, boolParam(params, '-o'));
+      };
+      const env: SearchEnv = {
+        run,
+        workingDirectory: context.workingDirectory,
+        signal: context.abortSignal,
+        timeoutMs,
+        failurePrefix: 'grep failed',
+        headLimit: numParam(params, 'head_limit'),
+        offset: numParam(params, 'offset'),
+      };
+      return runGrepSearch(req, env, { showLineNumbers: params['-n'] !== false });
     },
   };
-}
-
-function renderFiles(stdout: string, workingDirectory: string, params: Record<string, unknown>): ToolResult {
-  // Engine traversal order, not mtime: grep files-mode answers "where does X
-  // live", and stat-ing the full match set on the main thread for an ordering
-  // nobody asked for is exactly the loop-stall this batch avoids (review).
-  return { content: renderFileList(parseFilesList(stdout), workingDirectory, numParam(params, 'head_limit'), numParam(params, 'offset'), { sortByMtime: false }) };
-}
-
-function renderCount(stdout: string, workingDirectory: string, params: Record<string, unknown>): ToolResult {
-  const rows = parseCountList(stdout);
-  if (rows.length === 0) return { content: 'No matches found' };
-  const page = paginate(rows, numParam(params, 'head_limit'), numParam(params, 'offset'));
-  const lines = page.items.map((r) => `${relativize(r.path, workingDirectory)}:${r.count}`);
-  const totalMatches = rows.reduce((sum, r) => sum + r.count, 0);
-  const shown = page.items.length;
-  const shownNote = shown === rows.length ? '' : ` (listing ${shown})`;
-  const summary = `Found ${totalMatches} total ${totalMatches === 1 ? 'occurrence' : 'occurrences'} across ${rows.length} ${rows.length === 1 ? 'file' : 'files'}${shownNote}.`;
-  return { content: `${lines.join('\n')}\n\n${summary}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}` };
-}
-
-function renderContent(
-  stdout: string,
-  workingDirectory: string,
-  params: Record<string, unknown>,
-  showLineNumbers: boolean,
-  onlyMatching: boolean,
-): ToolResult {
-  const events = parseContentEvents(stdout);
-  if (events.length === 0) return { content: 'No matches found' };
-  const rendered = events.map((e) => {
-    const file = relativize(e.path, workingDirectory);
-    const body = onlyMatching && e.matches.length > 0 ? e.matches.join(' ') : renderClip(e.text);
-    const sep = e.isMatch ? ':' : '-';
-    if (showLineNumbers && e.lineNumber !== undefined) return `${file}${sep}${e.lineNumber}${sep}${body}`;
-    return `${file}${sep}${body}`;
-  });
-  const page = paginate(rendered, numParam(params, 'head_limit'), numParam(params, 'offset'));
-  return { content: `${page.items.join('\n')}${formatPaginationNote(page.appliedLimit, page.appliedOffset)}` };
 }

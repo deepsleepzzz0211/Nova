@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool } from '../tools/types.js';
@@ -65,7 +66,7 @@ export function createMemoryTool(filePath: string): Tool {
         appendMemory(filePath, fact);
         return { content: `Remembered: ${fact}` };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errorMessage(err);
         return { content: `Failed to write memory: ${msg}`, isError: true };
       }
     },

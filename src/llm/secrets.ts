@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import { execSync } from 'child_process';
 
 /**
@@ -43,7 +44,7 @@ export function resolveSecretValue(value: string, options?: SecretResolveOptions
       }
       return trimmed;
     } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = errorMessage(err);
       throw new Error(`Secret command failed: ${reason}`);
     }
   }

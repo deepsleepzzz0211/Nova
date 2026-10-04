@@ -1,13 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { createShellLauncher, identityWrap, type WrapSpawn } from '../../src/tools/shell-launcher.js';
+import { describe, it, expect, vi } from 'vitest';
+import { createShellLauncher, unsandboxed, type SandboxView } from '../../src/tools/shell-launcher.js';
 import * as os from 'node:os';
-import { EventEmitter } from 'node:events';
 
 // Arch ticket 02: ONE launcher seam spawns every shell child (foreground
-// run, background start, hook capture, interactive session). The OS wrap is
-// applied inside — a caller CANNOT spawn without passing through it; an
-// unwrapped path is an explicit identityWrap choice, never a forgotten
-// optional. Tests cross the interface with real tiny node processes.
+// run, background start, hook capture, interactive session). arch2 ticket A1:
+// the seam now takes the SANDBOX itself, not a bare wrap function — applying
+// the wrap, draining degrade notices, and reporting them is launcher-owned,
+// so no composition root can forget the drain ordering. An unwrapped path
+// (declarative hooks, test defaults) is the explicit `unsandboxed` adapter.
+// Tests cross the interface with real tiny node processes.
 
 const cwd = os.tmpdir();
 const nodeInv = (js: string, ...args: string[]): import('../../src/tools/shell-routing.js').SpawnInvocation => ({
@@ -16,14 +17,35 @@ const nodeInv = (js: string, ...args: string[]): import('../../src/tools/shell-r
   stdinText: undefined,
 });
 
-describe('ShellLauncher.run', () => {
-  it('collects merged output and exit code through the wrap point', async () => {
-    const seen: string[] = [];
-    const wrap: WrapSpawn = (inv) => {
+/**
+ * Sandbox stub mirroring the real OsSandbox notice mechanics: wraps
+ * accumulate pending notices (one round per wrap from `rounds`), and
+ * drainNotices empties what has accumulated. `initial` seeds notices that
+ * exist before any wrap (grants-active / fallback style).
+ */
+function stubSandbox(opts: { rounds?: string[][]; initial?: string[] } = {}): SandboxView & { seen: string[] } {
+  const seen: string[] = [];
+  const rounds = opts.rounds ?? [];
+  let pending = opts.initial ?? [];
+  return {
+    seen,
+    wrapSpawn(inv, _cwd) {
       seen.push(inv.file);
+      pending = [...pending, ...(rounds.shift() ?? [])];
       return inv;
-    };
-    const launcher = createShellLauncher({ wrap });
+    },
+    drainNotices() {
+      const out = pending;
+      pending = [];
+      return out;
+    },
+  };
+}
+
+describe('ShellLauncher.run', () => {
+  it('collects merged output and exit code through the sandbox wrap point', async () => {
+    const sandbox = stubSandbox();
+    const launcher = createShellLauncher({ sandbox });
     const r = await launcher.run(nodeInv('console.log("hi"); console.error("oops")'), {
       cwd,
       signal: new AbortController().signal,
@@ -32,11 +54,11 @@ describe('ShellLauncher.run', () => {
     expect(r.content).toContain('hi');
     expect(r.content).toContain('oops');
     expect(r.exitCode).toBe(0);
-    expect(seen).toEqual([process.execPath]); // wrapped exactly once
+    expect(sandbox.seen).toEqual([process.execPath]); // wrapped exactly once
   });
 
   it('timeout ladder: SIGTERM then the run resolves non-zero (sleep cannot outlive it)', async () => {
-    const launcher = createShellLauncher({ wrap: identityWrap });
+    const launcher = createShellLauncher({ sandbox: unsandboxed });
     const started = Date.now();
     const r = await launcher.run(nodeInv('setTimeout(() => {}, 30_000)'), {
       cwd,
@@ -50,7 +72,7 @@ describe('ShellLauncher.run', () => {
 
 describe('ShellLauncher.capture (hooks shape)', () => {
   it('keeps stdout/stderr SEPARATE, feeds stdin, returns timedOut', async () => {
-    const launcher = createShellLauncher({ wrap: identityWrap });
+    const launcher = createShellLauncher({ sandbox: unsandboxed });
     const r = await launcher.capture(
       { ...nodeInv('let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{console.log("OUT:"+s);console.error("ERRSIDE");})'), stdinText: 'payload' },
       { cwd, timeoutMs: 10_000 },
@@ -64,22 +86,17 @@ describe('ShellLauncher.capture (hooks shape)', () => {
     expect(late.timedOut).toBe(true);
   });
 
-  it('the wrap is applied here too — no un-wrapped side door', async () => {
-    let calls = 0;
-    const launcher = createShellLauncher({
-      wrap: (inv) => {
-        calls++;
-        return inv;
-      },
-    });
+  it('the sandbox is applied here too — no un-wrapped side door', async () => {
+    const sandbox = stubSandbox();
+    const launcher = createShellLauncher({ sandbox });
     await launcher.capture(nodeInv('console.log(1)'), { cwd, timeoutMs: 5_000 });
-    expect(calls).toBe(1);
+    expect(sandbox.seen).toHaveLength(1);
   });
 });
 
 describe('ShellLauncher.start (background jobs)', () => {
   it('returns a JobHandle with pid and streaming stdout', async () => {
-    const launcher = createShellLauncher({ wrap: identityWrap });
+    const launcher = createShellLauncher({ sandbox: unsandboxed });
     const handle = launcher.start(nodeInv('let n=0;const t=setInterval(()=>{console.log("TICK-"+n++)},30);setTimeout(()=>clearInterval(t),900)'), { cwd });
     expect(typeof handle.pid).toBe('number');
     const chunks: string[] = [];
@@ -94,41 +111,31 @@ describe('ShellLauncher.start (background jobs)', () => {
     handle.kill('SIGKILL');
   });
 
-  it('start goes through the wrap (sandboxed children cannot escape via background)', () => {
-    let wrapped = 0;
-    const launcher = createShellLauncher({
-      wrap: (inv) => {
-        wrapped++;
-        return inv;
-      },
-    });
+  it('start goes through the sandbox (children cannot escape via background)', () => {
+    const sandbox = stubSandbox();
+    const launcher = createShellLauncher({ sandbox });
     const handle = launcher.start(nodeInv('setTimeout(()=>{},50)'), { cwd });
-    expect(wrapped).toBe(1);
+    expect(sandbox.seen).toHaveLength(1);
     handle.kill('SIGKILL');
   });
 });
 
 describe('ShellLauncher.interactive (session shells)', () => {
   it('pipes stdin->stdout through the wrapped child', async () => {
-    const echoes: string[] = [];
-    const launcher = createShellLauncher({
-      wrap: (inv) => {
-        echoes.push(inv.file);
-        return inv;
-      },
-    });
+    const sandbox = stubSandbox();
+    const launcher = createShellLauncher({ sandbox });
     const proc = launcher.interactive(nodeInv('process.stdin.pipe(process.stdout)'), { cwd });
     const out: string[] = [];
     proc.stdout!.on('data', (d: Buffer) => out.push(d.toString()));
     proc.stdin!.end('through-me\n');
     await new Promise((r) => setTimeout(r, 800));
     expect(out.join('')).toContain('through-me');
-    expect(echoes).toEqual([process.execPath]);
+    expect(sandbox.seen).toEqual([process.execPath]);
     proc.kill('SIGKILL');
   });
 
   it('close/error listeners attachable (EventEmitter contract for ShellProc)', () => {
-    const launcher = createShellLauncher({ wrap: identityWrap });
+    const launcher = createShellLauncher({ sandbox: unsandboxed });
     const proc = launcher.interactive(nodeInv('process.exitCode=0'), { cwd });
     let closed = false;
     proc.on('close', () => {
@@ -140,9 +147,58 @@ describe('ShellLauncher.interactive (session shells)', () => {
   });
 });
 
-describe('identityWrap', () => {
-  it('returns the invocation unchanged', () => {
+describe('degrade-notice plumbing (arch2 A1, launcher-owned)', () => {
+  it('notices already pending at construction are surfaced WITHOUT any spawn', () => {
+    // Startup visibility: the grants-active / fallback notice must land on
+    // the report channel at assembly time, not on first tool use.
+    const sandbox = stubSandbox({ initial: ['grants active on 3 roots'] });
+    const reported: string[] = [];
+    createShellLauncher({ sandbox, onNotice: (n) => reported.push(n) });
+    expect(reported).toEqual(['grants active on 3 roots']);
+  });
+
+  it('notices produced by a wrap are drained and reported right after that wrap', async () => {
+    const sandbox = stubSandbox({ rounds: [[], ['tier-2 not wrapping bash.exe (label)']] });
+    const reported: string[] = [];
+    const launcher = createShellLauncher({ sandbox, onNotice: (n) => reported.push(n) });
+    await launcher.run(nodeInv('console.log("x")'), { cwd, signal: new AbortController().signal, timeoutMs: 5_000 });
+    expect(reported).toEqual([]); // first wrap accumulated nothing
+    const handle = launcher.start(nodeInv('setTimeout(()=>{},50)'), { cwd });
+    expect(reported).toEqual(['tier-2 not wrapping bash.exe (label)']);
+    handle.kill('SIGKILL');
+  });
+
+  it('a notice is reported exactly once (drain empties; later wraps re-drain nothing)', () => {
+    const sandbox = stubSandbox({ rounds: [['notice A'], []] });
+    const spy = vi.fn();
+    const launcher = createShellLauncher({ sandbox, onNotice: spy });
+    launcher.start(nodeInv('setTimeout(()=>{},50)'), { cwd }).kill('SIGKILL');
+    launcher.start(nodeInv('setTimeout(()=>{},50)'), { cwd }).kill('SIGKILL');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith('notice A');
+  });
+
+  it('default report channel writes "[sandbox] <notice>" to stderr', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const sandbox = stubSandbox({ initial: ['degraded'] });
+      createShellLauncher({ sandbox });
+      expect(errSpy).toHaveBeenCalledWith('[sandbox] degraded');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
+
+describe('unsandboxed adapter', () => {
+  it('returns the invocation unchanged and never reports notices', () => {
     const inv = nodeInv('0');
-    expect(identityWrap(inv, 'C:/anything')).toBe(inv);
+    expect(unsandboxed.wrapSpawn(inv, 'C:/anything')).toBe(inv);
+    expect(unsandboxed.drainNotices()).toEqual([]);
+    const spy = vi.fn();
+    const launcher = createShellLauncher({ sandbox: unsandboxed, onNotice: spy });
+    const handle = launcher.start(nodeInv('setTimeout(()=>{},50)'), { cwd });
+    handle.kill('SIGKILL');
+    expect(spy).not.toHaveBeenCalled();
   });
 });

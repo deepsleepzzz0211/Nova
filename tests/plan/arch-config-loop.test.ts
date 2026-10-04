@@ -4,6 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { loadAppConfig, novaPath } from '../../src/config/loader.js';
 import { buildLoopBase } from '../../src/agent/loop-deps.js';
+import { loopBaseFromRuntime } from '../../src/cli/tools-runtime.js';
+import { gatherEnvironment } from '../../src/agent/environment.js';
 import { DEFAULT_CONFIG } from '../../src/config/defaults.js';
 import type { ResolvedModel } from '../../src/llm/catalog.js';
 
@@ -96,5 +98,48 @@ describe('buildLoopBase', () => {
     // The instance is opaque; behavior is proven through collect() returning
     // nothing outside the tree — construction alone must not throw.
     expect(base.directoryInstructions).toBeDefined();
+  });
+});
+
+// arch2 ticket A2: the runtime-bag -> LoopBase field mapping had ONE owner.
+// index.tsx and print-mode.ts previously repeated the same six fields by
+// hand; a new prompt part meant shotgun edits in both.
+describe('loopBaseFromRuntime (arch2 A2)', () => {
+  const resolution = {
+    model: { contextWindow: 128_000, cost: { input: 1, output: 1 } },
+    name: 'fake',
+  } as unknown as ResolvedModel;
+
+  it('maps environment/projectInstructions/memory out of the runtime bag', () => {
+    const environment = gatherEnvironment(project, { shellFacts: { shell: 'bash(test)' } });
+    const runtime = {
+      environment,
+      projectInstructions: 'AGENTS BODY',
+      memory: 'MEMORY BODY',
+    };
+    const base = loopBaseFromRuntime({
+      config: DEFAULT_CONFIG,
+      resolution,
+      sessionId: 'sess-map',
+      runtime,
+    });
+    expect(base.promptOptions.environment).toBe(environment);
+    expect(base.promptOptions.projectInstructions).toBe('AGENTS BODY');
+    expect(base.promptOptions.memory).toBe('MEMORY BODY');
+    expect(base.promptOptions.customPrompt).toBeUndefined();
+  });
+
+  it('customPrompt flows from config.agent.systemPrompt (single place again)', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      agent: { ...DEFAULT_CONFIG.agent, systemPrompt: 'CUSTOM' },
+    };
+    const base = loopBaseFromRuntime({
+      config,
+      resolution,
+      sessionId: 'sess-cp',
+      runtime: { environment: undefined, projectInstructions: undefined, memory: undefined },
+    });
+    expect(base.promptOptions.customPrompt).toBe('CUSTOM');
   });
 });

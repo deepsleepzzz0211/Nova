@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { theme } from './theme.js';
-import { spinnerFrame } from './tool-summary.js';
+import { spinnerFrame } from './tool-format.js';
 import { fmtTokens, estimateCostUsd, contextUsage, type ModelCost } from './status-format.js';
 import { modeBadge, type ApprovalModeId } from './approval-mode.js';
 import type { CacheStatsView } from './display-types.js';

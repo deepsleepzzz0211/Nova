@@ -7,19 +7,19 @@
  * it, in the ORIGINAL startup order, so every side effect (file sweeps,
  * provider construction, MCP start) happens exactly where it used to.
  */
+import { errorMessage } from './shared/errors.js';
 import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { App } from './tui/App.js';
 import type { UseAgentConfig } from './tui/hooks/useAgent.js';
-import { buildLoopBase } from './agent/loop-deps.js';
 import { loadAppConfig, novaPath } from './config/loader.js';
 import { readGitBranch } from './tui/git-branch.js';
 import { formatWelcomeCard } from './tui/header.js';
 import { parseCliArgs, applyCliOverrides } from './cli/args.js';
 import { buildModelRuntime } from './cli/model-wiring.js';
 import { runSessionStartup } from './cli/sessions.js';
-import { buildToolRuntime, runPinSkills } from './cli/tools-runtime.js';
+import { buildToolRuntime, loopBaseFromRuntime, runPinSkills } from './cli/tools-runtime.js';
 import { runPrintMode } from './cli/print-mode.js';
 import { loadUserCommands } from './commands/user-commands.js';
 
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     subagentsDir: session.subagentsDir,
     resolveSpec: model.resolveSpec,
   });
-  const { mcpManager, mcpConnectionCount } = runtime;
+  const { mcpConnectionCount } = runtime;
 
   const printPrompt = typeof values.print === 'string' ? values.print : null;
   if (printPrompt !== null) {
@@ -91,7 +91,6 @@ async function main(): Promise<void> {
       resolution,
       runtime,
       session,
-      mcpManager,
       outputFormat,
     });
   }
@@ -141,17 +140,14 @@ async function main(): Promise<void> {
   // spike). Ink requires interactive mode for alternateScreen, so requesting
   // it forces interactive regardless of CI detection.
   const fullscreen = values['tui-mode'] === 'fullscreen';
-  // Shared loop assembly (arch ticket 04): the TUI and print mode build the
-  // same checkpoint/directory-instructions wiring from one builder.
-  const loopBase = buildLoopBase({
+  // Shared loop assembly (arch ticket 04; arch2 ticket A2): the TUI and
+  // print mode derive the same LoopBase from the runtime bag through ONE
+  // mapper - the six-field mapping no longer lives in both consumers.
+  const loopBase = loopBaseFromRuntime({
     config,
     resolution,
     sessionId: session.sessionStore.sessionId,
-    environment: runtime.environment,
-    projectInstructions: runtime.projectInstructions,
-    memory: runtime.memory,
-    customPrompt: config.agent.systemPrompt || undefined,
-    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    runtime,
   });
 
   // One agent config object (ticket 18): App passes it straight to useAgent,
@@ -220,10 +216,10 @@ async function main(): Promise<void> {
   );
 
   await waitUntilExit();
-  await mcpManager.stopAll();
+  await runtime.dispose();
 }
 
 main().catch((err: unknown) => {
-  console.error('Fatal error:', err instanceof Error ? err.message : String(err));
+  console.error('Fatal error:', errorMessage(err));
   process.exit(1);
 });

@@ -1,3 +1,4 @@
+import { errorMessage } from '../../shared/errors.js';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ToolCall, Message } from '../../llm/types.js';
 import type { LLMProvider } from '../../llm/provider.js';
@@ -313,7 +314,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setIsThinking(false);
         setIsStreaming(false);
         // Errors must be visible, never swallowed (AGENTS: implemented error handling).
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = errorMessage(err);
         setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${msg}` }]);
         settleDanglingPermission();
       },
@@ -371,7 +372,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
           if (builtin.echoesInput === true) ctx.appendUserMessage(echoLine);
         })
         .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = errorMessage(err);
           ctx.appendSystemMessage(`[error] ${msg}`);
         });
       return;

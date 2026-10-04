@@ -1,18 +1,25 @@
 /**
  * Non-interactive print mode `nova -p "prompt"` (p1-p2 10, split out of
- * index.tsx): run one turn against the configured provider, stream the
- * answer to stdout, exit. Tool calls run through the normal pipeline;
- * without --yes anything needing permission is denied (no dialog is
- * possible). Used by the E2E suite and scripts.
+ * index.tsx; arch2 ticket A3 rewired over the TurnRouter): run one turn
+ * against the configured provider, stream the answer, exit. Tool calls run
+ * through the normal pipeline; without --yes anything needing permission is
+ * denied (no dialog is possible). The turn plumbing (tool pairing, [Error:
+ * exit policy, [context] formats) lives in cli/turn-router.ts - this file
+ * only picks the output adapter and owns the process boundary (exit codes).
  */
+import { errorMessage } from '../shared/errors.js';
 import { AgentLoop } from '../agent/loop.js';
-import { buildLoopBase } from '../agent/loop-deps.js';
 import { createJsonlSink } from './jsonl-stream.js';
+import {
+  createTextSink,
+  createTurnRouter,
+  formatContextNote,
+  type TurnSink,
+} from './turn-router.js';
 import type { AppConfig } from '../config/schema.js';
 import type { ResolvedModel } from '../llm/catalog.js';
 import type { LLMProvider } from '../llm/provider.js';
-import type { MCPManager } from '../mcp/manager.js';
-import type { ToolRuntime } from './tools-runtime.js';
+import { loopBaseFromRuntime, type ToolRuntime } from './tools-runtime.js';
 import type { SessionStartup } from './sessions.js';
 
 export async function runPrintMode(opts: {
@@ -23,30 +30,41 @@ export async function runPrintMode(opts: {
   resolution: ResolvedModel;
   runtime: ToolRuntime;
   session: SessionStartup;
-  mcpManager: MCPManager;
   /** stdout format (ticket 08): 'text' keeps today's byte-identical output. */
   outputFormat?: 'text' | 'jsonl';
 }): Promise<never> {
-  const { printPrompt, autoApprove, config, llm, resolution, runtime, session, mcpManager } = opts;
-  const sink =
+  const { printPrompt, autoApprove, config, llm, resolution, runtime, session } = opts;
+  const jsonlSink =
     opts.outputFormat === 'jsonl'
       ? createJsonlSink((line) => process.stdout.write(line + '\n'))
       : null;
-  sink?.start(session.sessionStore.sessionId, config.llm.model);
-  // tool_call ids -> names so tool_result events can carry the name.
-  const callNames = new Map<string, string>();
-  let sawError = false;
-  // Shared assembly (arch ticket 04): context options, checkpoints keyed on
-  // this session, prompt parts, scalar knobs — one builder for TUI + print.
-  const base = buildLoopBase({
+  jsonlSink?.start(session.sessionStore.sessionId, config.llm.model);
+  // Context notices are stderr diagnostics in BOTH formats (stdout stays
+  // the requested answer / event stream only).
+  const contextNote = (note: string): void => {
+    process.stderr.write(formatContextNote(note));
+  };
+  const sink: TurnSink =
+    jsonlSink === null
+      ? createTextSink()
+      : {
+          text: (token) => jsonlSink.text(token),
+          toolCall: (call) => jsonlSink.toolCall(call),
+          toolResult: (res) => jsonlSink.toolResult(res),
+          compaction: (info) => jsonlSink.compaction(info),
+          contextNote,
+          usage: (usage) => jsonlSink.usage(usage),
+          result: (r) => jsonlSink.result(r),
+          error: (message) => jsonlSink.error(message),
+        };
+  const router = createTurnRouter(sink);
+  // Shared assembly (arch ticket 04; arch2 ticket A2): one mapper over the
+  // runtime bag for TUI + print.
+  const base = loopBaseFromRuntime({
     config,
     resolution,
     sessionId: session.sessionStore.sessionId,
-    environment: runtime.environment,
-    projectInstructions: runtime.projectInstructions,
-    memory: runtime.memory,
-    customPrompt: config.agent.systemPrompt || undefined,
-    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+    runtime,
   });
   const loop = new AgentLoop({
     llm,
@@ -63,69 +81,20 @@ export async function runPrintMode(opts: {
     streamIdleTimeoutMs: base.streamIdleTimeoutMs,
     thinkingLevel: base.thinkingLevel,
     config: base.config,
-    onToken: (token: string) => {
-      // The loop reports failures as [Error: ...] tokens; print mode must
-      // exit non-zero so scripts and the E2E suite can detect them.
-      if (token.startsWith('[Error:')) sawError = true;
-      if (sink !== null) sink.text(token);
-      else process.stdout.write(token);
-    },
-    // onToolCall fires for every call; only the sink path needs the id->name
-    // map (tool_result events), and it records it once via onToolCallReady.
-    onToolCall: () => {},
-    onToolCallReady: sink === null ? undefined : (call) => {
-      callNames.set(call.id, call.function.name);
-      sink.toolCall({ id: call.id, name: call.function.name, arguments: call.function.arguments });
-    },
-    onToolResult: sink === null ? () => {} : (result, callId) => {
-      sink.toolResult({
-        ...(callId !== undefined ? { id: callId } : {}),
-        name: callId !== undefined ? callNames.get(callId) ?? 'tool' : 'tool',
-        content: result.content,
-        isError: result.isError === true,
-      });
-    },
-    onThinking: () => {},
-    // Context-policy observability: diagnostics go to stderr, never stdout
-    // (stdout stays the requested answer only).
-    onCompaction: (info) => {
-      if (sink !== null) {
-        sink.compaction({
-          strategy: info.strategy,
-          reason: info.reason,
-          beforeTokens: info.beforeTokens,
-          afterTokens: info.afterTokens,
-        });
-        return;
-      }
-      process.stderr.write(`[context] ${info.strategy} (${info.reason}): ${info.beforeTokens} -> ${info.afterTokens} tokens\n`);
-    },
-    onUsage: sink === null ? undefined : (usage) => sink.usage(usage),
-    onContextNote: (note) => {
-      process.stderr.write(`[context] ${note}\n`);
-    },
+    ...router.callbacks,
     onPermissionRequest: async () => autoApprove,
   });
   try {
     const result = await loop.processUserInput(printPrompt);
-    if (sink !== null) {
-      sink.result({ text: result.text, rounds: result.rounds, exitCode: sawError ? 1 : 0 });
-      await mcpManager.stopAll();
-      // jsonl pays the old NOTE debt: sawError really exits non-zero here.
-      // The text branch below keeps its historical exit-0 behavior.
-      process.exit(sawError ? 1 : 0);
-    }
-    if (result.text.length > 0 && !result.text.endsWith('\n')) process.stdout.write('\n');
-    await mcpManager.stopAll();
-    // NOTE: byte-identical to the pre-split index.tsx — the original also
-    // exits 0 here; the sawError flag above was collected but never used
-    // for the exit code. Changing that is a behavior fix, not a refactor.
-    process.exit(0);
+    // arch2 A3 behavior fix: a turn that streamed an [Error: token exits
+    // non-zero in BOTH formats (the old text path collected sawError and
+    // still exited 0; the pinned e2e was updated with the batch approval).
+    const { exitCode } = router.finish({ text: result.text, rounds: result.rounds });
+    await runtime.dispose();
+    process.exit(exitCode);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (sink !== null) sink.error(msg);
-    else process.stderr.write(`[error] ${msg}\n`);
-    await mcpManager.stopAll();
-    process.exit(1);
+    const { exitCode } = router.fail(errorMessage(err));
+    await runtime.dispose();
+    process.exit(exitCode);
   }
 }

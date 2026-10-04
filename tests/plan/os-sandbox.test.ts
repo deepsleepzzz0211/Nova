@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   planOsSandbox,
   createOsSandbox,
@@ -252,5 +252,49 @@ describe('createOsSandbox (the deep interface)', () => {
     const grants = d.runs.findIndex((r) => r.cmd === 'icacls' && r.args.includes('/grant'));
     expect(removes).toBeLessThan(grants);
     expect(d.runs[removes]!.args[0]).toBe('D:/stale');
+  });
+});
+
+// arch2 ticket A1: exit-time restore is the sandbox's OWN registration —
+// the composition root no longer wires process events around it.
+describe('dispose self-registration (arch2 A1)', () => {
+  it('the enabled sandbox registers an exit handler that disposes it', () => {
+    const handlers: Array<[string | symbol, unknown]> = [];
+    const spy = vi.spyOn(process, 'once').mockImplementation(
+      ((event: string | symbol, listener: unknown) => {
+        handlers.push([event, listener]);
+        return process;
+      }) as typeof process.once,
+    );
+    try {
+      const sb = createOsSandbox({ osLevel: 'auto', paths, deps: memSandboxDeps() });
+      const exit = handlers.find(([e]) => e === 'exit');
+      expect(exit).toBeDefined();
+      let disposed = 0;
+      sb.dispose = () => {
+        disposed++;
+      };
+      (exit![1] as () => void)();
+      expect(disposed).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('disabled paths register nothing (there are no grants to restore)', () => {
+    const events: Array<string | symbol> = [];
+    const spy = vi.spyOn(process, 'once').mockImplementation(
+      ((event: string | symbol) => {
+        events.push(event);
+        return process;
+      }) as typeof process.once,
+    );
+    try {
+      createOsSandbox({ osLevel: 'off', paths, deps: memSandboxDeps() });
+      createOsSandbox({ osLevel: 'auto', paths, deps: memSandboxDeps({ cscMissing: true }) });
+      expect(events.filter((e) => e === 'exit')).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

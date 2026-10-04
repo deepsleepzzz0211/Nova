@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { Message, ToolCall } from '../llm/types.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -140,7 +141,7 @@ export async function runTurn(host: TurnHost, input: string): Promise<AgentTurnR
           continue;
         }
       }
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       host.onToken(`[Error: ${msg}]`);
       host.emitUsage(turnUsage);
       return { text: finalText, rounds };

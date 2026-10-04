@@ -24,8 +24,10 @@ export interface ToolCall {
   };
 }
 
-/** JSON Schema object used for tool parameters. */
-export type JSONSchema = Record<string, unknown>;
+/** JSON Schema object used for tool parameters (now owned by shared; re-exported here). */
+import type { JSONSchema as SharedJSONSchema } from '../shared/tool-contracts.js';
+
+export type JSONSchema = SharedJSONSchema;
 
 /** Definition of a tool in the format expected by LLM providers. */
 export interface ToolDefinition {

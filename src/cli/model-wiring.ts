@@ -4,6 +4,7 @@
  * selection state and the shared spec resolution used by /model switching
  * and subagent routing.
  */
+import { errorMessage } from '../shared/errors.js';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { novaPath } from '../config/loader.js';
@@ -113,7 +114,7 @@ export function buildModelRuntime(config: AppConfig): ModelRuntime {
         cost: next.model.cost,
       };
     } catch (err: unknown) {
-      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+      return { ok: false, message: errorMessage(err) };
     }
   };
 

@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import { spawn } from 'node:child_process';
 import { PACKAGE_NAME } from './constants.js';
 
@@ -38,6 +39,6 @@ export async function runNpmUpdate(
     }
     return { ok: false, message: `update failed:\n${r.output.trim().slice(-400)}` };
   } catch (err: unknown) {
-    return { ok: false, message: `update failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, message: `update failed: ${errorMessage(err)}` };
   }
 }

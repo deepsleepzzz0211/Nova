@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import type { Message } from '../llm/types.js';
 import { ContextManager } from './context.js';
 import { microcompactMessages, MICROCOMPACT_MARKER } from './microcompact.js';
@@ -126,7 +127,7 @@ export function replayMessages(
       clearedToolResults: 0,
       droppedMessages: 0,
       conserved: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 }

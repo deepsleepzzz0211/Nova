@@ -1,6 +1,6 @@
 import type { SpawnHook } from '../hooks/config-hooks.js';
 import { resolveShellFromProcess, buildSpawnInvocation, type ShellPlan } from '../tools/shell-routing.js';
-import { createShellLauncher, identityWrap } from '../tools/shell-launcher.js';
+import { createShellLauncher, unsandboxed } from '../tools/shell-launcher.js';
 
 /**
  * The production hook spawner (CLI glue): resolves the shell through the
@@ -11,10 +11,11 @@ import { createShellLauncher, identityWrap } from '../tools/shell-launcher.js';
  * declarative hooks are user-supplied commands and run OUTSIDE the tier-2
  * low-integrity wrap (same documented boundary as Claude Code: command
  * hooks execute with the parent's full access). It still goes through the
- * shared launcher seam, with the choice made VISIBLE here rather than an
- * optional parameter forgotten at a call site.
+ * shared launcher seam, with the choice made VISIBLE here (the explicit
+ * `unsandboxed` adapter) rather than an optional parameter forgotten at a
+ * call site.
  */
-const hookLauncher = createShellLauncher({ wrap: identityWrap });
+const hookLauncher = createShellLauncher({ sandbox: unsandboxed });
 
 export const spawnHook: SpawnHook = async (req) => {
   let plan: ShellPlan;

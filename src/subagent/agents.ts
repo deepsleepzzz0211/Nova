@@ -1,3 +1,5 @@
+import { loadDefinitionsFromDirs } from '../shared/dir-definitions.js';
+import { errorMessage } from '../shared/errors.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse as parseToml } from 'smol-toml';
@@ -49,7 +51,7 @@ export function parseAgentFile(
   try {
     raw = parseToml(content) as Record<string, unknown>;
   } catch (err) {
-    warn(`[agents] skipped ${fileName}: invalid TOML (${err instanceof Error ? err.message : String(err)})`);
+    warn(`[agents] skipped ${fileName}: invalid TOML (${errorMessage(err)})`);
     return null;
   }
   const { description, tools, model, prompt, read_only: readOnly } = raw;
@@ -88,23 +90,14 @@ export function loadAgentDefinitions(
   dir: string,
   warn: (message: string) => void = () => {},
 ): ReadonlyMap<string, AgentDefinition> {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(dir);
-  } catch {
-    return new Map();
-  }
-  const out = new Map<string, AgentDefinition>();
-  for (const file of entries.filter((f) => f.endsWith('.toml')).sort()) {
-    let content: string;
-    try {
-      content = fs.readFileSync(path.join(dir, file), 'utf-8');
-    } catch {
-      warn(`[agents] skipped ${file}: unreadable`);
-      continue;
-    }
-    const def = parseAgentFile(file, content, warn);
-    if (def !== null) out.set(def.name, def);
-  }
-  return out;
+  // Shared directory-loader skeleton (arch2 C): walk/sort/read/skip lives in
+  // shared/dir-definitions; this module owns only the TOML parser.
+  const defs = loadDefinitionsFromDirs<AgentDefinition>({
+    dir,
+    extension: '.toml',
+    warnTag: '[agents]',
+    warn,
+    parse: (file, content) => parseAgentFile(file, content, warn),
+  });
+  return new Map(defs.map((def) => [def.name, def]));
 }

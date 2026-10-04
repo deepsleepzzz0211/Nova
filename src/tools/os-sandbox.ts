@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors.js';
 import {
   ensureWrapper,
   grantRoots,
@@ -90,7 +91,7 @@ export function planOsSandbox(
     result = {
       platform: process.platform,
       wrapperAvailable: false,
-      reason: err instanceof Error ? err.message : String(err),
+      reason: errorMessage(err),
     };
   }
   if (result.wrapperAvailable) {
@@ -176,7 +177,7 @@ export function createOsSandbox(options: OsSandboxOptions): OsSandbox {
 
   let drained = 0;
   let disposed = false;
-  return {
+  const sandbox: OsSandbox = {
     enabled: true,
     drainNotices() {
       const out = notices.slice(drained);
@@ -193,4 +194,10 @@ export function createOsSandbox(options: OsSandboxOptions): OsSandbox {
       restoreRoots(deps);
     },
   };
+  // arch2 ticket A1: the exit-restore is this sandbox's OWN registration —
+  // a composition root no longer wires process events around it. dispose is
+  // idempotent, and disabled paths (returned above) never land grants to
+  // restore, so they register nothing.
+  process.once('exit', () => sandbox.dispose());
+  return sandbox;
 }

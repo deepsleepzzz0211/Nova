@@ -1,3 +1,4 @@
+import { loadDefinitionsFromDirs } from '../shared/dir-definitions.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -95,23 +96,13 @@ export function loadUserCommands(
   dir: string,
   warn: (message: string) => void = () => {},
 ): UserCommand[] {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(dir);
-  } catch {
-    return [];
-  }
-  const out: UserCommand[] = [];
-  for (const file of entries.filter((f) => f.endsWith('.md')).sort()) {
-    let content: string;
-    try {
-      content = fs.readFileSync(path.join(dir, file), 'utf-8');
-    } catch {
-      warn(`[commands] skipped ${file}: unreadable`);
-      continue;
-    }
-    const cmd = parseUserCommandFile(file, content, warn);
-    if (cmd) out.push(cmd);
-  }
-  return out;
+  // Shared directory-loader skeleton (arch2 C); this module owns only the
+  // markdown parser.
+  return loadDefinitionsFromDirs<UserCommand>({
+    dir,
+    extension: '.md',
+    warnTag: '[commands]',
+    warn,
+    parse: (file, content) => parseUserCommandFile(file, content, warn),
+  });
 }

@@ -5,12 +5,14 @@ import { buildDiffView, foldDiff, type DiffLine } from './diff-view.js';
 import { truncateToWidth } from './text-measure.js';
 import {
   spinnerFrame,
-  summarizeCall,
   foldLines,
   formatArgs,
   parseToolArgs,
-  toolVerb,
   formatDurationMs,
+} from './tool-format.js';
+import {
+  summarizeCall,
+  toolVerb,
   STATUS_STYLE,
   type DisplayKindResolver,
   type ToolRow,

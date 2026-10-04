@@ -1,6 +1,6 @@
 import type { PermissionConfig } from '../config/schema.js';
 import type { Tool } from '../shared/tool-contracts.js';
-import { DANGEROUS_PATTERNS } from './dangerous.js';
+import { matchDangerousCommand } from './dangerous.js';
 import {
   evaluateSandbox,
   extractWriteTargets,
@@ -67,13 +67,12 @@ export class PermissionPolicy {
       }
     }
 
-    // 2. Dangerous patterns override an auto declaration
-    if (command !== '') {
-      for (const { pattern, reason } of DANGEROUS_PATTERNS) {
-        if (pattern.test(command)) {
-          return { decision: 'ask', message: `Dangerous command detected: ${reason}` };
-        }
-      }
+    // 2. Dangerous patterns override an auto declaration. The walk itself
+    // lives in dangerous.ts (arch2 C) - permission-display renders from the
+    // same function, so approval UI and policy can never drift on matching.
+    const danger = matchDangerousCommand(command);
+    if (danger !== null) {
+      return { decision: 'ask', message: `Dangerous command detected: ${danger}` };
     }
 
     // 3. The tool's own declaration. A tool that declares nothing is NOT

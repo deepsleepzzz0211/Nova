@@ -4,6 +4,7 @@
  * memory prompt inputs, the subagent spawner with its UI sinks, and MCP
  * startup. The composition root consumes the returned bag as-is.
  */
+import { errorMessage } from '../shared/errors.js';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -40,13 +41,15 @@ import { SubagentSpawner } from '../subagent/spawner.js';
 import { loadAgentDefinitions } from '../subagent/agents.js';
 import { createOsSandbox } from '../tools/os-sandbox.js';
 import { defaultWinWrapDeps } from '../tools/win-wrap.js';
-import { createShellLauncher, identityWrap, type ShellLauncher } from '../tools/shell-launcher.js';
+import { createShellLauncher, type ShellLauncher } from '../tools/shell-launcher.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
 import type { LLMProvider } from '../llm/provider.js';
+import type { ResolvedModel } from '../llm/catalog.js';
 import type { ResolveSpecResult } from './model-wiring.js';
 import { buildPipelineHooks } from '../hooks/config-hooks.js';
 import { spawnHook } from './hook-spawner.js';
+import { buildLoopBase, type LoopBase } from '../agent/loop-deps.js';
 
 export interface ToolRuntime {
   toolRegistry: ToolRegistry;
@@ -55,11 +58,47 @@ export interface ToolRuntime {
   todoState: TodoState;
   subagentSink: { notify?: (message: string) => void };
   subagentLiveSink: { set?: (line: string | null) => void };
-  mcpManager: MCPManager;
+  /**
+   * arch2 ticket A2: shutdown is the runtime's — callers used to keep three
+   * copies of "remember to stopAll the MCP manager". Idempotent by contract
+   * of the underlying manager.
+   */
+  dispose(): Promise<void>;
   mcpConnectionCount: number;
   environment: ReturnType<typeof gatherEnvironment>;
   projectInstructions: ReturnType<typeof loadProjectInstructions>;
   memory: string | undefined;
+}
+
+/** The prompt-facts slice of the runtime bag that LoopBase assembly reads. */
+export interface RuntimePromptFacts {
+  environment?: ReturnType<typeof gatherEnvironment>;
+  projectInstructions?: ReturnType<typeof loadProjectInstructions>;
+  memory?: string;
+}
+
+/**
+ * arch2 ticket A2: ONE owner of the runtime-bag -> buildLoopBase field
+ * mapping. index.tsx and print-mode.ts repeated these six lines verbatim,
+ * so a new prompt part was shotgun surgery across both consumers.
+ */
+export function loopBaseFromRuntime(args: {
+  config: AppConfig;
+  resolution: ResolvedModel;
+  sessionId: string;
+  runtime: RuntimePromptFacts;
+}): LoopBase {
+  const { config, resolution, sessionId, runtime } = args;
+  return buildLoopBase({
+    config,
+    resolution,
+    sessionId,
+    environment: runtime.environment,
+    projectInstructions: runtime.projectInstructions,
+    memory: runtime.memory,
+    customPrompt: config.agent.systemPrompt || undefined,
+    rootDir: runtime.environment?.workingDirectory ?? process.cwd(),
+  });
 }
 
 /**
@@ -75,7 +114,7 @@ export function runPinSkills(projectDir: string, pinSkillsDir: string): never {
     console.log(`pinned ${lock.skills.length} skill file(s) under ${target} (source: ${lock.source})`);
     process.exit(0);
   } catch (err: unknown) {
-    console.error(`[skills-lock] ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[skills-lock] ${errorMessage(err)}`);
     process.exit(1);
   }
 }
@@ -88,7 +127,7 @@ export function collectShellFacts(platform: NodeJS.Platform = os.platform()): Sh
     facts = { shell: summary.shell, ...(summary.note !== undefined ? { shellNote: summary.note } : {}) };
   } catch (err) {
     facts = {
-      shell: `unresolved (${err instanceof Error ? err.message : String(err)})`,
+      shell: `unresolved (${errorMessage(err)})`,
       shellNote: 'The bash tool refuses to run until this is fixed — point NOVA_SHELL at a valid interpreter or unset it.',
     };
   }
@@ -185,11 +224,12 @@ export async function buildToolRuntime(opts: {
     terminate: (handle) => { if (handle.pid !== undefined) killProcessTree(handle.pid); },
   });
   // Tier-2 OS sandbox (ticket 02; arch 01): one deep module owns the whole
-  // lifecycle (construct, notices, grants, exit restore). Arch 02: the
-  // wrap it hands out is consumed ONLY through the ShellLauncher seam —
-  // every shell child (bash, powershell, background jobs, session shells)
-  // spawns through it; there is no per-call wrap knob to forget. Hooks are
-  // the one deliberate identity-wrap path, declared in cli/hook-spawner.ts.
+  // lifecycle (probe/grants/gate/exit-restore — the sandbox registers its own
+  // dispose). Arch2 A1: the launcher consumes the sandbox directly; applying
+  // the wrap and draining/reporting degrade notices is seam-owned, so this
+  // composition root sequences nothing. Every shell child (bash, powershell,
+  // background jobs, session shells) spawns through it; hooks are the one
+  // deliberate unsandboxed path, declared in cli/hook-spawner.ts.
   const sandbox = createOsSandbox({
     osLevel: config.sandbox.osLevel ?? 'off',
     paths: {
@@ -199,20 +239,7 @@ export async function buildToolRuntime(opts: {
     },
     deps: defaultWinWrapDeps(novaHome()),
   });
-  for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
-  if (sandbox.enabled) {
-    process.once('exit', () => sandbox.dispose());
-  }
-  const launcher = createShellLauncher({
-    wrap: sandbox.enabled
-      ? (inv, cwd) => {
-          // Per-binary degrade notices surface on first use of each shell.
-          const out = sandbox.wrapSpawn(inv, cwd);
-          for (const notice of sandbox.drainNotices()) console.error(`[sandbox] ${notice}`);
-          return out;
-        }
-      : identityWrap,
-  });
+  const launcher = createShellLauncher({ sandbox });
 
   // Named persistent shell sessions (ticket 07): one long-lived bash per
   // name, sentinel-framed. The shells die with the process by contract.
@@ -299,7 +326,7 @@ export async function buildToolRuntime(opts: {
     todoState,
     subagentSink,
     subagentLiveSink,
-    mcpManager,
+    dispose: () => mcpManager.stopAll(),
     mcpConnectionCount,
     environment,
     projectInstructions,

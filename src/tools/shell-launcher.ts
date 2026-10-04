@@ -4,20 +4,30 @@ import { runSpawnCommand, spawnBackground, type RunResult } from './spawn-runner
 import type { JobHandle } from './jobs.js';
 
 /**
- * ShellLauncher (arch ticket 02): the ONE seam through which every shell
- * child process is spawned — foreground run, background start, hook
- * capture, interactive session. The OS-level wrap (tier-2) is applied
- * inside, unconditionally: a tool CANNOT reach spawn without passing it,
- * so "every shell child is wrapped" is structural, not a per-caller
- * convention. Callers that must run outside the sandbox (declarative
- * hooks — user-supplied commands, the Claude-Code-parity documented
- * boundary) inject identityWrap explicitly; that choice is then visible
- * at the construction site instead of being an absent optional.
+ * ShellLauncher (arch ticket 02; arch2 ticket A1): the ONE seam through
+ * which every shell child process is spawned — foreground run, background
+ * start, hook capture, interactive session. The seam takes the SANDBOX
+ * itself, not a bare wrap function: applying the tier-2 wrap, draining the
+ * degrade notices it produces, and reporting them is launcher-owned, so no
+ * composition root can get the ordering wrong or forget a drain. A caller
+ * that must run OUTSIDE the sandbox (declarative hooks — user-supplied
+ * commands, the Claude-Code-parity documented boundary) injects the
+ * `unsandboxed` adapter explicitly; the choice stays visible at the
+ * construction site instead of being an absent optional.
  */
 
-export type WrapSpawn = (invocation: SpawnInvocation, cwd: string) => SpawnInvocation;
+/** Minimal view of the OS sandbox the launcher drives (OsSandbox satisfies it). */
+export interface SandboxView {
+  wrapSpawn(invocation: SpawnInvocation, cwd: string): SpawnInvocation;
+  /** Notices accumulated since the last drain, in order; each surfaces once. */
+  drainNotices(): string[];
+}
 
-export const identityWrap: WrapSpawn = (invocation) => invocation;
+/** The explicit no-sandbox adapter: identity wrap, no notices, ever. */
+export const unsandboxed: SandboxView = {
+  wrapSpawn: (invocation) => invocation,
+  drainNotices: () => [],
+};
 
 export interface LauncherRunOptions {
   cwd: string;
@@ -43,18 +53,40 @@ export interface ShellLauncher {
   interactive(invocation: SpawnInvocation, options: { cwd: string }): ChildProcess;
 }
 
-export function createShellLauncher(deps: { wrap: WrapSpawn }): ShellLauncher {
+export interface ShellLauncherDeps {
+  sandbox: SandboxView;
+  /** Notice report channel; defaults to stderr with the [sandbox] prefix. */
+  onNotice?: (notice: string) => void;
+}
+
+const defaultOnNotice = (notice: string): void => {
+  console.error(`[sandbox] ${notice}`);
+};
+
+export function createShellLauncher(deps: ShellLauncherDeps): ShellLauncher {
+  const report = deps.onNotice ?? defaultOnNotice;
+  // Wrap, then drain: degrade notices produced by a wrap surface on first
+  // use of each shell, exactly once (the sandbox's drain empties them).
+  const apply = (invocation: SpawnInvocation, cwd: string): SpawnInvocation => {
+    const wrapped = deps.sandbox.wrapSpawn(invocation, cwd);
+    for (const notice of deps.sandbox.drainNotices()) report(notice);
+    return wrapped;
+  };
+  // Startup visibility: the grants-active / fallback notice exists BEFORE
+  // any spawn and must not wait for the first tool call.
+  for (const notice of deps.sandbox.drainNotices()) report(notice);
+
   return {
     run(invocation, options) {
-      return runSpawnCommand(deps.wrap(invocation, options.cwd), options);
+      return runSpawnCommand(apply(invocation, options.cwd), options);
     },
 
     start(invocation, options) {
-      return spawnBackground(deps.wrap(invocation, options.cwd), options);
+      return spawnBackground(apply(invocation, options.cwd), options);
     },
 
     capture(invocation, options) {
-      const inv = deps.wrap(invocation, options.cwd);
+      const inv = apply(invocation, options.cwd);
       return new Promise<CapturedResult>((resolve) => {
         const child = spawn(inv.file, inv.args, {
           cwd: options.cwd,
@@ -92,7 +124,7 @@ export function createShellLauncher(deps: { wrap: WrapSpawn }): ShellLauncher {
     },
 
     interactive(invocation, options) {
-      const inv = deps.wrap(invocation, options.cwd);
+      const inv = apply(invocation, options.cwd);
       return spawn(inv.file, inv.args, {
         cwd: options.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
