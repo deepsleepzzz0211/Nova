@@ -130,6 +130,8 @@ export function buildExtractionTask(
     '- Use ONLY the content of these messages. Do not verify anything against the repo, git, or the codebase — no source investigation turns.',
     '- Do not save what the repo, AGENTS.md, or git history already record, and no transient task state.',
     '- One fact per topic file. BEFORE writing, check the existing indexes below: if a topic already covers the fact, RE-USE its name with memory_write so it UPDATES in place instead of duplicating.',
+    '- A missing MEMORY.md or read error on one simply means that tree is EMPTY — that is no reason to save nothing; write new topics with memory_write (it creates the tree).',
+    '- Bias toward saving: durable facts the user states (rules, conventions, identifiers, preferences) are exactly what this memory is for. Reserve "Nothing to save." for windows that are pure chatter with no durable fact at all.',
     '- memory_write scope: "user" for personal preferences and machine-environment facts; "project" for team-shared conventions, commands, and constraints.',
     '- Turn discipline (you have at most 5 rounds): turn 1 — issue ALL read_file/grep calls in parallel for topics you might update; turn 2 — issue ALL memory_write calls in parallel. Do not interleave reads and writes across turns.',
     '- Your tools are CONFINED to the memory trees below; any path outside them is denied.',

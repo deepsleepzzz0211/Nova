@@ -76,6 +76,15 @@ function countWords(text: string): number {
   return text.split(/\s+/u).filter(Boolean).length;
 }
 
+/**
+ * Is this text real user prose? Word count for spaced scripts; a character
+ * mass floor for spaceless ones (CJK sentences have no whitespace, and a
+ * full Chinese requirement would otherwise score one "word" and be skipped).
+ */
+function isUserProse(text: string, minWords: number): boolean {
+  return countWords(text) >= minWords || text.replace(/\s+/gu, '').length >= 12;
+}
+
 function normalizeSlashes(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -112,7 +121,7 @@ function containsDirectMemoryWrite(window: readonly Message[], snapshot: Extract
 
 function containsUserProse(window: readonly Message[], minWords: number): boolean {
   return window.some(
-    (m) => m.role === 'user' && typeof m.content === 'string' && countWords(m.content) >= minWords,
+    (m) => m.role === 'user' && typeof m.content === 'string' && isUserProse(m.content, minWords),
   );
 }
 
@@ -123,7 +132,8 @@ export function createExtractionScheduler(options: ExtractionSchedulerOptions): 
   let cursor = options.initialCursor ?? 0;
   let running: Promise<void> | undefined;
   let latestPending: (() => ExtractionSnapshot) | undefined;
-  let shuttingDown = false;
+  let intakeClosed = false;
+  let abandoned = false;
 
   const advance = (to: number): void => {
     if (to > cursor) {
@@ -133,6 +143,7 @@ export function createExtractionScheduler(options: ExtractionSchedulerOptions): 
   };
 
   const processSnapshot = async (build: () => ExtractionSnapshot): Promise<void> => {
+    if (abandoned) return;
     let snapshot: ExtractionSnapshot;
     try {
       snapshot = build();
@@ -157,26 +168,25 @@ export function createExtractionScheduler(options: ExtractionSchedulerOptions): 
     } catch {
       return; // failed extraction does NOT advance the cursor; retry next turn
     }
-    if (!shuttingDown && (status === 'success' || status === 'no-op')) advance(length);
+    if (!abandoned && (status === 'success' || status === 'no-op')) advance(length);
   };
 
   const run = async (first: () => ExtractionSnapshot): Promise<void> => {
     try {
       let current: (() => ExtractionSnapshot) | undefined = first;
-      while (current && !shuttingDown) {
+      while (current && !abandoned) {
         await processSnapshot(current);
         current = latestPending;
         latestPending = undefined;
       }
     } finally {
-      if (shuttingDown) latestPending = undefined;
       running = undefined;
     }
   };
 
   return {
     schedule(build) {
-      if (!enabled || shuttingDown) return; // disabled: zero side effects, thunk never read
+      if (!enabled || intakeClosed) return; // disabled: zero side effects, thunk never read
       if (running) {
         latestPending = build; // single-flight coalesce: newest replaces
         return;
@@ -190,24 +200,28 @@ export function createExtractionScheduler(options: ExtractionSchedulerOptions): 
       }
     },
     getCursor: () => cursor,
-    hasPendingWork: () => !shuttingDown && (running !== undefined || latestPending !== undefined),
+    hasPendingWork: () => !abandoned && (running !== undefined || latestPending !== undefined),
     async drain() {
       while (running) {
         await running;
       }
     },
     async shutdown() {
-      shuttingDown = true;
-      latestPending = undefined;
-      const inFlight = running;
-      if (!inFlight) return;
+      // Close intake, then DRAIN what is already queued (a one-shot print
+      // session must still get its extraction). Past the budget an executor
+      // that never settles is abandoned — memory is best-effort and the exit
+      // path must not hang on it.
+      intakeClosed = true;
+      const work = running ?? Promise.resolve();
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, drainBudgetMs);
-        void inFlight.then(() => {
+        const timer = setTimeout(() => {
+          abandoned = true;
+          resolve();
+        }, drainBudgetMs);
+        void work.then(() => {
           clearTimeout(timer);
           resolve();
         });
-        // Past the budget the hung executor is abandoned: the timer resolves.
       });
     },
   };

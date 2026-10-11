@@ -145,6 +145,15 @@ describe('extraction scheduler (ticket 04 mechanics)', () => {
     expect(scheduler.getCursor()).toBe(4);
   });
 
+  it('CJK prose counts: a spaceless Chinese sentence is real user prose', async () => {
+    const { scheduler, calls } = makeScheduler();
+    scheduler.schedule(() =>
+      snap([u('这个项目里我们规定安装依赖永远用 pnpm，禁止直接使用 npm。'), asst()]),
+    );
+    await scheduler.drain();
+    expect(calls).toHaveLength(1);
+  });
+
   it('executor failure does NOT advance the cursor (window grows next time)', async () => {
     const { scheduler, persisted } = makeScheduler({ extract: async () => 'error' });
     scheduler.schedule(() => snap([USER_PROSE, asst()]));
@@ -236,6 +245,17 @@ describe('extraction scheduler (ticket 04 mechanics)', () => {
     const before = scheduler.getCursor();
     scheduler.schedule(() => snap([USER_PROSE, asst(), u('late message text here'), asst()]));
     expect(scheduler.getCursor()).toBe(before);
+  });
+
+  it('shutdown DRAINS queued work within the budget (one-shot print sessions)', async () => {
+    const { scheduler, calls } = makeScheduler();
+    scheduler.schedule(() => snap([USER_PROSE, asst()])); // 2 msgs
+    scheduler.schedule(() => snap([USER_PROSE, asst(), u('later question about things'), asst()])); // pending, 4
+    await scheduler.shutdown();
+    // the coalesced pending snapshot still ran — shutdown waits, it does not abort
+    expect(calls).toHaveLength(2);
+    expect(scheduler.getCursor()).toBe(4);
+    expect(scheduler.hasPendingWork()).toBe(false);
   });
 
   it('initialCursor resumes from persisted session metadata', async () => {

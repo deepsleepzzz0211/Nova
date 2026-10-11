@@ -154,6 +154,7 @@ describe('memory extractor (task, outcomes, isolation)', () => {
     expect(task).toContain('EXISTING-HOOK');
     expect(task).toMatch(/Nothing to save/i);
     expect(task).toMatch(/parallel/i); // turn-1 reads / turn-2 writes discipline
+    expect(task).toMatch(/EMPTY/i); // an unreadable/missing MEMORY.md means an empty tree, not "save nothing"
   });
 
   it('scripted round: memory_write lands topic + index in the routed tree; status success', async () => {
