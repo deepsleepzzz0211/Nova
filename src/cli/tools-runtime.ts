@@ -256,7 +256,10 @@ export async function buildToolRuntime(opts: {
   }));
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool(todoState));
-  toolRegistry.register(createMemoryTool(path.join(projectDir, '.nova', 'memory')));
+  toolRegistry.register(createMemoryTool({
+    user: novaPath('memory'),
+    project: path.join(projectDir, '.nova', 'memory'),
+  }));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
   // Subagent progress sink: useAgent assigns the real notify() once the

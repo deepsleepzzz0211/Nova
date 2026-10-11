@@ -159,12 +159,21 @@ export function buildMemorySection(memoryDirs: string[]): string {
   ].join('\n');
 }
 
+/** The two memory trees a session writes to (memory-v2 ticket 02). */
+export interface MemoryTrees {
+  /** User-level tree under NOVA_HOME — private to this machine. */
+  user: string;
+  /** Project-level tree under <repo>/.nova — shared with the team via the repo. */
+  project: string;
+}
+
 /**
- * memory_write tool bound to ONE memory tree (scope routing is ticket 02).
- * The description carries the write discipline so the rules are present even
- * in sessions that have no memories yet.
+ * memory_write tool bound to BOTH memory trees. `scope` routes the write:
+ * 'user' → the private tree, 'project' (default) → the repo tree. The
+ * description carries the write discipline AND the routing rules so they are
+ * present even in sessions that have no memories yet.
  */
-export function createMemoryTool(memoryDir: string): Tool {
+export function createMemoryTool(trees: MemoryTrees): Tool {
   return {
     name: 'memory_write',
     description:
@@ -172,29 +181,36 @@ export function createMemoryTool(memoryDir: string): Tool {
       'Available to future sessions via the MEMORY.md index. Choose type: user (who the user is, ' +
       'preferences), feedback (how the user wants you to work — include the why), project ' +
       '(goals/constraints not derivable from code or git), reference (pointers to external ' +
-      'resources). Before saving, check the index for an existing topic that covers it and ' +
-      'RE-USE its name to update in place; never store what the repo or AGENTS.md already ' +
-      'records. Not for transient task state (use todo_write).',
+      'resources). Choose scope: "user" for personal preferences and machine-local environment ' +
+      'facts (private to this machine); "project" for team-shared conventions, build/deploy ' +
+      'commands, and repo goals — the default. Before saving, check the index for an existing ' +
+      'topic that covers it and RE-USE its name to update in place; never store what the repo or ' +
+      'AGENTS.md already records. Not for transient task state (use todo_write).',
     parameters: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Short kebab-case topic slug, e.g. pnpm-only.' },
         description: { type: 'string', description: 'One-line recall hook shown in the index (under ~200 chars).' },
         type: { type: 'string', enum: [...MEMORY_TYPES], description: 'Memory category.' },
+        scope: { type: 'string', enum: ['user', 'project'], description: 'Which tree to write: user (private, this machine only) or project (shared via the repo). Default: project.' },
         fact: { type: 'string', description: 'The fact itself; for feedback/project also include **Why:** and **How to apply:** lines.' },
       },
       required: ['name', 'description', 'type', 'fact'],
     },
     metadata: { category: 'memory', cacheable: false, timeout: 5_000 },
     async execute(params) {
+      const scope = params.scope === undefined ? 'project' : params.scope;
+      if (scope !== 'user' && scope !== 'project') {
+        return { content: `memory_write failed: unknown scope "${String(scope)}" (expected user or project)`, isError: true };
+      }
       try {
-        const fileName = upsertMemoryTopic(memoryDir, {
+        const fileName = upsertMemoryTopic(trees[scope], {
           name: typeof params.name === 'string' ? params.name : '',
           description: typeof params.description === 'string' ? params.description : '',
           type: (params.type ?? '') as MemoryType,
           body: typeof params.fact === 'string' ? params.fact : '',
         });
-        return { content: `Remembered to ${fileName} (index updated).` };
+        return { content: `Remembered to ${scope}/${fileName} (index updated).` };
       } catch (err) {
         return { content: `memory_write failed: ${errorMessage(err)}`, isError: true };
       }

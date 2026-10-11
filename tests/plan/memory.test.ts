@@ -175,43 +175,97 @@ describe('buildMemorySection (what the frozen prompt shows)', () => {
     const section = buildMemorySection([tree]);
     expect(section).toMatch(/WARNING/i);
   });
+
+  it('keeps the given tree order (user block before project block — cache-stable injection)', () => {
+    const userTree = fs.mkdirSync(path.join(dir, 'u'), { recursive: true }) || path.join(dir, 'u');
+    const projTree = fs.mkdirSync(path.join(dir, 'p'), { recursive: true }) || path.join(dir, 'p');
+    upsertMemoryTopic(userTree, { name: 'u-hook', description: 'UUHOOK', type: 'feedback', body: 'b' });
+    upsertMemoryTopic(projTree, { name: 'p-hook', description: 'PPHOOK', type: 'project', body: 'b' });
+    const section = buildMemorySection([userTree, projTree]);
+    expect(section.indexOf('UUHOOK')).toBeLessThan(section.indexOf('PPHOOK'));
+  });
 });
 
-describe('memory_write tool (new interface)', () => {
-  let dir: string;
+describe('memory_write tool (scope routing, ticket 02)', () => {
+  let userTree: string;
+  let projTree: string;
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-mem-tool-'));
+    userTree = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-mem-user-'));
+    projTree = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-mem-proj-'));
   });
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(userTree, { recursive: true, force: true });
+    fs.rmSync(projTree, { recursive: true, force: true });
   });
 
-  const ctx = (): never => ({ workingDirectory: dir } as never);
+  const trees = () => ({ user: userTree, project: projTree });
+  const ctx = (): never => ({ workingDirectory: projTree } as never);
 
-  it('writes a topic file + index line and confirms', async () => {
-    const tool = createMemoryTool(dir);
+  it('scope=project writes the topic file + index in the project tree only', async () => {
+    const tool = createMemoryTool(trees());
     const r = await tool.execute(
-      { name: 'deploys-via-gha', description: 'deploys run on GitHub Actions', type: 'project', fact: 'CI does the deploy; never deploy from laptops.' },
+      { name: 'deploys-via-gha', description: 'deploys run on GitHub Actions', type: 'project', scope: 'project', fact: 'CI does the deploy; never deploy from laptops.' },
       ctx(),
     );
     expect(r.isError ?? false).toBe(false);
     expect(r.content).toContain('deploys-via-gha.md');
-    expect(fs.existsSync(path.join(dir, 'deploys-via-gha.md'))).toBe(true);
-    expect(readMemory(path.join(dir, 'MEMORY.md'))).toContain('deploys run on GitHub Actions');
+    expect(fs.existsSync(path.join(projTree, 'deploys-via-gha.md'))).toBe(true);
+    expect(readMemory(path.join(projTree, 'MEMORY.md'))).toContain('deploys run on GitHub Actions');
+    expect(fs.existsSync(path.join(userTree, 'deploys-via-gha.md'))).toBe(false);
+    expect(fs.existsSync(path.join(userTree, 'MEMORY.md'))).toBe(false);
+  });
+
+  it('scope=user writes the user tree only — indexes stay unpolluted across trees', async () => {
+    const tool = createMemoryTool(trees());
+    const r = await tool.execute(
+      { name: 'pnpm-only', description: 'user prefers pnpm over npm', type: 'feedback', scope: 'user', fact: 'Never suggest npm install.' },
+      ctx(),
+    );
+    expect(r.isError ?? false).toBe(false);
+    expect(fs.existsSync(path.join(userTree, 'pnpm-only.md'))).toBe(true);
+    expect(readMemory(path.join(userTree, 'MEMORY.md'))).toContain('user prefers pnpm');
+    expect(fs.existsSync(path.join(projTree, 'pnpm-only.md'))).toBe(false);
+    expect(fs.existsSync(path.join(projTree, 'MEMORY.md'))).toBe(false);
+  });
+
+  it('missing scope defaults to project (current behavior preserved)', async () => {
+    const tool = createMemoryTool(trees());
+    const r = await tool.execute(
+      { name: 'tests-here', description: 'tests live in tests/plan', type: 'project', fact: 'b' },
+      ctx(),
+    );
+    expect(r.isError ?? false).toBe(false);
+    expect(fs.existsSync(path.join(projTree, 'tests-here.md'))).toBe(true);
+    expect(fs.existsSync(path.join(userTree, 'tests-here.md'))).toBe(false);
+  });
+
+  it('an unknown scope is rejected, not silently routed', async () => {
+    const tool = createMemoryTool(trees());
+    const r = await tool.execute(
+      { name: 'x', description: 'd', type: 'project', scope: 'team', fact: 'b' },
+      ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(fs.readdirSync(projTree)).toEqual([]);
+    expect(fs.readdirSync(userTree)).toEqual([]);
   });
 
   it('rejects empty facts and unknown types', async () => {
-    const tool = createMemoryTool(dir);
+    const tool = createMemoryTool(trees());
     expect((await tool.execute({ name: 'a', description: 'd', type: 'project', fact: '  ' }, ctx())).isError).toBe(true);
     expect((await tool.execute({ name: 'a', description: 'd', type: 'vibes', fact: 'x' }, ctx())).isError).toBe(true);
     expect((await tool.execute({ name: '  ', description: 'd', type: 'user', fact: 'x' }, ctx())).isError).toBe(true);
   });
 
-  it('tool description carries the write discipline (dedup, update-first, no repo-derivable facts)', () => {
-    const tool = createMemoryTool(dir);
+  it('description carries the write discipline AND the scope-routing examples', () => {
+    const tool = createMemoryTool(trees());
     expect(tool.description).toMatch(/update/i);
     expect(tool.description).toMatch(/already/i);
     expect(tool.description).toMatch(/one fact/i);
+    // Routing taught to the model: personal/environment → user, conventions → project, default project.
+    expect(tool.description).toMatch(/personal/i);
+    expect(tool.description).toMatch(/team/i);
+    expect(tool.description).toMatch(/default/i);
   });
 });
 
