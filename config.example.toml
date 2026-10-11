@@ -135,3 +135,9 @@ args = ["./server.js"]
 # cost display; rates are USD per 1M tokens. Missing cache rates fall back to
 # the input rate, and a model without pricing shows '—'.
 #   { "id": "gpt-4.1", "cost": { "input": 2.0, "output": 8.0, "cacheRead": 0.5 } }
+
+[memory]
+# Background memory extraction after each normal turn (memory-v2 ticket 04).
+# OFF by default: sessions only write memory through the memory_write tool
+# until the extraction subagent ships and is proven on real machines.
+extraction_enabled = false

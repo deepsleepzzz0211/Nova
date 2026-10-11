@@ -86,6 +86,9 @@ export async function runPrintMode(opts: {
   });
   try {
     const result = await loop.processUserInput(printPrompt);
+    // A NORMAL turn end schedules background memory extraction (ticket 04);
+    // gated by memory.extraction_enabled, inert by default.
+    runtime.scheduleMemoryExtraction(loop.getMessages());
     // arch2 A3 behavior fix: a turn that streamed an [Error: token exits
     // non-zero in BOTH formats (the old text path collected sawError and
     // still exited 0; the pinned e2e was updated with the batch approval).

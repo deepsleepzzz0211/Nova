@@ -65,6 +65,11 @@ async function main(): Promise<void> {
     projectDir,
     subagentsDir: session.subagentsDir,
     resolveSpec: model.resolveSpec,
+    // Extraction cursor rides the session JSONL (memory-v2 ticket 04).
+    sessionStore: session.sessionStore,
+    ...(session.memoryExtractionCursor !== undefined
+      ? { extractionCursor: session.memoryExtractionCursor }
+      : {}),
   });
   const { mcpConnectionCount } = runtime;
 
@@ -159,6 +164,9 @@ async function main(): Promise<void> {
     toolExecutionPipeline: runtime.toolExecutionPipeline,
     sessionStore: session.sessionStore,
     initialHistory: session.initialHistory,
+    // Background memory extraction hook after normal turns (ticket 04;
+    // gated by memory.extraction_enabled).
+    onTurnEnd: (messages) => runtime.scheduleMemoryExtraction(messages),
     skills: runtime.skillRegistry,
     directoryInstructions: loopBase.directoryInstructions,
     // Session file checkpoints (/undo code revert, ticket 03): keyed by the

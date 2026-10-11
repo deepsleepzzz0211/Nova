@@ -57,6 +57,7 @@ export interface UseAgentConfig {
   userCommands?: UserCommand[];
   /** App-owned two-way /undo gate (context-economics ticket 03). */
   requestUndoChoice?: (files: string[]) => Promise<'files' | 'chat' | 'cancel'>;
+  onTurnEnd?: (messages: readonly Message[]) => void; // after each NORMAL turn end (memory-v2 04)
   /** --with-files: /undo restores code without asking. */
   undoWithFiles?: boolean;
   /** Extra system prompt parts (environment facts, project instructions). */
@@ -307,6 +308,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setIsThinking(false);
         setIsStreaming(false);
         settleDanglingPermission();
+        config.onTurnEnd?.(loop.getMessages());
       },
       (err: unknown) => {
         batcher.flushNow();
@@ -314,8 +316,7 @@ export function useAgent(config: UseAgentConfig): UseAgentResult {
         setIsThinking(false);
         setIsStreaming(false);
         // Errors must be visible, never swallowed (AGENTS: implemented error handling).
-        const msg = errorMessage(err);
-        setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${msg}` }]);
+        setMessages((prev) => [...prev, { role: 'system' as const, content: `[error] ${errorMessage(err)}` }]);
         settleDanglingPermission();
       },
     );

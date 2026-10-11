@@ -17,6 +17,13 @@ import { toSlashes } from '../shared/paths.js';
 import { resolvePowerShell } from '../tools/powershell.js';
 import { MCPManager } from '../mcp/manager.js';
 import { buildMemorySection, createMemoryTool } from '../memory/store.js';
+import {
+  createExtractionScheduler,
+  type ExtractionSnapshot,
+  type MemoryExtractor,
+} from '../memory/extraction-scheduler.js';
+import type { Message } from '../llm/types.js';
+import type { SessionWriter } from '../agent/session.js';
 import { PermissionPolicy } from '../permission/policy.js';
 import { ToolResultCache } from '../cache/tool-result-cache.js';
 import { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
@@ -68,6 +75,12 @@ export interface ToolRuntime {
   environment: ReturnType<typeof gatherEnvironment>;
   projectInstructions: ReturnType<typeof loadProjectInstructions>;
   memory: string | undefined;
+  /**
+   * memory-v2 ticket 04: call after each NORMAL turn end with the live
+   * branch. Schedules a background memory extraction when
+   * `memory.extraction_enabled` is on; a no-op (zero side effects) while off.
+   */
+  scheduleMemoryExtraction(messages: readonly Message[]): void;
 }
 
 /** The prompt-facts slice of the runtime bag that LoopBase assembly reads. */
@@ -160,6 +173,12 @@ export async function buildToolRuntime(opts: {
   projectDir: string;
   subagentsDir: string;
   resolveSpec: (spec: string) => ResolveSpecResult;
+  /** Session JSONL writer: the extraction cursor rides its metadata (ticket 04). */
+  sessionStore: SessionWriter;
+  /** Cursor restored from a resumed session file. */
+  extractionCursor?: number;
+  /** Executor seam — ticket 05 mounts the real memory subagent here. */
+  memoryExtractor?: MemoryExtractor;
 }): Promise<ToolRuntime> {
   const { config, llm, projectDir, subagentsDir, resolveSpec } = opts;
 
@@ -197,12 +216,17 @@ export async function buildToolRuntime(opts: {
   });
   const projectInstructions = loadProjectInstructions(projectDir);
 
+  // Both memory trees (user-level + project-level): the read-side injection,
+  // the write-side scope router, and the extraction snapshot share this one
+  // definition.
+  const memoryTrees = {
+    user: novaPath('memory'),
+    project: path.join(projectDir, '.nova', 'memory'),
+  };
+
   // Learned memory: user-level + project-level, read ONCE and frozen into
   // the system prompt for the whole session (cache philosophy).
-  const memory = buildMemorySection([
-    novaPath('memory'),
-    path.join(projectDir, '.nova', 'memory'),
-  ]);
+  const memory = buildMemorySection([memoryTrees.user, memoryTrees.project]);
 
   // Initialize tool registry with built-in tools
   const toolRegistry = new ToolRegistry();
@@ -256,10 +280,7 @@ export async function buildToolRuntime(opts: {
   }));
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool(todoState));
-  toolRegistry.register(createMemoryTool({
-    user: novaPath('memory'),
-    project: path.join(projectDir, '.nova', 'memory'),
-  }));
+  toolRegistry.register(createMemoryTool(memoryTrees));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
   // Subagent progress sink: useAgent assigns the real notify() once the
@@ -322,14 +343,42 @@ export async function buildToolRuntime(opts: {
     mcpConnectionCount = config.mcpServers.length;
   }
 
+  // Background memory extraction (memory-v2 ticket 04). Gated by
+  // memory.extraction_enabled — OFF by default, and a disabled scheduler
+  // reads no snapshot and touches no files. The executor is the seam ticket
+  // 05 mounts the real memory subagent on; the stub no-ops.
+  const memoryExtraction = createExtractionScheduler({
+    enabled: config.memory.extractionEnabled,
+    extract: opts.memoryExtractor ?? (async () => 'no-op'),
+    ...(opts.extractionCursor !== undefined ? { initialCursor: opts.extractionCursor } : {}),
+    persistCursor: (index) => {
+      opts.sessionStore
+        .append({ type: 'memory-cursor', index })
+        .catch((err: unknown) => console.error(`[memory] cursor write failed: ${errorMessage(err)}`));
+    },
+  });
+
   return {
+    scheduleMemoryExtraction: (messages: readonly Message[]): void => {
+      const snapshot: ExtractionSnapshot = {
+        messages: [...messages],
+        memoryDirs: [memoryTrees.user, memoryTrees.project],
+        workingDirectory: projectDir,
+      };
+      memoryExtraction.schedule(() => snapshot);
+    },
     toolRegistry,
     toolExecutionPipeline,
     skillRegistry,
     todoState,
     subagentSink,
     subagentLiveSink,
-    dispose: () => mcpManager.stopAll(),
+    dispose: async () => {
+      // Bounded: a hung extractor is abandoned after the drain budget;
+      // memory is best-effort and must not hold the exit path (ticket 04).
+      await memoryExtraction.shutdown();
+      await mcpManager.stopAll();
+    },
     mcpConnectionCount,
     environment,
     projectInstructions,
