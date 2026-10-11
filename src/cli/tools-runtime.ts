@@ -16,7 +16,7 @@ import { resolveShellFromProcess, summarizeShellPlan, defaultShellProbe } from '
 import { toSlashes } from '../shared/paths.js';
 import { resolvePowerShell } from '../tools/powershell.js';
 import { MCPManager } from '../mcp/manager.js';
-import { readMemorySections, createMemoryTool } from '../memory/store.js';
+import { buildMemorySection, createMemoryTool } from '../memory/store.js';
 import { PermissionPolicy } from '../permission/policy.js';
 import { ToolResultCache } from '../cache/tool-result-cache.js';
 import { ToolExecutionPipeline } from '../tools/execution-pipeline.js';
@@ -199,9 +199,9 @@ export async function buildToolRuntime(opts: {
 
   // Learned memory: user-level + project-level, read ONCE and frozen into
   // the system prompt for the whole session (cache philosophy).
-  const memory = readMemorySections([
-    novaPath('memory', 'MEMORY.md'),
-    path.join(projectDir, '.nova', 'memory', 'MEMORY.md'),
+  const memory = buildMemorySection([
+    novaPath('memory'),
+    path.join(projectDir, '.nova', 'memory'),
   ]);
 
   // Initialize tool registry with built-in tools
@@ -256,7 +256,7 @@ export async function buildToolRuntime(opts: {
   }));
   toolRegistry.register(createWebFetchTool());
   toolRegistry.register(createTodoTool(todoState));
-  toolRegistry.register(createMemoryTool(path.join(projectDir, '.nova', 'memory', 'MEMORY.md')));
+  toolRegistry.register(createMemoryTool(path.join(projectDir, '.nova', 'memory')));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
   // Subagent progress sink: useAgent assigns the real notify() once the
