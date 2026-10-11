@@ -184,6 +184,17 @@ describe('buildMemorySection (what the frozen prompt shows)', () => {
     const section = buildMemorySection([userTree, projTree]);
     expect(section.indexOf('UUHOOK')).toBeLessThan(section.indexOf('PPHOOK'));
   });
+
+  it('teaches the on-demand recall protocol: grep the named trees, read the hit, never invent (ticket 03)', () => {
+    const tree = fs.mkdirSync(path.join(dir, 'r'), { recursive: true }) || path.join(dir, 'r');
+    upsertMemoryTopic(tree, { name: 'quirks', description: 'an old environment quirk', type: 'project', body: 'b' });
+    const section = buildMemorySection([tree]);
+    expect(section).toMatch(/grep/i);
+    expect(section).toMatch(/read_file/i);
+    expect(section).toMatch(/invent|fabricat/i);
+    // The protocol must name where to search: the tree path itself.
+    expect(section).toContain(tree);
+  });
 });
 
 describe('memory_write tool (scope routing, ticket 02)', () => {

@@ -152,7 +152,8 @@ export function buildMemorySection(memoryDirs: string[]): string {
   }
   if (blocks.length === 0) return '';
   return [
-    'You have persistent, cross-session memory: each entry is one topic file with frontmatter (name, description, type) and a MEMORY.md index shown below. The index lines are what you know today — open topic files only when an index line looks relevant.',
+    'You have persistent, cross-session memory: bodies live in topic files (frontmatter: name, description, type — one fact per file), indexed by the MEMORY.md excerpts below. The index lines are all the memory you see at startup.',
+    'RECALL ON DEMAND: when an index line looks relevant, search the memory directory named below with the grep tool (keyword or description), then read_file the matching topic file before answering; if nothing matches, say so — never invent or paraphrase remembered content.',
     'When saving with memory_write: one fact per file, update an existing topic instead of creating a duplicate, delete memories proven wrong, and skip things the repo, git history, or AGENTS.md already record.',
     '',
     blocks.join('\n\n'),
