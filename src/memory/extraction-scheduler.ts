@@ -1,4 +1,8 @@
 import type { Message } from '../llm/types.js';
+import { isWithinDirs } from './tree-paths.js';
+import { MEMORY_WRITE_TOOL_NAME } from './store.js';
+import { WRITE_FILE_TOOL_NAME } from '../tools/write-file.js';
+import { EDIT_FILE_TOOL_NAME } from '../tools/edit-file.js';
 
 /**
  * Background memory-extraction scheduler (memory-v2 ticket 04; the mechanics
@@ -65,7 +69,7 @@ export interface ExtractionScheduler {
   hasPendingWork(): boolean;
   /** Await the running chain (no budget) — for tests and graceful paths. */
   drain(): Promise<void>;
-  /** Stop intake, drop pending, bounded-drain the in-flight run. */
+  /** Close intake, drain queued work within the budget, then abandon a hung executor. */
   shutdown(): Promise<void>;
 }
 
@@ -85,10 +89,6 @@ function isUserProse(text: string, minWords: number): boolean {
   return countWords(text) >= minWords || text.replace(/\s+/gu, '').length >= 12;
 }
 
-function normalizeSlashes(p: string): string {
-  return p.replace(/\\/g, '/');
-}
-
 /**
  * Does this window contain a DIRECT memory write? memory_write always; a
  * write_file/edit_file only when its `path` lands inside one of the memory
@@ -99,21 +99,16 @@ function containsDirectMemoryWrite(window: readonly Message[], snapshot: Extract
     if (message.role !== 'assistant' || !message.tool_calls) continue;
     for (const call of message.tool_calls) {
       const name = call.function.name;
-      if (name === 'memory_write') return true;
-      if (name !== 'write_file' && name !== 'edit_file') continue;
+      if (name === MEMORY_WRITE_TOOL_NAME) return true;
+      if (name !== WRITE_FILE_TOOL_NAME && name !== EDIT_FILE_TOOL_NAME) continue;
       let rawPath: unknown;
       try {
         rawPath = (JSON.parse(call.function.arguments || '{}') as { path?: unknown }).path;
       } catch {
         continue; // unparseable args: not evidence of a memory write
       }
-      if (typeof rawPath !== 'string' || !rawPath) continue;
-      const resolved = normalizeSlashes(
-        rawPath.startsWith('/') || /^[A-Za-z]:\//.test(normalizeSlashes(rawPath))
-          ? rawPath
-          : `${snapshot.workingDirectory}/${rawPath}`,
-      );
-      if (snapshot.memoryDirs.some((dir) => resolved.startsWith(`${normalizeSlashes(dir)}/`))) return true;
+      if (typeof rawPath !== 'string') continue;
+      if (isWithinDirs(rawPath, snapshot.memoryDirs, snapshot.workingDirectory)) return true;
     }
   }
   return false;
@@ -154,6 +149,7 @@ export function createExtractionScheduler(options: ExtractionSchedulerOptions): 
     if (length < cursor) {
       // Branch shrank without an onRewind call: clamp so nothing old re-enters.
       cursor = length;
+      persistCursor?.(cursor);
       return;
     }
     const window = snapshot.messages.slice(cursor);

@@ -9,6 +9,7 @@ import { createReadFileTool } from '../tools/read-file.js';
 import { createGrepTool } from '../tools/grep.js';
 import { createGlobTool } from '../tools/glob.js';
 import { errorMessage } from '../shared/errors.js';
+import { isWithinDirs } from './tree-paths.js';
 import {
   createMemoryTool,
   formatMemoryIndex,
@@ -49,17 +50,9 @@ export interface MemoryExtractorDeps {
   onWarn?: (message: string) => void;
 }
 
-function normalizeAbs(p: string, cwd: string): string {
-  return path.resolve(cwd, p).replace(/\\/g, '/').replace(/\/+$/, '');
-}
-
 /** Is `raw` (relative or absolute) inside one of the memory trees? */
 function isWithinTrees(raw: string, trees: MemoryTrees, cwd: string): boolean {
-  const target = normalizeAbs(raw, cwd);
-  return [trees.user, trees.project].some((dir) => {
-    const base = normalizeAbs(dir, cwd);
-    return target === base || target.startsWith(`${base}/`);
-  });
+  return isWithinDirs(raw, [trees.user, trees.project], cwd);
 }
 
 /** Wrap a read tool so its `path` argument must name a memory-tree location. */
@@ -120,7 +113,6 @@ function indexBlock(label: string, dir: string): string {
 /** The full extraction instruction message (task), including the window. */
 export function buildExtractionTask(
   trees: MemoryTrees,
-  snapshot: ExtractionSnapshot,
   window: readonly Message[],
 ): string {
   return [
@@ -171,14 +163,14 @@ export function createMemoryExtractor(deps: MemoryExtractorDeps): MemoryExtracto
       },
       onToolCall: () => undefined,
       onToolResult: () => undefined,
-      // Every mutation the agent can perform lives inside the memory trees by
-      // construction (confined readers + memory_write), so there is nothing
-      // for a human to approve — the ask channel auto-approves within that
-      // boundary only.
+      // Backstop only: every tool here declares permission.mode 'auto' (the
+      // confined readers and memory_write), and all mutation is bounded to
+      // the memory trees by construction — the pipeline's PermissionPolicy
+      // still decides for anything else.
       onPermissionRequest: async () => true,
     });
     try {
-      const turn = await loop.processUserInput(buildExtractionTask(deps.trees, snapshot, window));
+      const turn = await loop.processUserInput(buildExtractionTask(deps.trees, window));
       const text = turn.text.trim();
       if (streamed.includes('[Error:') || text.includes('[Error:')) {
         warn(`[memory] extraction failed: ${truncate(streamed || text, 300)}`);

@@ -167,6 +167,7 @@ async function main(): Promise<void> {
     // Background memory extraction hook after normal turns (ticket 04;
     // gated by memory.extraction_enabled).
     onTurnEnd: (messages) => runtime.scheduleMemoryExtraction(messages),
+    onExtractionRewind: (length) => runtime.noteMemoryExtractionRewind(length),
     skills: runtime.skillRegistry,
     directoryInstructions: loopBase.directoryInstructions,
     // Session file checkpoints (/undo code revert, ticket 03): keyed by the

@@ -82,6 +82,8 @@ export interface ToolRuntime {
    * `memory.extraction_enabled` is on; a no-op (zero side effects) while off.
    */
   scheduleMemoryExtraction(messages: readonly Message[]): void;
+  /** memory-v2 rewind semantics: clamp the extraction cursor after /undo. */
+  noteMemoryExtractionRewind(lengthAfterRewind: number): void;
 }
 
 /** The prompt-facts slice of the runtime bag that LoopBase assembly reads. */
@@ -366,6 +368,8 @@ export async function buildToolRuntime(opts: {
 
   return {
     scheduleMemoryExtraction: (messages: readonly Message[]): void => {
+      // Disabled sessions pay NOTHING here: no snapshot copy, no thunk.
+      if (!config.memory.extractionEnabled) return;
       const snapshot: ExtractionSnapshot = {
         messages: [...messages],
         memoryDirs: [memoryTrees.user, memoryTrees.project],
@@ -373,6 +377,8 @@ export async function buildToolRuntime(opts: {
       };
       memoryExtraction.schedule(() => snapshot);
     },
+    // Disabled sessions never touch the cursor (zero side effects, ticket 04).
+    noteMemoryExtractionRewind: (length: number): void => { if (config.memory.extractionEnabled) memoryExtraction.onRewind(length); },
     toolRegistry,
     toolExecutionPipeline,
     skillRegistry,

@@ -22,6 +22,8 @@ import { ContextOps } from './context-ops.js';
 import { runTurn as runTurnImpl, type TurnHost } from './loop-turn.js';
 import { executeToolCall as executeToolCallImpl, injectSkills as injectSkillsImpl } from './loop-tool-exec.js';
 import type { AgentLoopConfig, AgentTurnResult, ContextDecisionReason, LoopContextConfig } from './loop-types.js';
+import { EDIT_FILE_TOOL_NAME } from '../tools/edit-file.js';
+import { WRITE_FILE_TOOL_NAME } from '../tools/write-file.js';
 
 export type { AgentLoopConfig, AgentTurnResult, ContextDecisionReason, LoopContextConfig } from './loop-types.js';
 
@@ -98,7 +100,13 @@ export class AgentLoop implements TurnHost {
     this.fileHistory = options.fileHistory ?? null;
     this.ctxOps = new ContextOps({
       getMessages: () => this.messages,
-      setMessages: (messages: Message[]) => { this.messages = messages; },
+      setMessages: (messages: Message[]) => {
+        // A shorter replacement branch (/undo, compaction replay) is a
+        // rewind: notify so the memory extraction cursor clamps at the right
+        // point instead of swallowing post-rewind turns.
+        if (messages.length < this.messages.length) options.onBranchTruncation?.(messages.length);
+        this.messages = messages;
+      },
       contextManager: this.contextManager,
       contextStrategy: options.context?.strategy ?? null,
       compactor,
@@ -281,7 +289,7 @@ export class AgentLoop implements TurnHost {
       .getAll()
       .filter((t) => t.fileAccess === 'write')
       .map((t) => t.name);
-    return new Set(declared.length > 0 ? declared : ['edit_file', 'write_file']);
+    return new Set(declared.length > 0 ? declared : [EDIT_FILE_TOOL_NAME, WRITE_FILE_TOOL_NAME]);
   }
 
   /**

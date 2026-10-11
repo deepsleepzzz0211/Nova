@@ -90,7 +90,7 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function renderTopicFile(topic: MemoryTopic & { name: string }): string {
+function renderTopicFile(topic: MemoryTopic): string {
   return [
     '---',
     `name: ${topic.name}`,
@@ -124,7 +124,6 @@ export function upsertMemoryTopic(memoryDir: string, input: MemoryTopic): string
   fs.mkdirSync(memoryDir, { recursive: true });
   const fileName = `${slug}.md`;
   fs.writeFileSync(path.join(memoryDir, fileName), renderTopicFile({ ...input, name: slug }), 'utf-8');
-
   const indexPath = path.join(memoryDir, 'MEMORY.md');
   const link = `](${fileName})`;
   const entry = `- [${slug}](${fileName}) — ${description}`;
@@ -168,6 +167,9 @@ export interface MemoryTrees {
   project: string;
 }
 
+/** Registered name of the memory_write tool (single source; AGENTS no-string rule). */
+export const MEMORY_WRITE_TOOL_NAME = 'memory_write';
+
 /**
  * memory_write tool bound to BOTH memory trees. `scope` routes the write:
  * 'user' → the private tree, 'project' (default) → the repo tree. The
@@ -176,7 +178,7 @@ export interface MemoryTrees {
  */
 export function createMemoryTool(trees: MemoryTrees): Tool {
   return {
-    name: 'memory_write',
+    name: MEMORY_WRITE_TOOL_NAME,
     description:
       'Persist one durable fact to long-term memory as its own topic file (one fact per file). ' +
       'Available to future sessions via the MEMORY.md index. Choose type: user (who the user is, ' +
@@ -204,11 +206,15 @@ export function createMemoryTool(trees: MemoryTrees): Tool {
       if (scope !== 'user' && scope !== 'project') {
         return { content: `memory_write failed: unknown scope "${String(scope)}" (expected user or project)`, isError: true };
       }
+      const rawType = typeof params.type === 'string' ? params.type : '';
+      if (!(MEMORY_TYPES as readonly string[]).includes(rawType)) {
+        return { content: `memory_write failed: unknown memory type "${rawType}" (expected: ${MEMORY_TYPES.join(', ')})`, isError: true };
+      }
       try {
         const fileName = upsertMemoryTopic(trees[scope], {
           name: typeof params.name === 'string' ? params.name : '',
           description: typeof params.description === 'string' ? params.description : '',
-          type: (params.type ?? '') as MemoryType,
+          type: rawType as MemoryType,
           body: typeof params.fact === 'string' ? params.fact : '',
         });
         return { content: `Remembered to ${scope}/${fileName} (index updated).` };

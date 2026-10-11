@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { Message } from '../../src/llm/types.js';
+import type { LLMProvider } from '../../src/llm/provider.js';
+import type { Message, StreamChunk } from '../../src/llm/types.js';
+import { AgentLoop } from '../../src/agent/loop.js';
+import { ToolRegistry } from '../../src/tools/registry.js';
+import { ToolExecutionPipeline } from '../../src/tools/execution-pipeline.js';
+import { ToolResultCache } from '../../src/cache/tool-result-cache.js';
+import { PermissionPolicy } from '../../src/permission/policy.js';
 import { SessionStore } from '../../src/agent/session.js';
 import {
   createExtractionScheduler,
@@ -210,7 +216,7 @@ describe('extraction scheduler (ticket 04 mechanics)', () => {
   });
 
   it('defensive: a snapshot SHORTER than the cursor clamps without re-extracting (missed onRewind)', async () => {
-    const { scheduler, calls } = makeScheduler();
+    const { scheduler, calls, persisted } = makeScheduler();
     scheduler.schedule(() => snap([USER_PROSE, asst(), u('one more long user line'), asst()]));
     await scheduler.drain();
     expect(scheduler.getCursor()).toBe(4);
@@ -219,6 +225,8 @@ describe('extraction scheduler (ticket 04 mechanics)', () => {
     await scheduler.drain();
     expect(calls).toHaveLength(1); // nothing new extracted
     expect(scheduler.getCursor()).toBe(2);
+    // The clamped cursor persists like any other move (resume must not restart from 4).
+    expect(persisted[persisted.length - 1]).toBe(2);
   });
 
   it('shutdown: bounded drain — a hung executor is abandoned once the budget elapses', async () => {
@@ -270,6 +278,38 @@ describe('extraction scheduler (ticket 04 mechanics)', () => {
 describe('memory.extractionEnabled config (ticket 04 switch)', () => {
   it('ships DEFAULT-OFF: extraction never runs until proven on real machines', () => {
     expect(DEFAULT_CONFIG.memory.extractionEnabled).toBe(false);
+  });
+});
+
+describe('loop branch-truncation hook (rewind wiring, review fix)', () => {
+  const echoLLM: LLMProvider = {
+    name: 'faux',
+    capabilities: { streaming: true, toolCalling: true, vision: false, maxContextLength: 128_000, models: ['faux'] },
+    async *chat(): AsyncIterable<StreamChunk> {
+      yield { type: 'text_delta', content: 'echoed' };
+    },
+  };
+
+  it('undoTurns fires onBranchTruncation with the new length (so the extraction cursor clamps, not swallows)', async () => {
+    const seen: number[] = [];
+    const loop = new AgentLoop({
+      llm: echoLLM,
+      toolRegistry: new ToolRegistry(),
+      toolExecutionPipeline: new ToolExecutionPipeline(
+        new ToolResultCache(),
+        new PermissionPolicy({ autoApproveFileWrite: false, autoApproveBash: false, alwaysAllowCommands: [] }),
+      ),
+      config: { maxToolRounds: 2, model: 'faux' },
+      onToken: () => undefined,
+      onToolCall: () => undefined,
+      onToolResult: () => undefined,
+      onPermissionRequest: async () => false,
+      onBranchTruncation: (length) => seen.push(length),
+    });
+    await loop.processUserInput('hello there friend'); // user + assistant = 2
+    expect(loop.getMessages()).toHaveLength(2);
+    loop.undoTurns(1); // chat revert shrinks the branch
+    expect(seen).toEqual([0]);
   });
 });
 
