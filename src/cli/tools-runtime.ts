@@ -22,6 +22,7 @@ import {
   type ExtractionSnapshot,
   type MemoryExtractor,
 } from '../memory/extraction-scheduler.js';
+import { createMemoryExtractor } from '../memory/extraction-agent.js';
 import type { Message } from '../llm/types.js';
 import type { SessionWriter } from '../agent/session.js';
 import { PermissionPolicy } from '../permission/policy.js';
@@ -343,13 +344,18 @@ export async function buildToolRuntime(opts: {
     mcpConnectionCount = config.mcpServers.length;
   }
 
-  // Background memory extraction (memory-v2 ticket 04). Gated by
+  // Background memory extraction (memory-v2 tickets 04+05). Gated by
   // memory.extraction_enabled — OFF by default, and a disabled scheduler
-  // reads no snapshot and touches no files. The executor is the seam ticket
-  // 05 mounts the real memory subagent on; the stub no-ops.
+  // reads no snapshot and touches no files. The executor is the confined
+  // memory subagent (readers + scope-routed memory_write only).
   const memoryExtraction = createExtractionScheduler({
     enabled: config.memory.extractionEnabled,
-    extract: opts.memoryExtractor ?? (async () => 'no-op'),
+    extract: opts.memoryExtractor ?? createMemoryExtractor({
+      llm,
+      model: config.llm.model,
+      toolExecutionPipeline: toolExecutionPipeline,
+      trees: memoryTrees,
+    }),
     ...(opts.extractionCursor !== undefined ? { initialCursor: opts.extractionCursor } : {}),
     persistCursor: (index) => {
       opts.sessionStore
