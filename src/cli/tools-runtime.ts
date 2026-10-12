@@ -254,14 +254,12 @@ export async function buildToolRuntime(opts: {
   // creation per session + cwd carry-over between plain commands. The
   // session: path and the powershell tool bypass it entirely.
   const plainShellState = createPlainShellState({
-    snapshotManagerFactory: (plan) =>
-      plan.kind === 'bash'
-        ? createShellInitSnapshotManager({
-            rootDir: novaPath(),
-            shellPath: plan.path,
-            home: os.homedir(),
-          })
-        : { getOrCreate: async () => undefined },
+    snapshotManagerFactory: (shellPath) =>
+      createShellInitSnapshotManager({
+        rootDir: novaPath(),
+        shellPath,
+        home: os.homedir(),
+      }),
     cwdFileDir: () => os.tmpdir(),
   });
   toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, launcher, state: plainShellState }));

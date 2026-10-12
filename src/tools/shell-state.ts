@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { gitBashPathToWindowsPath, windowsPathToGitBashPath } from '../shared/paths.js';
-import type { ShellInitSnapshot } from './shell-init-snapshot.js';
+import {
+  shellSingleQuote,
+  supportsShellInitSnapshot,
+  type ShellInitSnapshot,
+} from './shell-init-snapshot.js';
 import type { ShellPlan } from './shell-routing.js';
 
 /**
@@ -20,22 +24,17 @@ export function buildSnapshotReplay(input: {
   cwdFileShellPath?: string;
 }): string {
   const lines = [
-    `source '${input.snapshotShellPath}' 2>/dev/null || true`,
+    `source ${shellSingleQuote(input.snapshotShellPath)} 2>/dev/null || true`,
     input.command,
   ];
   if (input.cwdFileShellPath !== undefined) {
     lines.push(
       '__nova_st=$?',
-      `if [ "$__nova_st" -eq 0 ]; then pwd -P > '${input.cwdFileShellPath}'; fi`,
+      `if [ "$__nova_st" -eq 0 ]; then pwd -P > ${shellSingleQuote(input.cwdFileShellPath)}; fi`,
       'exit "$__nova_st"',
     );
   }
   return lines.join('\n');
-}
-
-/** Windows path -> git-bash form for embedding into shell text (posix: identity). */
-export function windowsToGitBashCwd(p: string): string {
-  return windowsPathToGitBashPath(p);
 }
 
 export interface PlainShellState {
@@ -48,8 +47,8 @@ export interface PlainShellState {
 }
 
 export interface PlainShellStateDeps {
-  /** Lazily invoked with the resolved plan; must return the snapshot provider. */
-  snapshotManagerFactory: (plan: ShellPlan) => {
+  /** Lazily invoked with the resolved bash path; returns the snapshot provider. */
+  snapshotManagerFactory: (shellPath: string) => {
     getOrCreate: () => Promise<ShellInitSnapshot | undefined>;
   };
   /** Where per-call cwd capture files live (runtime: os.tmpdir()). */
@@ -60,8 +59,8 @@ export function createPlainShellState(deps: PlainShellStateDeps): PlainShellStat
   let manager: { getOrCreate: () => Promise<ShellInitSnapshot | undefined> } | undefined;
   let currentCwd: string | undefined;
 
-  const snapshotFor = async (plan: ShellPlan): Promise<ShellInitSnapshot | undefined> => {
-    manager ??= deps.snapshotManagerFactory(plan);
+  const snapshotFor = async (shellPath: string): Promise<ShellInitSnapshot | undefined> => {
+    manager ??= deps.snapshotManagerFactory(shellPath);
     return manager.getOrCreate();
   };
 
@@ -71,14 +70,14 @@ export function createPlainShellState(deps: PlainShellStateDeps): PlainShellStat
     },
 
     async wrap(plan, command, opts) {
-      if (plan.kind !== 'bash') return { command };
-      const snapshot = await snapshotFor(plan);
+      if (!supportsShellInitSnapshot(plan)) return { command };
+      const snapshot = await snapshotFor(plan.path);
       if (snapshot === undefined) return { command };
       let cwdFile: string | undefined;
       let cwdFileShellPath: string | undefined;
       if (opts.captureCwd) {
         cwdFile = path.join(deps.cwdFileDir(), `nova-cwd-${randomUUID()}`);
-        cwdFileShellPath = windowsToGitBashCwd(cwdFile);
+        cwdFileShellPath = windowsPathToGitBashPath(cwdFile);
       }
       return {
         command: buildSnapshotReplay({

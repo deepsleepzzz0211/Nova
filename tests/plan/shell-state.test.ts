@@ -3,12 +3,8 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { gitBashPathToWindowsPath } from '../../src/shared/paths.js';
-import {
-  buildSnapshotReplay,
-  createPlainShellState,
-  windowsToGitBashCwd,
-} from '../../src/tools/shell-state.js';
+import { gitBashPathToWindowsPath, windowsPathToGitBashPath } from '../../src/shared/paths.js';
+import { buildSnapshotReplay, createPlainShellState } from '../../src/tools/shell-state.js';
 import type { ShellInitSnapshot } from '../../src/tools/shell-init-snapshot.js';
 import type { ShellPlan, SpawnInvocation } from '../../src/tools/shell-routing.js';
 import { createBashTool } from '../../src/tools/bash.js';
@@ -54,6 +50,26 @@ describe('buildSnapshotReplay (pure command wrapper)', () => {
     expect(out).not.toContain('pwd -P');
   });
 
+  it("paths containing apostrophes are shell-escaped, not quote-broken", () => {
+    const hostile = "/c/Users/O'Brien/snap 'quoted'.sh";
+    const out = buildSnapshotReplay({
+      command: 'echo hi',
+      snapshotShellPath: hostile,
+      cwdFileShellPath: hostile + '.cwd',
+    });
+    // '\'' escaping, never a raw embedded apostrophe inside single quotes.
+    expect(out).toContain("O'\\''Brien");
+    // and the whole wrapped script still parses under real bash WITH those paths
+    const file = path.join(os.tmpdir(), 'nova-replay-apostrophe.sh');
+    fs.writeFileSync(file, out, 'utf-8');
+    try {
+      execFileSync('bash', ['-n', file], { stdio: 'pipe' });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOENT') return;
+      throw err;
+    }
+  });
+
   it('the wrapped script parses under real bash', () => {
     const file = path.join(os.tmpdir(), 'nova-replay-parse.sh');
     fs.writeFileSync(
@@ -74,10 +90,10 @@ describe('buildSnapshotReplay (pure command wrapper)', () => {
   });
 });
 
-describe('windowsToGitBashCwd', () => {
+describe('windowsPathToGitBashPath', () => {
   it('renders windows dirs for shell text', () => {
-    expect(windowsToGitBashCwd('C:\\Users\\me\\proj')).toBe('/c/Users/me/proj');
-    expect(windowsToGitBashCwd('/Users/me/proj')).toBe('/Users/me/proj');
+    expect(windowsPathToGitBashPath('C:\\Users\\me\\proj')).toBe('/c/Users/me/proj');
+    expect(windowsPathToGitBashPath('/Users/me/proj')).toBe('/Users/me/proj');
   });
 });
 
@@ -128,7 +144,7 @@ describe('plain shell state facade', () => {
     const w = await state.wrap(bashPlan, 'cd x', { captureCwd: true });
     expect(w.cwdFile).toBeDefined();
     // Simulate the shell tail writing the new pwd.
-    fs.writeFileSync(w.cwdFile!, windowsToGitBashCwd(target).replace(/^\/([A-Za-z])/, (_m, c: string) => `/${c.toLowerCase()}`), 'utf-8');
+    fs.writeFileSync(w.cwdFile!, windowsPathToGitBashPath(target).replace(/^\/([A-Za-z])/, (_m, c: string) => `/${c.toLowerCase()}`), 'utf-8');
     state.settle(w.cwdFile);
     expect(state.cwd('/other')).not.toBe('/other');
     expect(path.resolve(state.cwd(target)!)).toBe(path.resolve(target));
@@ -139,7 +155,7 @@ describe('plain shell state facade', () => {
   it('a captured path that is not a directory (deleted, stale) never poisons cwd', async () => {
     const { state } = makeState(snapshot);
     const w = await state.wrap(bashPlan, 'rm -rf /tmp/x', { captureCwd: true });
-    fs.writeFileSync(w.cwdFile!, windowsToGitBashCwd(path.join(tmp, 'ghost')) , 'utf-8');
+    fs.writeFileSync(w.cwdFile!, windowsPathToGitBashPath(path.join(tmp, 'ghost')) , 'utf-8');
     state.settle(w.cwdFile);
     expect(state.cwd(undefined)).toBeUndefined();
     expect(fs.existsSync(w.cwdFile!)).toBe(false);
@@ -162,7 +178,7 @@ describe('bash tool wiring (default path only)', () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-bash-wire-'));
     const snapFile = path.join(tmp, 'current.sh');
     fs.writeFileSync(snapFile, '# snap\n', 'utf-8');
-    snap = { path: snapFile, shellPath: windowsToGitBashCwd(snapFile) };
+    snap = { path: snapFile, shellPath: windowsPathToGitBashPath(snapFile) };
     wiredState = () =>
       createPlainShellState({
         snapshotManagerFactory: () => ({ getOrCreate: async () => snap }),
@@ -201,7 +217,7 @@ describe('bash tool wiring (default path only)', () => {
         captured.push({ invocation, cwd: options.cwd });
         const cmd = invocation.args[invocation.args.length - 1] ?? '';
         const m = /pwd -P > '([^']+)'; fi/.exec(cmd);
-        if (m) fs.writeFileSync(gitBashPathToWindowsPath(m[1]!), windowsToGitBashCwd(target), 'utf-8');
+        if (m) fs.writeFileSync(gitBashPathToWindowsPath(m[1]!), windowsPathToGitBashPath(target), 'utf-8');
         return { content: 'ok', exitCode: 0 };
       },
       start: async () => ({}) as never,
@@ -211,7 +227,7 @@ describe('bash tool wiring (default path only)', () => {
     expect(r.isError).toBeUndefined();
     expect(captured).toHaveLength(1);
     const cmd = captured[0].invocation.args[1] ?? '';
-    expect(cmd).toContain(`source '${windowsToGitBashCwd(snap.path)}'`);
+    expect(cmd).toContain(`source '${windowsPathToGitBashPath(snap.path)}'`);
     expect(cmd).toContain('echo hi');
     expect(cmd).toContain('pwd -P');
     expect(captured[0].cwd).toBe(tmp); // first call: fallback

@@ -44,7 +44,7 @@ export interface ShellInitSnapshot {
 }
 
 /** Only the bash family snapshots; cmd returns false (never wrap). */
-export function supportsShellInitSnapshot(plan: ShellPlan): boolean {
+export function supportsShellInitSnapshot(plan: ShellPlan): plan is Extract<ShellPlan, { kind: 'bash' }> {
   return plan.kind === 'bash';
 }
 
@@ -55,8 +55,14 @@ function detectShellKind(shellPath: string): ShellInitSnapshotKind {
   return 'sh';
 }
 
-function shellQuoteAlways(value: string): string {
+function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Shell-safe single-quoted rendering of a path for command embedding
+ *  (shared by the creation script and the replay prelude/capture tail). */
+export function shellSingleQuote(value: string): string {
+  return shellQuote(value);
 }
 
 function shellDoubleQuote(value: string): string {
@@ -86,7 +92,7 @@ export function buildShellInitSnapshotCreationScript(input: {
 }): string {
   const append = (line: string): string => `echo ${shellDoubleQuote(line)} >> "$SNAPSHOT_FILE"`;
   const lines: string[] = [
-    `SNAPSHOT_FILE=${shellQuoteAlways(input.snapshotPath)}`,
+    `SNAPSHOT_FILE=${shellQuote(input.snapshotPath)}`,
     input.configExists
       ? `source ${shellDoubleQuote(input.configPath)} < /dev/null`
       : '# No user config file to source',
@@ -139,8 +145,9 @@ export function buildShellInitSnapshotCreationScript(input: {
     "  alias | sed 's/^alias //g' | sed 's/^/alias -- /' | head -n 1000 >> \"$SNAPSHOT_FILE\"",
     'fi',
     '',
-    '# PATH evaluated after the rc source above (baked, no env values).',
-    "printf 'export PATH=\"%s\"\\n' \"${PATH:-" + shellDoubleQuote(input.pathValue) + "}\" >> \"$SNAPSHOT_FILE\"",
+    // PATH evaluated after the rc source above; %q keeps $, backticks and
+    // quotes inert when the snapshot is later sourced (no re-expansion).
+    "printf 'export PATH=%s\\n' \"$(printf %q \"${PATH:-" + shellQuote(input.pathValue) + "}\")\" >> \"$SNAPSHOT_FILE\"",
     '',
     'if [ ! -f "$SNAPSHOT_FILE" ]; then',
     '  echo "Error: snapshot file was not created" >&2',
@@ -216,7 +223,6 @@ export function createShellInitSnapshotManager(options: ShellInitSnapshotManager
 
   const create = async (): Promise<ShellInitSnapshot | undefined> => {
     try {
-      cleanupStaleShellInitSnapshots({ rootDir: options.rootDir, retentionDays: DEFAULT_RETENTION_DAYS });
       const dir = snapshotDir(options.rootDir);
       fs.mkdirSync(dir, { recursive: true });
       const snapshotPath = path.join(

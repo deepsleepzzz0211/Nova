@@ -5,6 +5,7 @@ import { createShellLauncher, unsandboxed, type ShellLauncher } from './shell-la
 import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
 import type { PlainShellState } from './shell-state.js';
+import type { RunResult } from './spawn-runner.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -155,7 +156,7 @@ export function createBashTool(deps: {
         ? await deps.state.wrap(plan, command, { captureCwd: true })
         : { command };
       const invocation = buildSpawnInvocation(plan, wrapped.command);
-      let result;
+      let result: RunResult;
       try {
         result = await launcher.run(invocation, {
           cwd: plainCwd,

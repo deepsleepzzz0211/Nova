@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { windowsPathToGitBashPath, gitBashPathToWindowsPath } from '../../src/shared/paths.js';
+import { windowsPathToGitBashPath as windowsToGitBashPath } from '../../src/shared/paths.js';
 import {
   supportsShellInitSnapshot,
   buildShellInitSnapshotCreationScript,
@@ -58,8 +59,11 @@ describe('creation script (ZCode-proven capture, no env dump)', () => {
     expect(script).toContain('unalias -a');
     expect(script).toMatch(/declare -F|declare -f/);
     expect(script).toContain('shopt -s expand_aliases');
-    expect(script).toContain('export PATH=');
+    expect(script).toContain('export PATH');
     expect(script).toContain('/c/bin:/x');
+    // Replay-safety: the PATH value is shell-quoted (printf %q), so $/`/" in
+    // a PATH cannot re-expand or break quoting when the snapshot is sourced.
+    expect(script).toContain('printf %q');
     // The absolute rule: no environment-value capture — nothing can leak secrets.
     expect(script).not.toMatch(/\benv -0\b/);
     expect(script).not.toContain('export -p');
@@ -90,6 +94,37 @@ describe('creation script (ZCode-proven capture, no env dump)', () => {
         throw new Error(`bash -n failed for ${kind} script: ${(err as { stderr?: Buffer }).stderr?.toString() ?? String(err)}`);
       }
     }
+  });
+
+  it('PATH with $ and spaces survives create→source round-trip in real bash', (ctx) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-snap-rt-'));
+    const snapPath = path.join(root, 'shell-snapshots', 'rt.sh');
+    fs.mkdirSync(path.dirname(snapPath), { recursive: true });
+    const script = buildShellInitSnapshotCreationScript({
+      shellKind: 'bash',
+      snapshotPath: windowsToGitBashPath(snapPath),
+      configPath: path.join(root, 'nope.bashrc'),
+      configExists: false,
+      pathValue: '/usr/bin',
+    });
+    const scriptFile = path.join(root, 'create.sh');
+    fs.writeFileSync(scriptFile, script, 'utf-8');
+    // PATH is set INSIDE the shells (env-level unix PATH gets MSYS-converted
+    // on win32, which would test the converter instead of the quoting).
+    const shellPathLiteral = '"/x\\$y:/a b"';
+    try {
+      execFileSync('bash', ['-c', `export PATH=${shellPathLiteral}; source '${windowsToGitBashPath(scriptFile)}'`], { stdio: 'pipe' });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOENT') { ctx.skip('no bash on box'); return; }
+      throw new Error(`creation exec failed: ${(err as { stderr?: Buffer }).stderr?.toString()}`);
+    }
+    const replay = execFileSync(
+      'bash',
+      ['-c', `source '${windowsToGitBashPath(snapPath)}' && printf '[%s]' "$PATH"`],
+      { stdio: 'pipe', encoding: 'utf-8' },
+    );
+    expect(replay).toBe('[/x$y:/a b]');
+    fs.rmSync(root, { recursive: true, force: true });
   });
 
   it('strips winpty aliases on msys/cygwin so headless spawns do not die', () => {
