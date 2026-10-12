@@ -4,6 +4,7 @@ import { buildSpawnInvocation, resolveShellFromProcess, type ShellPlan } from '.
 import { createShellLauncher, unsandboxed, type ShellLauncher } from './shell-launcher.js';
 import { JOB_KILL_TOOL_NAME, JOB_OUTPUT_TOOL_NAME, type JobRegistry } from './jobs.js';
 import type { ShellSessionRegistry } from './shell-session.js';
+import type { PlainShellState } from './shell-state.js';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -28,6 +29,11 @@ export function createBashTool(deps: {
   jobs?: JobRegistry;
   sessions?: ShellSessionRegistry;
   /**
+   * Snapshot replay + cwd carry-over for the DEFAULT (non-session) path
+   * (shell-snapshot ticket 02). Absent = today's plain commands.
+   */
+  state?: PlainShellState;
+  /**
    * The single spawn seam (arch ticket 02): run/start apply the tier-2 OS
    * wrap and degrade-notice draining internally — this tool has no wrap
    * knob to forget. Default is an unsandboxed launcher (tests and
@@ -43,7 +49,12 @@ export function createBashTool(deps: {
     description:
       'Execute a shell command and return its output. On Windows commands run in a POSIX ' +
       'bash (Git Bash) when available; otherwise cmd.exe — check the Platform/Shell lines ' +
-      'in the environment section before using bash-specific syntax.',
+      'in the environment section before using bash-specific syntax.' +
+      (deps.state
+        ? ' Plain commands run from the user shell snapshot (functions/aliases/options/PATH ' +
+          'recorded at startup) and a successful command\'s final cwd carries over to the next ' +
+          'plain command; env changes do NOT persist — use session for live shell state.'
+        : ''),
     parameters: {
       type: 'object',
       properties: {
@@ -106,17 +117,23 @@ export function createBashTool(deps: {
         };
       }
 
-      const invocation = buildSpawnInvocation(plan, command);
+      const plainCwd = deps.state?.cwd(context.workingDirectory) ?? context.workingDirectory;
 
       if (params.background === true) {
         if (deps.jobs === undefined) {
           return { content: 'Background jobs are not available in this session.', isError: true };
         }
+        // Background: replay the snapshot (prelude only — nobody reads a cwd
+        // capture file while the job still runs).
+        const bgWrapped = deps.state
+          ? await deps.state.wrap(plan, command, { captureCwd: false })
+          : { command };
+        const bgInvocation = buildSpawnInvocation(plan, bgWrapped.command);
         // Arch ticket 03: refuse-before-spawn, spawn-through-launcher,
         // register, orphan-kill safety net — all inside startFrom. There is
         // no sequence left here to get wrong.
-        const started = deps.jobs.startFrom(command, invocation, {
-          cwd: context.workingDirectory,
+        const started = deps.jobs.startFrom(command, bgInvocation, {
+          cwd: plainCwd,
           spawn: launcher.start,
         });
         if (!started.started) {
@@ -134,11 +151,21 @@ export function createBashTool(deps: {
         };
       }
 
-      const result = await launcher.run(invocation, {
-        cwd: context.workingDirectory,
-        signal: context.abortSignal,
-        timeoutMs: timeout,
-      });
+      const wrapped = deps.state
+        ? await deps.state.wrap(plan, command, { captureCwd: true })
+        : { command };
+      const invocation = buildSpawnInvocation(plan, wrapped.command);
+      let result;
+      try {
+        result = await launcher.run(invocation, {
+          cwd: plainCwd,
+          signal: context.abortSignal,
+          timeoutMs: timeout,
+        });
+      } finally {
+        // Apply + remove the cwd capture file (no file = nothing carried).
+        deps.state?.settle(wrapped.cwdFile);
+      }
       return {
         content: result.content,
         ...(result.isError !== undefined ? { isError: true } : {}),

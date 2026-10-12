@@ -31,6 +31,8 @@ import { createBashTool } from '../tools/bash.js';
 import { JobRegistry, createJobOutputTool, createJobKillTool } from '../tools/jobs.js';
 import { killProcessTree } from '../tools/spawn-runner.js';
 import { ShellSessionRegistry, type ShellProc } from '../tools/shell-session.js';
+import { createShellInitSnapshotManager } from '../tools/shell-init-snapshot.js';
+import { createPlainShellState } from '../tools/shell-state.js';
 import { createPowerShellTool, shouldRegisterPowerShell } from '../tools/powershell.js';
 import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
@@ -248,7 +250,21 @@ export async function buildToolRuntime(opts: {
     spawn: ({ cwd }) => spawnSessionShell(cwd, launcher),
   });
   process.once('exit', () => shellSessions.disposeAll());
-  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, launcher }));
+  // Plain-bash shell state (shell-snapshot ticket 02): ONE lazy snapshot
+  // creation per session + cwd carry-over between plain commands. The
+  // session: path and the powershell tool bypass it entirely.
+  const plainShellState = createPlainShellState({
+    snapshotManagerFactory: (plan) =>
+      plan.kind === 'bash'
+        ? createShellInitSnapshotManager({
+            rootDir: novaPath(),
+            shellPath: plan.path,
+            home: os.homedir(),
+          })
+        : { getOrCreate: async () => undefined },
+    cwdFileDir: () => os.tmpdir(),
+  });
+  toolRegistry.register(createBashTool({ jobs: jobRegistry, sessions: shellSessions, launcher, state: plainShellState }));
   toolRegistry.register(createJobOutputTool(jobRegistry));
   toolRegistry.register(createJobKillTool(jobRegistry));
   toolRegistry.register(createWebSearchTool({
