@@ -2,9 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 
+export const WRITE_FILE_TOOL_NAME = 'write_file';
+
 export function createWriteFileTool(): Tool {
   return {
-    name: 'write_file',
+    name: WRITE_FILE_TOOL_NAME,
     display: { kind: 'path', diff: 'write' },
     fileAccess: 'write',
     permission: { mode: 'ask', message: 'File write requires confirmation' },

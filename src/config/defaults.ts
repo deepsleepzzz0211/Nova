@@ -39,6 +39,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     // Tier 1 off by default: behavior is today's until the user opts in.
     workspaceWrite: true,
   },
+  memory: {
+    // Background extraction OFF until the real subagent ships and is proven
+    // on live machines (memory-v2 ticket 04; the flip is the user's call).
+    extractionEnabled: false,
+  },
   hooks: [],
   mcpServers: [],
 };

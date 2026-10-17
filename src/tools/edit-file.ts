@@ -2,9 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 
+export const EDIT_FILE_TOOL_NAME = 'edit_file';
+
 export function createEditFileTool(): Tool {
   return {
-    name: 'edit_file',
+    name: EDIT_FILE_TOOL_NAME,
     display: { kind: 'path', diff: 'edit' },
     fileAccess: 'write',
     permission: { mode: 'auto' },

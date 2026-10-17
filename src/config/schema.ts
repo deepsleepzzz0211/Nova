@@ -108,6 +108,17 @@ export interface AppConfig {
   search: SearchConfig;
   permission: PermissionConfig;
   sandbox: SandboxConfig;
+  memory: MemoryConfig;
   hooks: HookConfig[];
   mcpServers: MCPServerConfig[];
+}
+
+/**
+ * Learned-memory settings (memory-v2 ticket 04). extractionEnabled turns on
+ * the background extraction pipeline AFTER each normal turn; it ships OFF —
+ * the executor is a stub until the real subagent lands (ticket 05) and is
+ * proven on live machines.
+ */
+export interface MemoryConfig {
+  extractionEnabled: boolean;
 }

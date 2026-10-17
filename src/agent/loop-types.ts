@@ -80,6 +80,13 @@ export interface AgentLoopConfig {
     reason: ContextDecisionReason;
   }) => void;
   /**
+   * Notified when the message branch is REPLACED by a SHORTER one (/undo chat
+   * revert, compaction replay). The background memory extractor clamps its
+   * cursor on this event so rewound material is never re-extracted (memory-v2
+   * ticket 04 rewind semantics; review fix).
+   */
+  onBranchTruncation?: (newLength: number) => void;
+  /**
    * Session-visible context-policy notices that change no tokens: circuit
    * breaker opening, rapid-refill suppression (zcode-borrow ticket 02).
    */

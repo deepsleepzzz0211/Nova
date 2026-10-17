@@ -29,7 +29,7 @@ function fullRegistry(): ToolRegistry {
   registry.register(createWebSearchTool({}));
   registry.register(createWebFetchTool());
   registry.register(createTodoTool({ todos: [] }));
-  registry.register(createMemoryTool('/tmp/nova-test-memory/MEMORY.md'));
+  registry.register(createMemoryTool({ user: '/tmp/nova-test-memory/user', project: '/tmp/nova-test-memory/project' }));
   return registry;
 }
 

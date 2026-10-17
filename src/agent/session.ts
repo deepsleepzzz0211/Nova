@@ -59,7 +59,17 @@ export interface CompactionEntry {
 }
 
 /** Anything storable on one JSONL line of the session log. */
-export type SessionEntry = Message | CompactionEntry;
+export type SessionEntry = Message | CompactionEntry | MemoryCursorEntry;
+
+/**
+ * Extraction cursor checkpoint (memory-v2 ticket 04): how many branch
+ * messages the background memory extraction has already considered.
+ * Replay SKIPS these — they are scheduler metadata, not conversation.
+ */
+export interface MemoryCursorEntry {
+  type: 'memory-cursor';
+  index: number;
+}
 
 /**
  * JSONL-based conversation persistence (Codex "rollout" style).
@@ -153,9 +163,33 @@ export class SessionStore {
         }
         continue;
       }
+      if (entry?.type === 'memory-cursor') continue; // scheduler metadata, not conversation
       messages.push(parsed as Message);
     }
     return messages;
+  }
+
+  /** The LAST extraction cursor stored in a session file (ticket 04);
+   *  undefined when the session has never run extraction. */
+  static loadMemoryCursor(filePath: string): number | undefined {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return undefined;
+    }
+    let cursor: number | undefined;
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const entry = JSON.parse(trimmed) as { type?: string; index?: unknown };
+        if (entry?.type === 'memory-cursor' && typeof entry.index === 'number') cursor = entry.index;
+      } catch {
+        // Skip malformed lines
+      }
+    }
+    return cursor;
   }
 
   /** Return the most recently modified session file, or null. */
