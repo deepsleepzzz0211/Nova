@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import React from 'react';
 import { render } from 'ink';
 import { novaPath } from '../config/loader.js';
+import { cleanupStaleShellInitSnapshots } from '../tools/shell-init-snapshot.js';
 import { SessionStore, SESSION_RETENTION_DAYS } from '../agent/session.js';
 import type { SessionSummary } from '../agent/session.js';
 import { SessionPicker, formatSessionList } from '../tui/SessionPicker.js';
@@ -55,6 +56,10 @@ export async function runSessionStartup(values: CliValues): Promise<SessionStart
   sweepAndReport(sessionsDir, 'sessions');
   const subagentsDir = novaPath('subagents');
   sweepAndReport(subagentsDir, 'subagents');
+  // Shell-init snapshots sweep with the same startup family (research doc a:
+  // "并入现有 sweep 家族"); a session that never runs bash still cleans up.
+  const snapSweep = cleanupStaleShellInitSnapshots({ rootDir: novaPath() });
+  if (snapSweep.deleted > 0) console.error(`[shell-snapshots] removed ${snapSweep.deleted} stale file(s) older than 30 days`);
 
   if (values.list) {
     const sessions = SessionStore.listSummaries(sessionsDir);
