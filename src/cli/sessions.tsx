@@ -21,6 +21,8 @@ export interface SessionStartup {
   initialHistory: Message[];
   sessionStore: SessionStore;
   subagentsDir: string;
+  /** Extraction cursor restored from a resumed session (memory-v2 ticket 04). */
+  memoryExtractionCursor?: number;
 }
 
 /**
@@ -127,5 +129,6 @@ export async function runSessionStartup(values: CliValues): Promise<SessionStart
     initialHistory,
     sessionStore: new SessionStore(storePath),
     subagentsDir,
+    ...(resumedFile !== null ? { memoryExtractionCursor: SessionStore.loadMemoryCursor(resumedFile) } : {}),
   };
 }
