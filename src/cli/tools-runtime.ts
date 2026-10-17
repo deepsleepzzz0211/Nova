@@ -54,6 +54,11 @@ import { defaultWinWrapDeps } from '../tools/win-wrap.js';
 import { createShellLauncher, type ShellLauncher } from '../tools/shell-launcher.js';
 import type { SpawnInvocation } from '../tools/shell-routing.js';
 import { createSpawnSubagentTool } from '../subagent/tool.js';
+import {
+  renderSubagentEvent,
+  type SubagentLiveSink,
+  type SubagentNotifySink,
+} from './subagent-events.js';
 import type { LLMProvider } from '../llm/provider.js';
 import type { ResolvedModel } from '../llm/catalog.js';
 import type { ResolveSpecResult } from './model-wiring.js';
@@ -300,10 +305,10 @@ export async function buildToolRuntime(opts: {
   toolRegistry.register(createMemoryTool(memoryTrees));
 
   // Subagent spawner: lazy, independent-context delegation via spawn_subagent
-  // Subagent progress sink: useAgent assigns the real notify() once the
-  // TUI mounts; start/end events surface as system messages.
-  const subagentSink: { notify?: (message: string) => void } = {};
-  const subagentLiveSink: { set?: (line: string | null) => void } = {};
+  // Subagent progress sink: useAgent assigns the real notify() once the TUI
+  // mounts. Rendering lives in cli/subagent-events.ts (line-budget ratchet).
+  const subagentSink: SubagentNotifySink = {};
+  const subagentLiveSink: SubagentLiveSink = {};
   const spawner = new SubagentSpawner({
     llm,
     toolRegistry,
@@ -321,27 +326,8 @@ export async function buildToolRuntime(opts: {
 `),
     ),
     onEvent: (event) => {
-      if (event.type === 'start') {
-        const task = typeof event.payload === 'string' ? event.payload.slice(0, 80) : '';
-        const who = event.agentName ?? event.agentId;
-        subagentSink.notify?.(`[subagent ${who} started] ${task}`);
-      } else if (event.type === 'end') {
-        subagentLiveSink.set?.(null);
-        subagentSink.notify?.(`[subagent ${event.agentId} finished: ${event.rounds} rounds]`);
-      } else if (event.type === 'tool_call') {
-        const call = event.payload as { function?: { name?: string } } | undefined;
-        const tool = call?.function?.name ?? 'tool';
-        subagentSink.notify?.(`[subagent ${event.agentId}] ▸ ${tool}`);
-        subagentLiveSink.set?.(`${event.agentName ?? event.agentId} ▸ ${tool}`);
-      } else if (event.type === 'tool_result') {
-        const result = event.payload as { isError?: boolean } | undefined;
-        subagentSink.notify?.(
-          `[subagent ${event.agentId}] ${result?.isError ? '✗ tool error' : '✓ tool done'}`,
-        );
-        subagentLiveSink.set?.(`${event.agentId} ${result?.isError ? '✗' : '✓'} ${result?.isError ? 'error' : 'done'}`);
-      }
-      // token events are forwarded to the sink API but not rendered as
-      // messages (high-volume; available to future richer UI)
+      // Read the slots per event so a sink assigned after mount still lands.
+      renderSubagentEvent({ notify: subagentSink.notify, set: subagentLiveSink.set }, event);
     },
   });
   toolRegistry.register(createSpawnSubagentTool(spawner));
