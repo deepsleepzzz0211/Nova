@@ -138,7 +138,12 @@ describe('plain shell state facade', () => {
   });
 
   it('cwd starts at the injected default and carries across successful settles', async () => {
-    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'nova-cwd-target-'));
+    // realpath at creation: settle() stores the PHYSICAL path (matching the
+    // tail's `pwd -P`), and on macOS os.tmpdir() is a /var -> /private/var
+    // symlink, so an unnormalized fixture would never equal the carried cwd.
+    const target = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'nova-cwd-target-')),
+    );
     const { state } = makeState(snapshot);
     expect(state.cwd(target)).toBe(target);
     const w = await state.wrap(bashPlan, 'cd x', { captureCwd: true });
