@@ -4,15 +4,14 @@ name: Token health
 # silently-rotated token must not first surface as an E401/404 mystery on
 # release day. Failing here = red scheduled run = email.
 #
-# Supply-chain posture mirrors live-probe (the other secret-holding
-# workflow) and goes one step further: ZERO actions used — the runner ships
-# node+npm, so there is nothing to pin and nothing to compromise. Exactly
-# one secret lives in this workflow; NPM_TOKEN is deliberately NOT added to
-# live-probe (blast radius stays one secret per holder job).
+# Supply-chain posture: ZERO actions used — the runner ships node+npm, so
+# there is nothing to pin and nothing to compromise. Exactly one secret
+# lives in this workflow; NPM_TOKEN is deliberately not shared with other
+# workflows (blast radius stays one secret per holder job).
 
 on:
   schedule:
-    - cron: "0 6 * * *" # daily 06:00 UTC, half an hour after live-probe
+    - cron: "0 6 * * *" # daily 06:00 UTC
   workflow_dispatch:
 
 permissions:
