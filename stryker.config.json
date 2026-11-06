@@ -10,6 +10,7 @@
   "concurrency": 8,
   "timeoutMS": 60000,
   "disableTypeChecks": true,
+  "ignorePatterns": ["dist"],
   "mutate": [
     "src/agent/**/*.ts",
     "src/llm/**/*.ts",
