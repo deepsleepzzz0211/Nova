@@ -69,40 +69,28 @@ describe('directory instruction injection through the loop', () => {
 
   it('injects once after the first read; second read injects nothing', async () => {
     const dirs = new DirectoryInstructions({ rootDir: root });
-    const prevCwd = process.cwd();
-    process.chdir(root);
-    try {
-      const loop = makeLoop(dirs);
-      await loop.processUserInput('read it');
-      const injected = loop
-        .getMessages()
-        .filter((m) => m.role === 'system' && String(m.content).includes('SUB RULES'));
-      expect(injected).toHaveLength(1);
-      // Position: right after the first tool result, before the next assistant round.
-      const roles = loop.getMessages().map((m) => m.role);
-      const sysAt = roles.indexOf('system', 2);
-      const toolAt = roles.indexOf('tool');
-      const assistantAfter = roles.findIndex((r, idx) => r === 'assistant' && idx > toolAt);
-      expect(sysAt).toBeGreaterThan(toolAt);
-      expect(sysAt).toBeLessThan(assistantAfter);
-    } finally {
-      process.chdir(prevCwd);
-    }
+    const loop = makeLoop(dirs);
+    await loop.processUserInput('read it');
+    const injected = loop
+      .getMessages()
+      .filter((m) => m.role === 'system' && String(m.content).includes('SUB RULES'));
+    expect(injected).toHaveLength(1);
+    // Position: right after the first tool result, before the next assistant round.
+    const roles = loop.getMessages().map((m) => m.role);
+    const sysAt = roles.indexOf('system', 2);
+    const toolAt = roles.indexOf('tool');
+    const assistantAfter = roles.findIndex((r, idx) => r === 'assistant' && idx > toolAt);
+    expect(sysAt).toBeGreaterThan(toolAt);
+    expect(sysAt).toBeLessThan(assistantAfter);
   });
 
   it('frozen prefix untouched: the live array still starts with the user turn (no head insertion)', async () => {
     const dirs = new DirectoryInstructions({ rootDir: root });
-    const prevCwd = process.cwd();
-    process.chdir(root);
-    try {
-      const loop = makeLoop(dirs);
-      await loop.processUserInput('read it');
-      const msgs = loop.getMessages();
-      expect(msgs[0].role).toBe('user');
-      expect(msgs.filter((m) => m.role === 'system')).toHaveLength(1); // only the injection
-    } finally {
-      process.chdir(prevCwd);
-    }
+    const loop = makeLoop(dirs);
+    await loop.processUserInput('read it');
+    const msgs = loop.getMessages();
+    expect(msgs[0].role).toBe('user');
+    expect(msgs.filter((m) => m.role === 'system')).toHaveLength(1); // only the injection
   });
 
   it('append-only: history bytes before the injection point are byte-identical to a run without the feature', async () => {
@@ -138,13 +126,7 @@ describe('directory instruction injection through the loop', () => {
         onToolResult: () => {},
         onPermissionRequest: async () => true,
       });
-      const prevCwd = process.cwd();
-      process.chdir(root);
-      try {
-        await loop.processUserInput('read it');
-      } finally {
-        process.chdir(prevCwd);
-      }
+      await loop.processUserInput('read it');
       return [...capture];
     }
 

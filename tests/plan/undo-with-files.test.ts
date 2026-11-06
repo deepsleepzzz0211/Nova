@@ -41,7 +41,6 @@ const text = (s: string): StreamChunk[] => [{ type: 'text_delta', content: s }];
 describe('undo with files through the loop', () => {
   let root: string;
   let histDir: string;
-  let prevCwd: string;
 
   beforeEach(() => {
     // realpath FIRST: FileHistory canonicalizes snapshot paths, so the
@@ -51,11 +50,8 @@ describe('undo with files through the loop', () => {
     // (proven by the publish.yml macOS leg, run 20).
     root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'undo-files-'));
     histDir = path.join(root, '.history');
-    prevCwd = process.cwd();
-    process.chdir(root);
   });
   afterEach(() => {
-    process.chdir(prevCwd);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -80,7 +76,7 @@ describe('undo with files through the loop', () => {
   it('a successful write_file is snapshotted and undoTurns(withFiles) restores the pre-write content', async () => {
     fs.writeFileSync(path.join(root, 'a.txt'), 'ONE', 'utf-8');
     const loop = makeLoop([
-      call('c1', 'write_file', { path: 'a.txt', content: 'TWO' }),
+      call('c1', 'write_file', { path: path.join(root, 'a.txt'), content: 'TWO' }),
       text('ok'),
     ]);
     await loop.processUserInput('overwrite a');
@@ -96,7 +92,7 @@ describe('undo with files through the loop', () => {
   it('default undoTurns keeps the conversation-only semantics (file untouched)', async () => {
     fs.writeFileSync(path.join(root, 'b.txt'), 'ONE', 'utf-8');
     const loop = makeLoop([
-      call('c1', 'write_file', { path: 'b.txt', content: 'TWO' }),
+      call('c1', 'write_file', { path: path.join(root, 'b.txt'), content: 'TWO' }),
       text('ok'),
     ]);
     await loop.processUserInput('overwrite b');
@@ -109,7 +105,7 @@ describe('undo with files through the loop', () => {
     const session = new SessionStore(sessionFile);
     fs.writeFileSync(path.join(root, 'c.txt'), 'ONE', 'utf-8');
     const loop = makeLoop([
-      call('c1', 'write_file', { path: 'c.txt', content: 'TWO' }),
+      call('c1', 'write_file', { path: path.join(root, 'c.txt'), content: 'TWO' }),
       text('ok'),
     ], session);
     await loop.processUserInput('overwrite c');
@@ -124,9 +120,9 @@ describe('undo with files through the loop', () => {
 
   it('two turns, undo one: first-version semantics roll back to the session start', async () => {
     const loop = makeLoop([
-      call('c1', 'write_file', { path: 'd.txt', content: 'V1' }),
+      call('c1', 'write_file', { path: path.join(root, 'd.txt'), content: 'V1' }),
       text('v1 done'),
-      call('c2', 'edit_file', { path: 'd.txt', old_string: 'V1', new_string: 'V2' }),
+      call('c2', 'edit_file', { path: path.join(root, 'd.txt'), old_string: 'V1', new_string: 'V2' }),
       text('v2 done'),
     ]);
     await loop.processUserInput('create d');
@@ -146,7 +142,7 @@ describe('undo with files through the loop', () => {
   it('a file changed by hand after the agent write is skipped, not clobbered', async () => {
     fs.writeFileSync(path.join(root, 'e.txt'), 'ONE', 'utf-8');
     const loop = makeLoop([
-      call('c1', 'write_file', { path: 'e.txt', content: 'TWO' }),
+      call('c1', 'write_file', { path: path.join(root, 'e.txt'), content: 'TWO' }),
       text('ok'),
     ]);
     await loop.processUserInput('overwrite e');
@@ -161,7 +157,7 @@ describe('undo with files through the loop', () => {
   it('failed writes are not snapshotted (snapshot only accompanies success)', async () => {
     const loop = makeLoop([
       // edit_file on a missing file returns isError — nothing should be tracked
-      call('c1', 'edit_file', { path: 'ghost.txt', old_string: 'x', new_string: 'y' }),
+      call('c1', 'edit_file', { path: path.join(root, 'ghost.txt'), old_string: 'x', new_string: 'y' }),
       text('failed'),
     ]);
     await loop.processUserInput('edit ghost');
